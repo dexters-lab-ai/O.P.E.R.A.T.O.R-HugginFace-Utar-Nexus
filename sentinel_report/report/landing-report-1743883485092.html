@@ -1,0 +1,140 @@
+
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>O.P.E.R.A.T.O.R Report</title>
+      <link rel="icon" href="/assets/images/dail-fav.png">
+      <style>
+        body {
+          background: linear-gradient(to bottom, #1a1a1a, #000);
+          color: #e8e8e8;
+          font-family: Arial, sans-serif;
+        }
+        .container {
+          max-width: 1200px;
+          margin: 0 auto;
+          padding: 20px;
+        }
+        .header {
+          display: flex;
+          align-items: center;
+          margin-bottom: 30px;
+        }
+        .logo {
+          width: 50px;
+          margin-right: 20px;
+        }
+        .replay-button {
+          margin-left: auto;
+          padding: 10px 20px;
+          background-color: dodgerblue;
+          color: #000;
+          text-decoration: none;
+          border-radius: 5px;
+          font-weight: bold;
+        }
+        .replay-button:hover {
+          background-color: #1e90ff;
+        }
+        .content {
+          background-color: #111;
+          padding: 20px;
+          border-radius: 10px;
+        }
+        .screenshot {
+          max-width: 100%;
+          border-radius: 5px;
+          margin: 20px 0;
+        }
+        .task {
+          background-color: #222;
+          padding: 15px;
+          margin-bottom: 15px;
+          border-radius: 5px;
+        }
+        .task-header {
+          font-weight: bold;
+          margin-bottom: 10px;
+        }
+        .detail-content {
+          background-color: dodgerblue;
+          border-radius: 10px;
+          padding: 10px;
+          color: #000;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <img src="/assets/images/dail-fav.png" alt="OPERATOR_logo" class="logo">
+          <h1>O.P.E.R.A.T.O.R - Sentinel Report</h1>
+          <a id="replayButton" href="#" class="replay-button">Replay</a>
+        </div>
+        <div class="content">
+          <h2>Task Details</h2>
+          <div class="detail-content">
+            <p><strong>Command:</strong> find me good deals on Amazon for Samsung Galaxy S23 phones, dont use a search query go to home page first. Solve all CAPTCHAS. Browse deals do not fail to return a list of 5 deals based on review(stars)</p>
+            <p><strong>Run ID:</strong> c12dc2cf-05a0-4593-bdaa-0805e83ca867</p>
+            <p><strong>Timestamp:</strong> 2025-04-05T20:04:45.092Z</p>
+          </div>
+          <h2>Execution Results</h2>
+          
+                <div class="task">
+                  <div class="task-header">Step 1 - Screenshot</div>
+                  <img src="/sentinel_report/c12dc2cf-05a0-4593-bdaa-0805e83ca867/screenshot-1743883394691.png" class="screenshot" alt="Step 1 Screenshot">
+                  
+                </div>
+                <div class="task">
+                  <div class="task-header">Step 2 - Screenshot</div>
+                  <img src="/sentinel_report/c12dc2cf-05a0-4593-bdaa-0805e83ca867/screenshot-1743883403720.png" class="screenshot" alt="Step 2 Screenshot">
+                  
+                </div>
+                <div class="task">
+                  <div class="task-header">Step 3 - Screenshot</div>
+                  <img src="/sentinel_report/c12dc2cf-05a0-4593-bdaa-0805e83ca867/screenshot-1743883410407.png" class="screenshot" alt="Step 3 Screenshot">
+                  
+                </div>
+                <div class="task error">
+                  <div class="task-header">Step 4 - Error</div>
+                  <pre>{
+  "task_id": "d160689f-3dd3-458e-892a-3bc67d08cfe5",
+  "error": "AI response error: \nThe provided screenshot does not contain any information about Samsung Galaxy S23 phone deals, reviews, or star ratings.\nError: AI response error: \nThe provided screenshot does not contain any information about Samsung Galaxy S23 phone deals, reviews, or star ratings.\n    at Insight.extract (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\core\\dist\\lib\\index.js:357:13)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async Object.executor (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1262:33)\n    at async Object.executor (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:550:24)\n    at async Executor.flush (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\core\\dist\\lib\\index.js:111:25)\n    at async PageTaskExecutor.query (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1273:20)\n    at async PuppeteerAgent.aiQuery (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1758:34)\n    at async handleBrowserQuery (file:///C:/Users/cosyc/OPERATOR-stable/server.js:652:25)\n    at async file:///C:/Users/cosyc/OPERATOR-stable/server.js:1647:32",
+  "errorStack": "Error: AI response error: \nThe provided screenshot does not contain any information about Samsung Galaxy S23 phone deals, reviews, or star ratings.\nError: AI response error: \nThe provided screenshot does not contain any information about Samsung Galaxy S23 phone deals, reviews, or star ratings.\n    at Insight.extract (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\core\\dist\\lib\\index.js:357:13)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async Object.executor (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1262:33)\n    at async Object.executor (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:550:24)\n    at async Executor.flush (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\core\\dist\\lib\\index.js:111:25)\n    at async PageTaskExecutor.query (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1273:20)\n    at async PuppeteerAgent.aiQuery (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1758:34)\n    at async handleBrowserQuery (file:///C:/Users/cosyc/OPERATOR-stable/server.js:652:25)\n    at async file:///C:/Users/cosyc/OPERATOR-stable/server.js:1647:32\n    at PuppeteerAgent.afterTaskRunning (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1675:13)\n    at PuppeteerAgent.aiQuery (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1761:10)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async handleBrowserQuery (file:///C:/Users/cosyc/OPERATOR-stable/server.js:652:25)\n    at async file:///C:/Users/cosyc/OPERATOR-stable/server.js:1647:32",
+  "success": false
+}</pre>
+                </div>
+                <div class="task">
+                  <div class="task-header">Step 5 - Screenshot</div>
+                  <img src="/sentinel_report/c12dc2cf-05a0-4593-bdaa-0805e83ca867/screenshot-1743883434988.png" class="screenshot" alt="Step 5 Screenshot">
+                  
+                </div>
+                <div class="task error">
+                  <div class="task-header">Step 6 - Error</div>
+                  <pre>{
+  "task_id": "d160689f-3dd3-458e-892a-3bc67d08cfe5",
+  "error": "AI response error: \nThe requested data about Samsung Galaxy S23 deals, reviews, and ratings is not present in the provided screenshot.\nError: AI response error: \nThe requested data about Samsung Galaxy S23 deals, reviews, and ratings is not present in the provided screenshot.\n    at Insight.extract (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\core\\dist\\lib\\index.js:357:13)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async Object.executor (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1262:33)\n    at async Object.executor (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:550:24)\n    at async Executor.flush (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\core\\dist\\lib\\index.js:111:25)\n    at async PageTaskExecutor.query (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1273:20)\n    at async PuppeteerAgent.aiQuery (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1758:34)\n    at async handleBrowserQuery (file:///C:/Users/cosyc/OPERATOR-stable/server.js:652:25)\n    at async file:///C:/Users/cosyc/OPERATOR-stable/server.js:1647:32",
+  "errorStack": "Error: AI response error: \nThe requested data about Samsung Galaxy S23 deals, reviews, and ratings is not present in the provided screenshot.\nError: AI response error: \nThe requested data about Samsung Galaxy S23 deals, reviews, and ratings is not present in the provided screenshot.\n    at Insight.extract (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\core\\dist\\lib\\index.js:357:13)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async Object.executor (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1262:33)\n    at async Object.executor (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:550:24)\n    at async Executor.flush (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\core\\dist\\lib\\index.js:111:25)\n    at async PageTaskExecutor.query (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1273:20)\n    at async PuppeteerAgent.aiQuery (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1758:34)\n    at async handleBrowserQuery (file:///C:/Users/cosyc/OPERATOR-stable/server.js:652:25)\n    at async file:///C:/Users/cosyc/OPERATOR-stable/server.js:1647:32\n    at PuppeteerAgent.afterTaskRunning (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1675:13)\n    at PuppeteerAgent.aiQuery (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1761:10)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async handleBrowserQuery (file:///C:/Users/cosyc/OPERATOR-stable/server.js:652:25)\n    at async file:///C:/Users/cosyc/OPERATOR-stable/server.js:1647:32",
+  "success": false
+}</pre>
+                </div>
+                <div class="task">
+                  <div class="task-header">Step 7 - Screenshot</div>
+                  <img src="/sentinel_report/c12dc2cf-05a0-4593-bdaa-0805e83ca867/screenshot-1743883463474.png" class="screenshot" alt="Step 7 Screenshot">
+                  
+                </div>
+                <div class="task error">
+                  <div class="task-header">Step 8 - Error</div>
+                  <pre>{
+  "task_id": "d160689f-3dd3-458e-892a-3bc67d08cfe5",
+  "error": "AI response error: \nThe provided screenshot does not contain any information about deals, reviews, or star ratings for Samsung Galaxy S23 phones.\nError: AI response error: \nThe provided screenshot does not contain any information about deals, reviews, or star ratings for Samsung Galaxy S23 phones.\n    at Insight.extract (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\core\\dist\\lib\\index.js:357:13)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async Object.executor (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1262:33)\n    at async Object.executor (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:550:24)\n    at async Executor.flush (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\core\\dist\\lib\\index.js:111:25)\n    at async PageTaskExecutor.query (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1273:20)\n    at async PuppeteerAgent.aiQuery (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1758:34)\n    at async handleBrowserQuery (file:///C:/Users/cosyc/OPERATOR-stable/server.js:652:25)\n    at async file:///C:/Users/cosyc/OPERATOR-stable/server.js:1647:32",
+  "errorStack": "Error: AI response error: \nThe provided screenshot does not contain any information about deals, reviews, or star ratings for Samsung Galaxy S23 phones.\nError: AI response error: \nThe provided screenshot does not contain any information about deals, reviews, or star ratings for Samsung Galaxy S23 phones.\n    at Insight.extract (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\core\\dist\\lib\\index.js:357:13)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async Object.executor (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1262:33)\n    at async Object.executor (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:550:24)\n    at async Executor.flush (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\core\\dist\\lib\\index.js:111:25)\n    at async PageTaskExecutor.query (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1273:20)\n    at async PuppeteerAgent.aiQuery (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1758:34)\n    at async handleBrowserQuery (file:///C:/Users/cosyc/OPERATOR-stable/server.js:652:25)\n    at async file:///C:/Users/cosyc/OPERATOR-stable/server.js:1647:32\n    at PuppeteerAgent.afterTaskRunning (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1675:13)\n    at PuppeteerAgent.aiQuery (C:\\Users\\cosyc\\OPERATOR-stable\\node_modules\\@midscene\\web\\dist\\lib\\puppeteer.js:1761:10)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async handleBrowserQuery (file:///C:/Users/cosyc/OPERATOR-stable/server.js:652:25)\n    at async file:///C:/Users/cosyc/OPERATOR-stable/server.js:1647:32",
+  "success": false
+}</pre>
+                </div>
+          <h2>Final State</h2><img src="/sentinel_report/c12dc2cf-05a0-4593-bdaa-0805e83ca867/final-screenshot-1743883485083.png" class="screenshot" alt="Final Screenshot">
+        </div>
+      </div>
+    </body>
+    </html>
+  
