@@ -1,0 +1,16 @@
+apps:
+  - name: operator-server
+    script: server.js
+    args: start
+    watch: true
+    autorestart: true
+    env:
+      NODE_ENV: development
+  - name: midscene-playground
+    script: cmd.exe
+    args: /c npx midscene-playground
+    interpreter: cmd.exe
+    watch: false
+    autorestart: false
+    env:
+      NODE_ENV: development

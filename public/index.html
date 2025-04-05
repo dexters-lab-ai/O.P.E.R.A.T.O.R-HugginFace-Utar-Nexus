@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>O.P.E.R.A.T.O.R | Powered by HugginFace</title>  
+  <script src="./three.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="icon" type="image/png" sizes="36x36" href="/assets/images/dail-fav.png">
+</head>
+<body>
+  <!-- Loading Splash Screen -->
+  <div class="splash" id="splash-screen">
+    <h1>O.P.E.R.A.T.O.R</h1>
+    <p>Optimized Engine for Autonomous Computer Operation</p>
+    <div class="loading-bar">
+      <div class="loading-progress" id="loading-progress"></div>
+    </div>
+  </div>
+
+  <!-- First-time User Guide Overlay -->
+  <div class="intro-overlay" id="intro-overlay" style="display: none;">
+    <div class="intro-modal">
+      <button class="close-intro" id="close-intro"><i class="fas fa-times"></i></button>
+      <h2><i class="fas fa-robot"></i> Welcome to O.P.E.R.A.T.O.R</h2>
+      <div class="intro-step">
+        <h3><span>1</span> What is O.P.E.R.A.T.O.R?</h3>
+        <p>O.P.E.R.A.T.O.R is your automated web assistant powered by HugginFace. It can navigate websites, fill forms, extract data, and perform tasks online – all with simple text commands.</p>
+      </div>
+      <div class="intro-step">
+        <h3><span>2</span> Using Task Types</h3>
+        <p><strong>Chat (NLI):</strong> Enter natural language commands to instruct O.P.E.R.A.T.O.R.<br>
+           <strong>Manual Tasks:</strong> One-time structured tasks.<br>
+           <strong>Repetitive Tasks:</strong> Regularly repeated tasks.<br>
+           <strong>Scheduled Tasks:</strong> Tasks set to run at specific times.<br>
+           <strong>Sonic Tasks:</strong> Blockchain operations.</p>
+      </div>
+      <div class="intro-step">
+        <h3><span>3</span> Command Examples</h3>
+        <p>- "Search for iPhone on Amazon and extract prices"<br>
+           - "Visit ebay.com, search for vintage cameras under $100"<br>
+           - "Check etherscan.io for gas prices"</p>
+      </div>
+      <div class="intro-actions">
+        <button class="btn btn-text" id="show-intro-later">Remind Me Later</button>
+        <button class="btn" id="start-using">Start Using O.P.E.R.A.T.O.R</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- History Popup -->
+  <div class="history-popup" id="history-popup">
+    <div class="history-modal">
+      <button class="close-popup" id="close-history-popup"><i class="fas fa-times"></i></button>
+      <h3><i class="fas fa-history"></i> Task Details</h3>
+      <div id="history-details-content"></div>
+    </div>
+  </div>
+
+  <!-- Main Background Canvas -->
+  <canvas id="bg-canvas"></canvas>
+  <!-- Fallback for Background Canvas if WebGL is unavailable -->
+  <div id="bg-fallback" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: radial-gradient(circle, rgba(0, 0, 50, 0.8), rgba(0, 0, 20, 0.9)); z-index: -1;">
+    <p style="color: white; text-align: center; margin-top: 20%;">WebGL is not supported. Displaying static background.</p>
+  </div>
+  
+  <div class="container">
+    <header>
+      <div class="logo">
+        <h1>O.P.E.R.A.T.O.R</h1>
+      </div>
+      <nav>
+        <a href="/guide.html" id="guide-link"><i class="fas fa-book"></i> Guide</a>
+        <a href="/history.html" id="history-link"><i class="fas fa-history"></i> History</a>
+        <a href="/settings.html" id="settings-link"><i class="fas fa-cog"></i> Settings</a>
+        <a href="/logout" class="btn btn-sm"><i class="fas fa-sign-out-alt"></i> Logout</a>
+      </nav>
+      <button id="mode-toggle">Toggle Light/Dark Mode</button>
+    </header>
+
+    <!-- Fixed Command Center at Bottom -->
+    <div class="fixed-command-center">
+      <div class="command-center-container">
+        <div class="command-center">
+          <div class="card" id="task-input-card">
+            <h3 class="card-title">
+              <i class="fas fa-terminal"></i> Command Center
+              <div class="tooltip">
+                <span class="guide-dot">?</span>
+                <span class="tooltip-text">Enter natural language commands below or use the other tabs for fixed input modes.</span>
+              </div>
+            </h3>
+
+            <!-- Tab Buttons -->
+            <div class="tab-buttons" id="task-type-tabs">
+              <!-- New Chat (NLI) tab as default -->
+              <button class="tab-btn active" data-task-type="nli" id="nli-tab"><i class="fas fa-comments"></i> Chat</button>
+              <button class="tab-btn" data-task-type="active-tasks" id="active-tasks-tab"><i class="fas fa-spinner fa-spin"></i> Active Tasks</button>
+              <button class="tab-btn" data-task-type="manual" id="manual-tab">General Task</button>
+              <button class="tab-btn" data-task-type="repetitive" id="repetitive-tab">Repetitive</button>
+              <button class="tab-btn" data-task-type="scheduled" id="scheduled-tab">Scheduled</button>
+              <button class="tab-btn" data-task-type="sonic" id="sonic-tab">Sonic Chain</button>
+            </div>
+
+            <!-- Task Sections -->
+            <div id="task-sections">
+              <!-- Chat (NLI) Section -->
+              <div class="task-section active" id="nli-section">
+                <form id="nli-form">
+                  <div class="command-input">
+                    <textarea class="command-textarea" id="nli-prompt" placeholder="Enter your natural language command here..."></textarea>
+                    <button type="submit" class="btn btn-icon" id="run-nli-task">
+                      <i class="fas fa-play"></i> Run Task
+                    </button>
+                  </div>
+                </form>
+                <div id="nli-results"></div>
+              </div>
+
+              <!-- Manual Task Section -->
+              <div class="task-section" id="manual-section">
+                <div class="command-input">
+                  <textarea class="command-textarea" id="manual-command" placeholder="What would you like O.P.E.R.A.T.O.R to do?"></textarea>
+                  <div class="command-inputs-hold">
+                    <div class="url-input">
+                      <i class="fas fa-globe"></i>
+                      <input type="url" id="manual-url" placeholder="Attach URL">
+                    </div>
+                    <button id="run-manual-task" class="btn btn-icon">
+                      <i class="fas fa-play"></i> Run Task
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Active Tasks Section -->
+              <div class="task-section" id="active-tasks-section">
+                <div class="active-tasks-subtabs">
+                  <button class="tab-btn active" data-subtab="active">Active</button>
+                  <button class="tab-btn" data-subtab="scheduled">Scheduled</button>
+                  <button class="tab-btn" data-subtab="repetitive">Repetitive</button>
+                </div>
+                <div id="active-tasks-content" class="subtab-content active">
+                  <div id="active-tasks-container">
+                    <p id="no-active-tasks" class="text-muted">
+                      No active tasks. Run a task to see it here.
+                    </p>
+                  </div>
+                </div>
+                <div id="scheduled-tasks-content" class="subtab-content">
+                  <div id="scheduled-tasks-container">
+                    <p id="no-scheduled-tasks" class="text-muted">
+                      No scheduled tasks. Use the Scheduled Task tab to create one.
+                    </p>
+                  </div>
+                </div>
+                <div id="repetitive-tasks-content" class="subtab-content">
+                  <div id="repetitive-tasks-container">
+                    <p id="no-repetitive-tasks" class="text-muted">
+                      No repetitive tasks. Use the Repetitive Task tab to create one.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Repetitive Task Section -->
+              <div class="task-section" id="repetitive-section">
+                <form id="repetitive-task-form">
+                  <div class="command-input">
+                    <textarea class="command-textarea" id="repetitive-command" placeholder="Enter repetitive task details"></textarea>
+                    <div class="command-inputs-hold">
+                      <div class="url-input">
+                        <i class="fas fa-globe"></i>
+                        <input type="url" id="repetitive-url" placeholder="Attach URL">
+                      </div>
+                      <input type="number" id="repetitive-interval" placeholder="Interval (seconds)" min="1" required>
+                      <button type="submit" id="save-repetitive-task" class="btn btn-icon">
+                        <i class="fas fa-save"></i> Save
+                      </button>
+                      <button type="button" id="run-repetitive-task" class="btn btn-icon">
+                        <i class="fas fa-play"></i> Run
+                      </button>
+                    </div>
+                  </div>
+                  <div id="repetitive-tasks-container"></div>
+                </form>
+              </div>
+
+              <!-- Scheduled Task Section -->
+              <div class="task-section" id="scheduled-section">
+                <form id="schedule-task-form">
+                  <div class="form-group">
+                    <label for="scheduled-command">Task to Schedule</label>
+                    <textarea id="scheduled-command" class="command-textarea" rows="3" placeholder="E.g., 'Check Bitcoin price and notify me'" required></textarea>
+                  </div>
+                  <div class="command-inputs-hold" style="flex-direction: column; gap: 15px;">
+                    <div class="url-input" style="width: 100%;">
+                      <i class="fas fa-globe"></i>
+                      <input type="url" id="schedule-url" placeholder="Attach URL">
+                    </div>
+                    <div class="form-group" style="width: 100%;">
+                      <label for="scheduled-time">Schedule Time</label>
+                      <input type="datetime-local" id="scheduled-time" required>
+                    </div>
+                    <button type="submit" id="schedule-task" class="btn btn-icon">
+                      <i class="fas fa-calendar-plus"></i> Schedule Task
+                    </button>
+                  </div>
+                  <div id="scheduled-tasks-container"></div>
+                </form>
+              </div>
+
+              <!-- Sonic Blockchain Section -->
+              <div class="task-section" id="sonic-section">
+                <div class="sonic-branding">
+                  <a href="https://my.soniclabs.com" target="_blank" class="sonic-badge">
+                    <i class="fas fa-globe"></i> Powered by Sonic
+                  </a>
+                </div>
+                <div class="form-group">
+                  <div class="tab-buttons" id="sonic-operations">
+                    <button class="tab-btn active" data-sonic-operation="bridge">Bridge to Sonic</button>
+                    <button class="tab-btn" data-sonic-operation="stake">Stake $S Token</button>
+                  </div>
+                </div>
+                <form id="bridge-form" class="form-group" style="display: block;">
+                  <div class="command-input">
+                    <div class="url-input">
+                      <i class="fas fa-globe"></i>
+                      <input type="url" id="bridge-url" value="https://my.soniclabs.com/bridge" readonly>
+                    </div>
+                    <textarea class="command-textarea" id="bridge-command" placeholder="Enter bridge operation details"></textarea>
+                    <button type="submit" id="sonic-bridge-btn" class="btn btn-sonic btn-icon">
+                      <i class="fas fa-exchange-alt"></i> Bridge
+                    </button>
+                  </div>
+                </form>
+                <form id="stake-form" class="form-group" style="display: none;">
+                  <div class="command-input">
+                    <div class="url-input">
+                      <i class="fas fa-globe"></i>
+                      <input type="url" id="stake-url" value="https://my.soniclabs.com/stake" readonly>
+                    </div>
+                    <textarea class="command-textarea" id="stake-command" placeholder="Enter staking details"></textarea>
+                    <button type="submit" id="sonic-stake-btn" class="btn btn-sonic btn-icon">
+                      <i class="fas fa-lock"></i> Stake
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Task Results Section -->
+        <div class="task-results" id="output-card">
+          <canvas id="sentinel-canvas"></canvas>
+          <!-- Fallback for Sentinel Canvas if WebGL is unavailable -->
+          <div id="sentinel-fallback" style="display: none; text-align: center; padding: 20px;">
+            <p style="color: red;">WebGL is not supported. The Sentinel Robot cannot be displayed.</p>
+          </div>
+          <div class="task-results-content">
+            <h3 class="card-title">
+              <i class="fas fa-terminal"></i> Task Results
+              <div class="tooltip">
+                <span class="guide-dot">?</span>
+                <span class="tooltip-text">Results from your tasks are displayed here.</span>
+              </div>
+            </h3>
+            <div id="output-container">
+              <p id="no-results" class="text-muted">No results yet. Run a task to see output here.</p>
+            </div>
+            <button class="btn btn-danger btn-sm btn-icon" id="clear-results"><i class="fas fa-trash"></i> Clear</button>
+          </div>
+        </div>
+    </div>
+
+    <!-- History Section -->
+    <div class="history-section">
+      <div class="card" id="history-card">
+        <h3 class="card-title">
+          <i class="fas fa-history"></i> Task History
+          <div class="tooltip">
+            <span class="guide-dot">?</span>
+            <span class="tooltip-text">View your task history. Click a card for details, rerun tasks, or clear your history.</span>
+          </div>
+        </h3>
+        <div id="history-list">
+          <p id="no-history" class="text-muted">No task history. Run a task to start building your history.</p>
+        </div>
+        <div class="card-actions">
+          <button id="clear-history" class="btn btn-danger btn-sm btn-icon"><i class="fas fa-trash"></i> Clear History</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notification Component -->
+  <div class="notification" id="notification">
+    <i class="fas fa-check-circle"></i>
+    <span id="notification-message">Task completed successfully!</span>
+  </div>
+
+  <!-- Include your app.js -->  
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

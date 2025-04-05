@@ -1,0 +1,37 @@
+{
+    "name": "dail-operator-agent",
+    "version": "1.0.0",
+    "type": "module",
+    "scripts": {
+        "start": "pm2 start ecosystem.config.yaml --no-daemon",
+        "dev": "vite"
+    },
+    "dependencies": {
+        "@midscene/web": "^0.12.7",
+        "@nut-tree-fork/nut-js": "^4.2.6",
+        "@playwright/test": "^1.51.1",
+        "bcrypt": "^5.1.1",
+        "cheerio": "^1.0.0",
+        "connect-mongo": "^5.1.0",
+        "cors": "^2.8.5",
+        "dotenv": "^16.4.7",
+        "express": "^4.21.2",
+        "express-session": "^1.18.1",
+        "mongoose": "^6.13.8",
+        "openai": "^4.88.0",
+        "p-retry": "^6.1.0",
+        "p-timeout": "^6.1.2",
+        "playwright": "^1.37.1",
+        "puppeteer": "^24.4.0",
+        "puppeteer-extra": "^3.3.6",
+        "puppeteer-extra-plugin-stealth": "^2.11.2",
+        "rate-limiter-flexible": "^5.0.0",
+        "three": "^0.174.0",
+        "winston": "^3.11.0",
+        "ws": "^8.18.1"
+    },
+    "devDependencies": {
+        "pm2": "^6.0.5",
+        "vite": "^6.2.2"
+    }
+}
