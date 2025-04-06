@@ -7,7 +7,8 @@ let scheduledTasks = [];
 let repetitiveTasks = [];
 
 // WebSocket setup
-const ws = new WebSocket(`ws://localhost:3400`);
+const wsUrl = `${process.env.OPERATOR_APP_WS_URL || 'ws://localhost:3400'}`;
+const ws = new WebSocket(wsUrl);
 ws.onopen = () => console.log('Connected');
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
@@ -17,6 +18,23 @@ ws.onmessage = (event) => {
     handleIntermediateResult(data.taskId, data.result);
   } else if (data.event === 'taskComplete') {
     handleTaskCompletion(data.taskId, data.status, data.result);
+  }
+};
+
+let reconnectAttempts = 0;
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 5000;
+
+ws.onclose = () => {
+  console.log('[WebSocket] Disconnected');
+  if (reconnectAttempts < MAX_RETRIES) {
+    console.log(`[WebSocket] Reconnecting... Attempt ${reconnectAttempts + 1}/${MAX_RETRIES}`);
+    setTimeout(() => {
+      ws = new WebSocket(wsUrl);
+      reconnectAttempts++;
+    }, RETRY_DELAY);
+  } else {
+    showNotification('Failed to reconnect to WebSocket.', 'error');
   }
 };
 
@@ -180,7 +198,6 @@ document.addEventListener('DOMContentLoaded', () => {
         //sentinelCanvas.style.display = 'block';
       }
 
-      let taskId = Date.now().toString();
       let url = null;
 
       try {
@@ -815,7 +832,7 @@ async function handleTaskResult(taskId, result) {
 }
 
 // Helper to update task progress in UI
-function updateTaskProgress(taskId, progress, status, error) {
+function updateTaskProgress(taskId, progress, status, error, stepData = {}) {
   const taskElement = document.querySelector(`.active-task[data-task-id="${taskId}"]`);
   if (taskElement) {
     const progressBar = taskElement.querySelector('.task-progress');
@@ -826,6 +843,12 @@ function updateTaskProgress(taskId, progress, status, error) {
       statusSpan.className = `task-status ${status.toLowerCase()}`;
     }
     if (error) taskElement.innerHTML += `<div class="task-error text-red-500">${error}</div>`;
+    
+    // Display stepData for progress steps
+    const stepDisplay = taskElement.querySelector('.task-steps') || document.createElement('div');
+    stepDisplay.className = 'task-steps';
+    stepDisplay.innerHTML = `<pre>${JSON.stringify(stepData, null, 2)}</pre>`;
+    if (!taskElement.querySelector('.task-steps')) taskElement.appendChild(stepDisplay);
     
     // Update subtasks if available in the DOM
     const subTasksContainer = taskElement.querySelector('.subtasks');
@@ -848,14 +871,22 @@ function updateTaskProgress(taskId, progress, status, error) {
 
 function handleIntermediateResult(taskId, result) {
   const resultCard = document.querySelector(`.result-card[data-task-id="${taskId}"]`);
-  if (resultCard && result.screenshotPath) {
+  if (resultCard) {
     const screenshotsContainer = resultCard.querySelector('.screenshots');
-    const img = document.createElement('img');
-    img.src = result.screenshotPath;
-    img.alt = 'Live Screenshot';
-    img.style.maxWidth = '100%';
-    img.style.marginTop = '10px';
-    screenshotsContainer.appendChild(img);
+    // Check both top-level and result for screenshotPath
+    const screenshotPath = result.screenshotPath || (result.result && result.result.screenshotPath);
+    if (screenshotPath) {
+      const img = document.createElement('img');
+      img.src = screenshotPath;
+      img.alt = 'Live Screenshot';
+      img.style.maxWidth = '100%';
+      img.style.marginTop = '10px';
+      img.onerror = () => console.error('Image load failed:', screenshotPath);
+      img.onload = () => console.log('Image loaded:', screenshotPath);
+      screenshotsContainer.appendChild(img);
+    } else {
+      console.warn('No screenshotPath found for task:', taskId);
+    }
   }
 }
 
@@ -870,9 +901,13 @@ function handleTaskCompletion(taskId, status, result) {
   const timestamp = new Date();
   const formattedTime = timestamp.toLocaleTimeString() + ' ' + timestamp.toLocaleDateString();
 
+  const summary = result?.aiPrepared?.summary || result?.summary || 'No summary available';
+  const url = result?.raw?.url || result?.url || 'N/A';
+  const screenshotPath = result?.raw?.screenshotPath || result?.screenshotPath;
+
   resultCard.innerHTML = `
     <div class="result-header">
-      <h4><i class="fas fa-globe"></i> ${result.url || 'N/A'}</h4>
+      <h4><i class="fas fa-globe"></i> ${url}</h4>
       <p><strong>Command:</strong> ${result.command || 'Unknown'}</p>
       <div class="meta">
         <span>${formattedTime}</span>
@@ -883,9 +918,9 @@ function handleTaskCompletion(taskId, status, result) {
         <button class="toggle-btn active" data-view="ai">AI Prepared</button>
         <button class="toggle-btn" data-view="raw">Raw Output</button>
       </div>
-      <div class="ai-output active">${result.aiPrepared?.summary || 'No summary available'}</div>
+      <div class="ai-output active">${summary}</div>
       <div class="raw-output">${result.raw?.pageText || 'No raw output'}</div>
-      ${result.raw?.screenshotPath ? `<img src="${result.raw.screenshotPath}" alt="Final Screenshot" style="max-width: 100%; margin-top: 10px;">` : ''}
+      ${screenshotPath ? `<img src="${screenshotPath}" alt="Final Screenshot" style="max-width: 100%; margin-top: 10px;">` : ''}
       ${result.runReport ? `<a href="${result.runReport}" target="_blank" class="btn btn-primary btn-sm mt-2">View Report</a>` : ''}
     </div>
   `;
@@ -963,6 +998,7 @@ function addTaskResult(result) {
 
 // Enhanced loadActiveTasks function
 async function loadActiveTasks() {
+  const tasksContainer = document.getElementById('active-tasks-container');
   try {
     const response = await fetch('/tasks/active', { credentials: 'same-origin' });
     if (!response.ok) {
@@ -970,28 +1006,36 @@ async function loadActiveTasks() {
         window.location.href = '/login.html';
         return;
       }
-      throw new Error(`Failed to load active tasks: ${response.statusText}`);
+      throw new Error(`Failed to load active tasks: ${response.status} - ${response.statusText}`);
     }
 
     const tasks = await response.json();
-    activeTasks = tasks;
-    const tasksContainer = document.getElementById('active-tasks-container');
-
-    if (!tasks || tasks.length === 0) {
-      tasksContainer.innerHTML = '<p id="no-active-tasks" class="text-muted">No active tasks. Run a task to see it here.</p>';
-      updateActiveTasksTab();
-      return;
-    }
-
+    activeTasks = tasks || []; // Ensure activeTasks is always an array
     tasksContainer.innerHTML = '';
-    tasks.forEach(task => {
-      const taskElement = createTaskElement(task);
-      tasksContainer.appendChild(taskElement);
-    });
 
+    if (activeTasks.length === 0) {
+      tasksContainer.innerHTML = '<p id="no-active-tasks" class="text-muted">No active tasks. Run a task to see it here.</p>';
+    } else {
+      activeTasks.forEach(task => {
+        const taskElement = createTaskElement(task);
+        tasksContainer.appendChild(taskElement);
+      });
+    }
     updateActiveTasksTab();
   } catch (error) {
     console.error('Error loading active tasks:', error);
+    // Reflect error in UI
+    tasksContainer.innerHTML = `
+      <div class="active-task error">
+        <div class="task-header">
+          <h4><i class="fas fa-exclamation-triangle"></i> Error Loading Tasks</h4>
+          <span class="task-status error">Failed</span>
+        </div>
+        <div class="task-error">${error.message}</div>
+      </div>
+    `;
+    activeTasks = []; // Clear activeTasks to prevent stale data
+    updateActiveTasksTab();
     showNotification('Failed to load active tasks. Please try again.', 'error');
   }
 }

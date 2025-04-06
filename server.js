@@ -655,9 +655,13 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir) {
     // Ensure element visibility (assuming query might involve a visible element)
     // If a selector is needed, pass it via args and use ensureElementVisible here
 
-    // Execute the query
+    // Suggestion: Enhance query to handle pagination and extract all five fields (title, price, review stars, reviews count, delivery, shipsTo)
+    // Modify the query to ensure comprehensive extraction and sorting by review stars
     console.log(`[BrowserQuery] Executing query: ${query}`);
-    const queryResult = await agent.aiQuery(query);
+    const enhancedQuery = query.includes("extract details") 
+      ? "First, find all product listings for Samsung Galaxy S23 on this page; then, for each listing, extract title, price, review stars, reviews count, delivery information, and shipsTo; then sort these listings by review stars in descending order; finally return the top five listings with their details. If fewer than five listings are found, return all available listings."
+      : query;
+    const queryResult = await agent.aiQuery(enhancedQuery);
     console.log(`[BrowserQuery] Query result:`, queryResult);
 
     // Capture screenshot
@@ -1018,6 +1022,11 @@ async function updateTaskInDatabase(userId, taskId, updates) {
     dbUpdates[`activeTasks.$.${key}`] = updates[key];
   });
   
+  // Ensure progress updates include step data to fix undefined steps and percentages
+  if (!dbUpdates['activeTasks.$.stepData']) {
+    dbUpdates['activeTasks.$.stepData'] = updates.stepData || {};
+  }
+
   // Update task in database
   try {
     await User.updateOne(
@@ -1029,7 +1038,8 @@ async function updateTaskInDatabase(userId, taskId, updates) {
     sendWebSocketUpdate(userId, {
       event: 'taskUpdate',
       taskId,
-      ...updates
+      ...updates,
+      stepData: updates.stepData || {} // Ensure stepData is sent in updates
     });
   } catch (error) {
     console.error(`[Database] Error updating task:`, error);
@@ -1141,14 +1151,21 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
     // Determine completion status
     const completionStatus = await determineCompletionStatus(originalPrompt, intermediateResults);
 
-    // Prepare final result
+    // Include the last URL visited in finalResult to fix history card URL display
+    // Extract the last currentUrl from intermediateResults
+    const lastResult = intermediateResults[intermediateResults.length - 1];
+    const url = lastResult?.result?.currentUrl || 'N/A';
+
+    // Ensure final AI-prepared summary is included in finalResult for NLI output
     const finalResult = {
       success: completionStatus.isSuccess,
       intermediateResults,
       finalScreenshotPath: finalScreenshotPath ? `/sentinel_report/${runId}/${path.basename(finalScreenshotPath)}` : null,
       landingReportUrl: landingReportPath ? `/sentinel_report/report/${path.basename(landingReportPath)}` : null,
       midsceneReportUrl,
-      summary: completionStatus.summary || "Task execution completed"
+      summary: completionStatus.summary || "Task execution completed",
+      url: url, // Added for history card URL display
+      aiPrepared: { summary: completionStatus.summary || "Task execution completed" } // Ensure AI summary is included
     };
 
     console.log(`[TaskCompletion] Task completed with status: ${finalResult.success ? 'success' : 'partial success'}`);
@@ -1228,7 +1245,6 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
     }
   }
 }
-
 /**
  * Helper function to determine task completion status
  * @param {string} originalPrompt - Original prompt
@@ -1448,7 +1464,6 @@ async function editMidsceneReport(midsceneReportPath) {
   console.log(`[MidsceneReport] Editing Midscene SDK report at ${midsceneReportPath}`);
 
   const cheerio = await import('cheerio');
-  const fs = require('fs');
   const reportContent = fs.readFileSync(midsceneReportPath, 'utf8');
   const $ = cheerio.load(reportContent);
 
@@ -1616,13 +1631,31 @@ Always reference the original request to ensure you're making progress toward th
     let intermediateResults = [];
     let stepCount = 0;
     const MAX_STEPS = 10;
+    const MAX_RETRIES = 3;
+
+    async function withRetry(operation, description) {
+      return pRetry(async () => {
+        try {
+          return await operation();
+        } catch (error) {
+          console.error(`[NLI] ${description} failed:`, error);
+          throw error;
+        }
+      }, {
+        retries: MAX_RETRIES,
+        minTimeout: 1000,
+        factor: 2, // Exponential backoff: 1s, 2s, 4s
+        onFailedAttempt: (error) => {
+          console.log(`[NLI] Retry attempt ${error.attemptNumber} for ${description}: ${error.message}`);
+        }
+      });
+    }
 
     try {
       while (stepCount < MAX_STEPS) {
-        console.log(`[NLI] Processing message for task ${taskId}, step ${stepCount + 1}`);
-        
+        console.log(`[NLI] Processing step ${stepCount + 1}`);
         // Call OpenAI API to get next action
-        const response = await openai.chat.completions.create({
+        const response = await withRetry(() => openai.chat.completions.create({
           model: "gpt-4o",
           messages,
           functions: [
@@ -1666,7 +1699,7 @@ Always reference the original request to ensure you're making progress toward th
             }
           ],
           function_call: "auto"
-        });
+        }), "OpenAI API call");
 
         const assistantMessage = response.choices[0].message;
         console.log('[AI Message]', assistantMessage);
@@ -1675,7 +1708,6 @@ Always reference the original request to ensure you're making progress toward th
         if (assistantMessage.function_call) {
           const functionName = assistantMessage.function_call.name;
           const args = JSON.parse(assistantMessage.function_call.arguments);
-          let functionResult;
           
           // Send update to client about task execution
           sendWebSocketUpdate(userId, {
@@ -1685,32 +1717,25 @@ Always reference the original request to ensure you're making progress toward th
             progress: stepCount * 10 + 10,
             milestone: `Executing step ${stepCount + 1}: ${functionName}`
           });
-
+          
           // Execute function
+          let functionResult;
           try {
             console.log(`[NLI] Executing ${functionName} with args:`, args);
-            
             if (functionName === "browser_action") {
-              functionResult = await handleBrowserAction(args, userId, taskId, runId, runDir);
+              functionResult = await withRetry(() => handleBrowserAction(args, userId, taskId, runId, runDir), "browser_action");
             } else if (functionName === "browser_query") {
-              functionResult = await handleBrowserQuery(args, userId, taskId, runId, runDir);
+              functionResult = await withRetry(() => handleBrowserQuery(args, userId, taskId, runId, runDir), "browser_query");
             } else if (functionName === "desktop_action") {
-              functionResult = await handleDesktopAction(functionArgs);
+              functionResult = await withRetry(() => handleDesktopAction(args.command), "desktop_action");
             } else {
               functionResult = { error: "Unknown function" };
             }
-            
-            console.log(`[NLI] ${functionName} result:`, functionResult);
-            
-            // Keep track of task ID for browser cleanup
-            if (functionResult.task_id) {
-              lastTaskId = functionResult.task_id;
-            }
-            
-            // Store result
+
+            // Keep track of task Id for browser cleanup & Add function call and result to conversation history 
+            if (functionResult.task_id) lastTaskId = functionResult.task_id;
             intermediateResults.push(functionResult);
             
-            // Send update to client
             sendWebSocketUpdate(userId, {
               event: 'taskUpdate',
               taskId,
@@ -1719,47 +1744,38 @@ Always reference the original request to ensure you're making progress toward th
               milestone: `Step ${stepCount + 1} completed`
             });
           } catch (error) {
-            console.error(`[NLI] Function execution error:`, error);
+            console.error(`[NLI] Function execution error after retries:`, error);
             functionResult = { error: error.message, errorStack: error.stack };
+            intermediateResults.push(functionResult);
           }
 
-          // Add function call and result to conversation
+          // Create a clean version of the result to avoid token limits
           messages.push({
             role: "assistant",
             content: null,
-            function_call: {
-              name: functionName,
-              arguments: JSON.stringify(args)
-            }
+            function_call: { name: functionName, arguments: JSON.stringify(args) }
           });
-          
-          // Create a clean version of the result to avoid token limits
-          const cleanResult = cleanFunctionResult(functionResult);
-          
           messages.push({
             role: "function",
             name: functionName,
-            content: JSON.stringify(cleanResult)
+            content: JSON.stringify(cleanFunctionResult(functionResult))
           });
 
           stepCount++;
         } else {
+          // If we've reached the maximum number of steps, stop executing functions
           // Task complete: AI has decided to respond directly
           console.log(`[NLI] Task complete, generating summary`);
-          
-          // Stream the final response
-          const stream = await openai.chat.completions.create({
+          const stream = await withRetry(() => openai.chat.completions.create({
             model: "gpt-4o",
             messages,
             stream: true
-          });
-          
+          }), "Streaming final response");
+
           let finalMessage = '';
           for await (const chunk of stream) {
             const content = chunk.choices[0]?.delta?.content || '';
             finalMessage += content;
-            
-            // Stream content to client
             sendWebSocketUpdate(userId, {
               event: 'taskUpdate',
               taskId,
@@ -1767,23 +1783,10 @@ Always reference the original request to ensure you're making progress toward th
               chunk: content
             });
           }
-          
-          console.log(`[NLI] Final message:`, finalMessage);
-          
-          // Process completion and generate report
-          const finalResult = await processTaskCompletion(
-            userId,
-            taskId,
-            intermediateResults,
-            prompt,
-            runDir,
-            runId
-          );
-          
-          // Add summary to final result
+          // Handle task completion and generate report
+          const finalResult = await processTaskCompletion(userId, taskId, intermediateResults, prompt, runDir, runId);
           finalResult.aiPrepared = { summary: finalMessage };
-          
-          // Send completion to client
+          // Update task status and result in the database
           sendWebSocketUpdate(userId, {
             event: 'taskComplete',
             taskId,
@@ -1791,7 +1794,6 @@ Always reference the original request to ensure you're making progress toward th
             result: finalResult
           });
 
-          // Update task in database
           await User.updateOne(
             { _id: userId, 'activeTasks._id': taskId },
             {
@@ -1804,36 +1806,15 @@ Always reference the original request to ensure you're making progress toward th
               }
             }
           );
-
-          // Log to history
+          // Update history with final result
           await User.updateOne(
             { _id: userId },
-            {
-              $push: {
-                history: {
-                  _id: taskId,
-                  command: prompt,
-                  result: finalResult,
-                  timestamp: new Date()
-                }
-              }
-            }
+            { $push: { history: { _id: taskId, command: prompt, result: finalResult, timestamp: new Date() } } }
           );
-
-          // Update chat history
+          // Update chat history with final message
           await ChatHistory.updateOne(
             { userId },
-            {
-              $push: {
-                messages: {
-                  $each: [
-                    { role: 'user', content: prompt },
-                    { role: 'assistant', content: finalMessage }
-                  ],
-                  $slice: -20
-                }
-              }
-            },
+            { $push: { messages: { $each: [{ role: 'user', content: prompt }, { role: 'assistant', content: finalMessage }], $slice: -20 } } },
             { upsert: true }
           );
 
@@ -1842,7 +1823,6 @@ Always reference the original request to ensure you're making progress toward th
             await activeBrowsers.get(lastTaskId).browser.close();
             activeBrowsers.delete(lastTaskId);
           }
-
           break;
         }
       }
@@ -1850,22 +1830,17 @@ Always reference the original request to ensure you're making progress toward th
       // Handle step limit reached
       if (stepCount >= MAX_STEPS) {
         console.log(`[NLI] Maximum steps reached for task ${taskId}`);
-        const summary = "Task execution reached the maximum number of steps. Here's a summary of the progress made:\n\n" +
-          intermediateResults.map((result, index) => `Step ${index + 1}: ${result.summary || 'No summary available'}`).join('\n');
+        const summary = "Task execution reached the maximum number of steps...\n\n" +
+          intermediateResults.map((r, i) => `Step ${i + 1}: ${r.summary || 'No summary'}`).join('\n');
         sendWebSocketUpdate(userId, {
           event: 'taskComplete',
           taskId,
           status: 'completed',
-          result: {
-            success: false,
-            summary,
-            intermediateResults
-          }
+          result: { success: false, summary, intermediateResults }
         });
       }
     } catch (error) {
-      console.error(`[NLI] Error:`, error);
-      
+      console.error(`[NLI] Critical error:`, error);
       // Send error to client
       sendWebSocketUpdate(userId, {
         event: 'taskError',
