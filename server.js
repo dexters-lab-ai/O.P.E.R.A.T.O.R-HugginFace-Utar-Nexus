@@ -523,7 +523,7 @@ const activeBrowsers = new Map();
  * @param {Object} data - Data to send
  */
 function sendWebSocketUpdate(userId, data) {
-  console.log(`[WebSocket] Sending update to userId=${userId}:`, JSON.stringify(data).substring(0, 200) + '...');
+//console.log(`[WebSocket] Sending update to userId=${userId}:`, JSON.stringify(data).substring(0, 200) + '...');
   if (userConnections.has(userId)) {
     userConnections.get(userId).forEach(ws => {
       if (ws.readyState === WebSocket.OPEN) {
@@ -1302,7 +1302,7 @@ async function handleTaskFinality(currentStep, page, agent, commandOrQuery, step
       
       Extract only key main content that is relevant to the command/query. Ignore navigation elements, 
       ads, and other unrelated content. Focus on prices, product details, main text content, or other 
-      data that will help determine if the action succeeds. Be specific and concise.
+      data that will help determine if the action succeeds. Be specific and concise describing whats visible.
     `;
     
     try {
@@ -1328,10 +1328,13 @@ async function handleTaskFinality(currentStep, page, agent, commandOrQuery, step
     
     Extract only key main content that is relevant to the command/query. Ignore navigation elements, 
     ads, and other unrelated content. Focus on prices, product details, main text content, or other 
-    data that will help determine if the action succeeded. Be specific and concise.
+    data that will help determine if the command execution changed what was on the page and achieved the action desired. 
+    Pay attention to the page before & after changes in relation to the command executed and state if the command action suceeded or not.
     
     Start your response with either "PROGRESSED: " or "UNPROGRESSED: " based on whether the page 
-    content shows the action was successful. Then provide the extracted information.
+    content shows the action was successful.
+    If UNPROGRESSED make sure to suggestion a different navigation action. Menus, different search query in url
+    Then provide the extracted information currently visible. Be specific and consise.
   `;
   
   try {
@@ -1971,12 +1974,13 @@ CAPABILITIES:
 - You make decisions based on function results to determine next steps.
 
 FUNCTIONS AVAILABLE:
-- browser_action: Execute actions on websites (clicking, typing, navigating, scrolling)
-- browser_query: Extract information from websites
+- browser_action: Execute actions on websites (clicking, typing, navigating, scrolling - no data extraction capabilities, never use for data extraction).
+- browser_query: Extract information from websites (it can navigate autonomously to desired page, extract info)
+- use these 2 functionas interchangebly where relevant, extraction function to get info and action function for actions only
 - You must always start with creating a step-by-step plan and then execute each step.
 
 TASK EXECUTION STRATEGY:
-1. After receiving the original request, outline a plan with numbered steps.
+1. After receiving the original request, outline a plan with numbered steps. Try not breaking the plan into smaller steps if it's straightforward browser_action and browser_query use Visual Language Models and are autonomous.
 2. Call appropriate function(s) to execute each step.
 3. Evaluate the result and update the plan if needed (e.g., "Step 2 completed, adjusting Step 3").
 4. Repeat until the task is complete or 10 function calls are made.
@@ -1985,6 +1989,35 @@ TASK EXECUTION STRATEGY:
 7. For browser_action and browser_query, if a URL is provided in the user prompt or context, include it in the function call under the 'url' parameter for new tasks. If continuing a previous task, use the 'task_id' parameter instead.
 8. You can switch between browser_action to navigate to correct page and section, then switch to browser_query to extract information, then use that information to call browser_action again to do another action based on the new info you have. browser_action does not return data its for actions only. browser_query can do limited navigation and exctract all the data - its best to call it when on the page required and the next step is extracting info.
 9. PAY CAREFUL ATTENTION to the step summaries returned after each step. They contain valuable information about the current state of each step, including whether it was successful and what information was extracted.
+
+
+GENERAL TIPS::
+1. DIRECT URL NAVIGATION: For search queries and known patterns, construct URLs directly:
+   - Google search: https://google.com/search?q=your+query
+   - Amazon search: https://amazon.com/s?k=your+query
+   - YouTube search: https://youtube.com/results?search_query=your+query
+   - Never rely on coinbase.com, use a search query or click the main menu, the homepage shows pictures not clickable elements
+   
+2. MULTI-APPROACH PIPELINE: If direct navigation fails:
+   a. Try query parameter URL navigation first
+   b. Try site search functionality 
+   c. Try step-by-step UI navigation as last resort
+   
+3. COMMANDS VS URLS:
+   - Trust aiAction with multi-step commands like "go to google and search for X"
+   - If that fails, switch to URL-based navigation
+   - Break complex commands into simple steps only when necessary
+
+4. ERROR RECOVERY:
+   - When stuck on a page, try URL construction with query parameters, or instruct browser_action to navigate through main menu or sidebar.
+   - When element selection fails, try different selectors or wait longer
+   - When timeouts occur, retry with longer timeouts
+- Scroll down to look for information required.
+- If a page is not changing its a dead end, use main menu or other menus to navigate to desired page, then try clicking again
+- Overlays can affect navigation, check if the overlay is still there, if so, try to click a button to accept or close the overlay
+- Retry using different navigation so you never fail, persistance is required always, be smart in browsing.
+
+ALWAYS TRY MULTIPLE APPROACHES IF ONE FAILS. BE PERSISTENT.
 
 Always reference the original request to ensure you're making progress toward the user's goal.
 ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_action or browser_query calls when starting a new task.` : ''}
