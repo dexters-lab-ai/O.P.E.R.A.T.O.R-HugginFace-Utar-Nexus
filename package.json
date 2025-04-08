@@ -1,10 +1,12 @@
 {
-    "name": "dail-operator-agent",
+    "name": "operator-agent-by-dail",
     "version": "1.0.0",
     "type": "module",
     "scripts": {
         "start": "pm2 start ecosystem.config.yaml --no-daemon",
-        "dev": "vite"
+        "dev": " concurrently \"vite\" \"node server.js\"",
+        "build": "vite build",
+        "serve": "node server.js"
     },
     "dependencies": {
         "@midscene/web": "^0.12.7",
@@ -31,6 +33,7 @@
         "ws": "^8.18.1"
     },
     "devDependencies": {
+        "concurrently": "^9.1.2",
         "pm2": "^6.0.5",
         "vite": "^6.2.2"
     }

@@ -39,7 +39,7 @@ const openai = new OpenAI({
 });
 
 // Set up directories
-const MIDSCENE_RUN_DIR = path.join(__dirname, 'sentinel_report');
+const MIDSCENE_RUN_DIR = path.join(__dirname, 'midscene_run');
 if (!fs.existsSync(MIDSCENE_RUN_DIR)) fs.mkdirSync(MIDSCENE_RUN_DIR, { recursive: true });
 
 const REPORT_DIR = path.join(MIDSCENE_RUN_DIR, 'report');
@@ -53,20 +53,27 @@ const server = createServer(app);
 const userConnections = new Map();
 const wss = new WebSocketServer({ server });
 
-wss.on('connection', (ws, request) => {
-  const userId = request.session?.user;
+wss.on('connection', (ws, req) => {
+  const userId = req.url.split('userId=')[1]?.split('&')[0];
+
   if (!userId) {
+    console.log('[WebSocket] Connection rejected: Missing userId');
     ws.close();
     return;
   }
+
+  ws.userId = userId;
+
   if (!userConnections.has(userId)) userConnections.set(userId, new Set());
   userConnections.get(userId).add(ws);
-  console.log(`WebSocket connected for user: ${userId}`);
+  console.log(`[WebSocket] Client connected: userId=${userId}`);
 
   ws.on('close', () => {
-    userConnections.get(userId).delete(ws);
-    if (userConnections.get(userId).size === 0) userConnections.delete(userId);
-    console.log(`WebSocket disconnected for user: ${userId}`);
+    if (userConnections.has(userId)) {
+      userConnections.get(userId).delete(ws);
+      if (userConnections.get(userId).size === 0) userConnections.delete(userId);
+    }
+    console.log(`[WebSocket] Client disconnected: userId=${userId}`);
   });
 });
 
@@ -80,21 +87,58 @@ app.use('/public', express.static(path.join(__dirname, 'public'), {
     }
   }
 }));
-app.use('/sentinel_report', express.static(MIDSCENE_RUN_DIR));
+app.use('/midscene_run', express.static(MIDSCENE_RUN_DIR));
 app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
 
 
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://dailAdmin:ua5^bRNFCkU*--c@operator.smeax.mongodb.net/?retryWrites=true&w=majority&appName=OPERATOR";
+// In server.js, after the session middleware setup
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-secret-key',
   resave: false,
   saveUninitialized: false,
   store: MongoStore.create({
-    mongoUrl: MONGO_URI, // Use MONGO_URI directly instead of client
+    mongoUrl: MONGO_URI,
     dbName: 'dail',
     collectionName: 'sessions',
   }),
+  cookie: { maxAge: 24 * 60 * 60 * 1000 }, // 24 hours
 }));
+
+// Session logging middleware
+app.use((req, res, next) => {
+  console.log('Session ID:', req.sessionID);
+  console.log('Session Data:', req.session);
+  next();
+});
+
+// TTL index and session cleanup after MongoDB connection
+mongoose.connection.once('open', () => {
+  console.log('Connected to MongoDB via Mongoose');
+
+  // Test MongoDB connection
+  mongoose.connection.db.collection('sessions').findOne({}, (err, result) => {
+    if (err) console.error('MongoDB connection test failed:', err);
+    else console.log('MongoDB connection test successful:', result);
+  });
+
+  // Create TTL index for sessions (expire after 24 hours)
+  mongoose.connection.db.collection('sessions').createIndex(
+    { "lastModified": 1 },
+    { expireAfterSeconds: 86400 },
+    (err) => {
+      if (err) console.error('Error creating TTL index for sessions:', err);
+      else console.log('TTL index created for sessions');
+    }
+  );
+
+  // Optional: Clear stale sessions on startup
+  mongoose.connection.db.collection('sessions').deleteMany({}, (err) => {
+    if (err) console.error('Error clearing sessions:', err);
+    else console.log('Sessions cleared');
+  });
+  
+});
 
 // Logger setup
 const logger = winston.createLogger({
@@ -175,7 +219,7 @@ app.post('/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = await User.create({ email, password: hashedPassword, history: [], activeTasks: [], customUrls: [] });
     req.session.user = newUser._id;
-    res.json({ success: true });
+    res.json({ success: true, userId: email }); 
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }
@@ -187,14 +231,21 @@ app.post('/login', async (req, res) => {
     const user = await User.findOne({ email });
     if (!user || !(await bcrypt.compare(password, user.password))) throw new Error('Invalid email or password');
     req.session.user = user._id;
-    res.json({ success: true });
+    res.json({ success: true, userId: email }); 
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }
 });
 
 app.get('/logout', (req, res) => {
-  req.session.destroy(() => res.redirect('/login.html'));
+  req.session.destroy((err) => {
+    if (err) {
+      console.error('Error destroying session:', err);
+      // Optionally, handle the error (e.g., redirect to an error page)
+      // For simplicity, we'll still proceed with the redirect
+    }
+    res.redirect('/login.html');
+  });
 });
 
 app.get('/history', requireAuth, async (req, res) => {
@@ -434,8 +485,8 @@ const activeBrowsers = new Map();
  * @param {Object} data - Data to send
  */
 function sendWebSocketUpdate(userId, data) {
-  console.log(`[WebSocket] Sending update to ${userId}:`, JSON.stringify(data).substring(0, 200) + '...');
-  if (userConnections && userConnections.has(userId)) {
+  console.log(`[WebSocket] Sending update to userId=${userId}:`, JSON.stringify(data).substring(0, 200) + '...');
+  if (userConnections.has(userId)) {
     userConnections.get(userId).forEach(ws => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify(data));
@@ -458,6 +509,9 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir) {
   const { command, url } = args;
   let task_id = args.task_id;
   let browser, agent, page;
+
+  // Ensure runDir exists
+  fs.mkdirSync(runDir, { recursive: true });
 
   try {
     // Reuse existing browser session or create new one
@@ -523,9 +577,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir) {
 
     // Execute the action
     console.log(`[BrowserAction] Executing command: ${command}`);
-    const actionResult = await agent.aiAction(command);
-    console.log(`[BrowserAction] Action result:`, actionResult);
-
+    await agent.aiAction(command);
     // Capture screenshot
     const screenshot = await page.screenshot({ encoding: 'base64' });
     const screenshotPath = path.join(runDir, `screenshot-${Date.now()}.png`);
@@ -534,6 +586,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir) {
     // Verify outcome with handleTaskFinality
     const finalityStatus = await handleTaskFinality(page, agent, command);
     const isSuccess = finalityStatus.status_type === 'success';
+    let actionResult = 'Action completed';
 
     // Get current page state
     const currentUrl = await page.url();
@@ -567,7 +620,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir) {
       task_id,
       result,
       screenshot,
-      screenshotPath: `/sentinel_report/${runId}/${path.basename(screenshotPath)}`
+      screenshotPath: `/midscene_run/${runId}/${path.basename(screenshotPath)}`
     };
   } catch (error) {
     console.error(`[BrowserAction] Error:`, error);
@@ -591,8 +644,11 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir) {
  */
 async function handleBrowserQuery(args, userId, taskId, runId, runDir) {
   console.log(`[BrowserQuery] Starting with args:`, args);
-  const { query, url, task_id } = args;
+  let { query, url, task_id } = args;
   let browser, agent, page;
+
+  // Ensure runDir exists
+  fs.mkdirSync(runDir, { recursive: true });
 
   try {
     // Reuse existing browser session or create new one
@@ -630,7 +686,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir) {
         model: 'bytedance/ui-tars-72b',
         forceSameTabNavigation: true,
         executionTimeout: 600000,
-        planningTimeout: 180000,
+        planningTimeout: 300000,
         maxPlanningRetries: 4
       });
       activeBrowsers.set(newTaskId, { browser, agent, page });
@@ -652,16 +708,9 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir) {
       console.error("[Midscene] Preparation skipped - Error during task preparation:", error);
     }
 
-    // Ensure element visibility (assuming query might involve a visible element)
-    // If a selector is needed, pass it via args and use ensureElementVisible here
-
-    // Suggestion: Enhance query to handle pagination and extract all five fields (title, price, review stars, reviews count, delivery, shipsTo)
     // Modify the query to ensure comprehensive extraction and sorting by review stars
     console.log(`[BrowserQuery] Executing query: ${query}`);
-    const enhancedQuery = query.includes("extract details") 
-      ? "First, find all product listings for Samsung Galaxy S23 on this page; then, for each listing, extract title, price, review stars, reviews count, delivery information, and shipsTo; then sort these listings by review stars in descending order; finally return the top five listings with their details. If fewer than five listings are found, return all available listings."
-      : query;
-    const queryResult = await agent.aiQuery(enhancedQuery);
+    const queryResult = await agent.aiQuery(query);
     console.log(`[BrowserQuery] Query result:`, queryResult);
 
     // Capture screenshot
@@ -705,7 +754,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir) {
       task_id,
       result,
       screenshot,
-      screenshotPath: `/sentinel_report/${runId}/${path.basename(screenshotPath)}`
+      screenshotPath: `/midscene_run/${runId}/${path.basename(screenshotPath)}`
     };
   } catch (error) {
     console.error(`[BrowserQuery] Error:`, error);
@@ -1126,7 +1175,7 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
     const landingReportPath = await generateReport(
       originalPrompt,
       intermediateResults,
-      finalScreenshotPath ? `/sentinel_report/${runId}/${path.basename(finalScreenshotPath)}` : null,
+      finalScreenshotPath ? `/midscene_run/${runId}/${path.basename(finalScreenshotPath)}` : null,
       runId
     );
 
@@ -1138,9 +1187,7 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
       midsceneReportPath = agent.reportFile; // Get the report file path
       if (midsceneReportPath && fs.existsSync(midsceneReportPath)) {
         midsceneReportPath = await editMidsceneReport(midsceneReportPath); // Edit the report
-        midsceneReportUrl = `/sentinel_report/report/${path.basename(midsceneReportPath)}`;
-        // Update landing report with "Replay" link
-        await updateLandingReportWithReplayLink(landingReportPath, midsceneReportUrl);
+        midsceneReportUrl = `/midscene_run/report/${path.basename(midsceneReportPath)}`;
       } else {
         console.error(`[TaskCompletion] Midscene SDK report not found at ${midsceneReportPath}`);
       }
@@ -1160,8 +1207,8 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
     const finalResult = {
       success: completionStatus.isSuccess,
       intermediateResults,
-      finalScreenshotPath: finalScreenshotPath ? `/sentinel_report/${runId}/${path.basename(finalScreenshotPath)}` : null,
-      landingReportUrl: landingReportPath ? `/sentinel_report/report/${path.basename(landingReportPath)}` : null,
+      finalScreenshotPath: finalScreenshotPath ? `/midscene_run/${runId}/${path.basename(finalScreenshotPath)}` : null,
+      landingReportUrl: landingReportPath ? `/midscene_run/report/${path.basename(landingReportPath)}` : null,
       midsceneReportUrl,
       summary: completionStatus.summary || "Task execution completed",
       url: url, // Added for history card URL display
@@ -1230,7 +1277,7 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
       success: false,
       error: error.message,
       intermediateResults,
-      reportUrl: `/sentinel_report/report/${errorReportFile}`
+      reportUrl: `/midscene_run/report/${errorReportFile}`
     };
   } finally {
     // Clean up browser sessions
@@ -1425,7 +1472,7 @@ async function generateReport(prompt, results, screenshotPath, runId) {
                   <pre>${JSON.stringify(result, null, 2)}</pre>
                 </div>`;
             } else if (result.screenshot) {
-              const screenshotUrl = result.screenshotPath || `/sentinel_report/${runId}/${result.screenshot}`;
+              const screenshotUrl = result.screenshotPath || `/midscene_run/${runId}/${result.screenshot}`;
               resultDisplay = `
                 <div class="task">
                   <div class="task-header">Step ${index + 1} - Screenshot</div>
@@ -1467,15 +1514,31 @@ async function editMidsceneReport(midsceneReportPath) {
   const reportContent = fs.readFileSync(midsceneReportPath, 'utf8');
   const $ = cheerio.load(reportContent);
 
-  // Update title
-  $('title').text('O.P.E.R.A.T.O.R Report');
-
-  // Update favicon
-  $('link[rel="icon"]').attr('href', '/assets/images/dail-fav.png');
-
-  // Replace logo with JavaScript
-  $('img[src*="Midscene.png"], img[alt*="midscene" i], img[class*="logo"]').each(function () {
-    $(this).attr('src', '/assets/images/dail-fav.png').attr('alt', 'OPERATOR_logo');
+  // 1. Update the report title
+  $('title').text('VLM Run Report | O.P.E.R.A.T.O.R.');
+      
+  // 2. Update favicon 
+  $('link[rel="icon"]').attr('href', '/assets/images/dail.png');
+  
+  // 3. Replace logo images - Multiple targeting strategies for maximum reliability
+  const localLogoPath = '/assets/images/dail.png';
+  
+  // Target by alt text (case insensitive)
+  $('img[alt*="midscene" i], img[alt*="Midscene" i]').each(function() {
+    $(this).attr('src', localLogoPath);
+    $(this).attr('alt', 'OPERATOR_logo');
+  });
+  
+  // Target by src attribute containing Midscene.png
+  $('img[src*="Midscene.png"]').each(function() {
+    $(this).attr('src', localLogoPath);
+    $(this).attr('alt', 'OPERATOR_logo');
+  });
+  
+  // Target by class name containing logo
+  $('img[class*="logo"]').each(function() {
+    $(this).attr('src', localLogoPath);
+    $(this).attr('alt', 'OPERATOR_logo');
   });
 
   // Update SDK version with JavaScript
@@ -1532,6 +1595,31 @@ async function editMidsceneReport(midsceneReportPath) {
         left: 0;
         color: #e8e8e8;
       }
+
+      /* Logo replacement fallback */
+          img[alt*="midscene" i], 
+          img[alt*="Midscene" i], 
+          img[src*="Midscene.png"],
+          .logo img {
+            content: url("/assets/images/dail.png") !important;
+          }
+          
+          /* Version number replacement */
+          .task-list-sub-name:contains("v0.12.8"),
+          .task-list-sub-name:contains("v0."),
+          .task-list-sub-name:contains("default model") {
+            visibility: hidden;
+            position: relative;
+          }
+          
+          .task-list-sub-name:contains("v0.12.8")::after,
+          .task-list-sub-name:contains("v0.")::after,
+          .task-list-sub-name:contains("default model")::after {
+            content: "v${newSdkVersion}, OPERATOR model";
+            visibility: visible;
+            position: absolute;
+            left: 0;
+          }
     </style>
   `);
 
@@ -1545,19 +1633,24 @@ async function editMidsceneReport(midsceneReportPath) {
  * Main NLI endpoint handler
  */
 app.post('/nli', requireAuth, async (req, res) => {
-  const { prompt } = req.body;
+  const { prompt, url } = req.body;
   if (!prompt) return res.status(400).json({ success: false, error: 'Prompt is required.' });
 
-  const userId = req.session.user;
+  const userId = req.session.user; // ObjectId
+  // Fetch the user's email using the ObjectId
+  const user = await User.findById(userId);
+  if (!user) return res.status(400).json({ success: false, error: 'User not found' });
+  const userEmail = user.email; // Use email for WebSocket updates
+
   const taskId = new mongoose.Types.ObjectId().toString();
   const runId = uuidv4();
   const runDir = path.join(MIDSCENE_RUN_DIR, runId);
   fs.mkdirSync(runDir, { recursive: true });
 
-  console.log(`[NLI] Starting new task: ${taskId} for user ${userId}`);
+  console.log(`[NLI] Starting new task: ${taskId} for user ${userEmail}`);
   console.log(`[NLI] Prompt: ${prompt}`);
+  if (url) console.log(`[NLI] URL: ${url}`);
 
-  // Create task in database
   try {
     await User.updateOne(
       { _id: userId },
@@ -1569,7 +1662,8 @@ app.post('/nli', requireAuth, async (req, res) => {
             status: 'pending',
             progress: 0,
             startTime: new Date(),
-            isStreaming: true
+            isStreaming: true,
+            url: url || null
           }
         }
       }
@@ -1579,11 +1673,15 @@ app.post('/nli', requireAuth, async (req, res) => {
     return res.status(500).json({ success: false, error: 'Database error' });
   }
 
-  // Send initial response to client
   res.json({ success: true, taskId, runId });
 
-  // Start asynchronous conversation loop
   (async () => {
+    const chatHistory = await ChatHistory.findOne({ userId });
+    let recentMessages = [];
+    if (chatHistory) {
+      recentMessages = chatHistory.messages.slice(-5);
+    }
+
     let messages = [
       {
         role: "system",
@@ -1604,8 +1702,8 @@ CAPABILITIES:
 - You make decisions based on function results to determine next steps.
 
 FUNCTIONS AVAILABLE:
-- browser_action: Execute actions on websites (clicking, typing, navigating)
-- browser_query: Extract information from websites
+- browser_action: Execute actions on websites (clicking, typing, navigating, scrolling) - no information is returned.
+- browser_query: Extract information from websites whilst navigating/scrolling - information is returned in the response.
 - You must always start with one of these functions - direct responses are not helpful.
 
 TASK EXECUTION STRATEGY:
@@ -1614,19 +1712,31 @@ TASK EXECUTION STRATEGY:
 3. Evaluate the result and update the plan if needed (e.g., "Step 2 completed, adjusting Step 3").
 4. Repeat until the task is complete or 10 function calls are made.
 5. If 10 function calls are reached, summarize progress and return a status update.
-6. Summarize what was accomplished.
+6. Summarize the steps accomplished only. But when it comes to data requested or crucial to the users ask, you must detail the key information for depth and clarity, with maximum focus on key data like prices, names, dates, reviews, users, etc.
+7. For browser_action and browser_query, if a URL is provided in the user prompt or context, include it in the function call under the 'url' parameter for new tasks. If continuing a previous task, use the 'task_id' parameter instead.
+8. You can switch between aiAction to navigate to correct page and section, then switch to aiQuery to extract information, then use that information to call aiAction again to do another action based on the new info you have. aiAction does not return data its for actions only. aiQuery can do limited navigation and exctract all the data - its best to call it when on the page required and the next step is extracting info.
+
+TIPS:
+- If stuck on a page with a popup, or capture try solve the CAPTCHA, Challenge, Accept Cookies - instruct the agent through a browser_action or browser_query call to close the overlay in the next step by pressing Esc key on keyboard. If its a Cookies overlay instruct it to accept cookies.
+- If on the correct url or page, always scroll to bring full page info into view and search for required information before proceeding.
+- If a step fails, try a different approach or rephrase the query.
 
 ERROR HANDLING:
 - If an element isn’t found, try alternative selectors or wait 5 seconds and retry.
 - If a query returns no data, verify the page has loaded or rephrase the query.
 - If navigation fails, check the URL and retry.
+- If information is not fully visible on page scroll down to look for information required.
+- If navigation sends us to a dead-end go back to the home menu to try again a different approach.
+- Overlays can affect navigation, check if the overlay is still there, if so, try to click a button to accept or close the overlay
 
 Always reference the original request to ensure you're making progress toward the user's goal.
+${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_action or browser_query calls when starting a new task.` : ''}
         `
       },
+      ...recentMessages,
       { role: "user", content: prompt }
     ];
-    
+
     let lastTaskId = null;
     let intermediateResults = [];
     let stepCount = 0;
@@ -1644,7 +1754,7 @@ Always reference the original request to ensure you're making progress toward th
       }, {
         retries: MAX_RETRIES,
         minTimeout: 1000,
-        factor: 2, // Exponential backoff: 1s, 2s, 4s
+        factor: 2,
         onFailedAttempt: (error) => {
           console.log(`[NLI] Retry attempt ${error.attemptNumber} for ${description}: ${error.message}`);
         }
@@ -1654,10 +1764,15 @@ Always reference the original request to ensure you're making progress toward th
     try {
       while (stepCount < MAX_STEPS) {
         console.log(`[NLI] Processing step ${stepCount + 1}`);
-        // Call OpenAI API to get next action
         const response = await withRetry(() => openai.chat.completions.create({
-          model: "gpt-4o",
+          model: "gpt-4o-mini",
           messages,
+          max_tokens: 300,
+          temperature: 0.2,
+          top_p: 0.8,
+          frequency_penalty: 0.5,
+          presence_penalty: 0,
+          n: 1,
           functions: [
             {
               name: "browser_action",
@@ -1665,7 +1780,7 @@ Always reference the original request to ensure you're making progress toward th
               parameters: {
                 type: "object",
                 properties: {
-                  command: { type: "string", description: "Action to perform (e.g., 'search for cats on Google')" },
+                  command: { type: "string", description: "Action to perform (e.g., 'search for cats on Google' or 'Scroll down and look for Solana then click it' or 'press Esc key on page through browser_action')" },
                   url: { type: "string", description: "URL for new tasks" },
                   task_id: { type: "string", description: "ID of an existing task" }
                 },
@@ -1704,21 +1819,23 @@ Always reference the original request to ensure you're making progress toward th
         const assistantMessage = response.choices[0].message;
         console.log('[AI Message]', assistantMessage);
 
-        // Check if AI wants to call a function
         if (assistantMessage.function_call) {
           const functionName = assistantMessage.function_call.name;
-          const args = JSON.parse(assistantMessage.function_call.arguments);
-          
-          // Send update to client about task execution
-          sendWebSocketUpdate(userId, {
+          let args = JSON.parse(assistantMessage.function_call.arguments);
+
+          if (url && !args.url && !args.task_id) {
+            args.url = url;
+          }
+
+          sendWebSocketUpdate(userEmail, { // Use userEmail instead of userId
             event: 'taskUpdate',
             taskId,
             status: 'processing',
             progress: stepCount * 10 + 10,
-            milestone: `Executing step ${stepCount + 1}: ${functionName}`
+            milestone: `Executing step ${stepCount + 1}: ${functionName}`,
+            subTask: true
           });
-          
-          // Execute function
+
           let functionResult;
           try {
             console.log(`[NLI] Executing ${functionName} with args:`, args);
@@ -1732,24 +1849,36 @@ Always reference the original request to ensure you're making progress toward th
               functionResult = { error: "Unknown function" };
             }
 
-            // Keep track of task Id for browser cleanup & Add function call and result to conversation history 
             if (functionResult.task_id) lastTaskId = functionResult.task_id;
             intermediateResults.push(functionResult);
-            
-            sendWebSocketUpdate(userId, {
+
+            sendWebSocketUpdate(userEmail, {
+              event: 'intermediateResult',
+              taskId,
+              result: functionResult,
+              subTask: true
+            });
+
+            sendWebSocketUpdate(userEmail, {
               event: 'taskUpdate',
               taskId,
               status: 'processing',
               progress: stepCount * 10 + 20,
-              milestone: `Step ${stepCount + 1} completed`
+              milestone: `Step ${stepCount + 1} completed`,
+              subTask: true
             });
           } catch (error) {
             console.error(`[NLI] Function execution error after retries:`, error);
             functionResult = { error: error.message, errorStack: error.stack };
             intermediateResults.push(functionResult);
+            sendWebSocketUpdate(userEmail, {
+              event: 'intermediateResult',
+              taskId,
+              result: functionResult,
+              subTask: true
+            });
           }
 
-          // Create a clean version of the result to avoid token limits
           messages.push({
             role: "assistant",
             content: null,
@@ -1763,31 +1892,44 @@ Always reference the original request to ensure you're making progress toward th
 
           stepCount++;
         } else {
-          // If we've reached the maximum number of steps, stop executing functions
-          // Task complete: AI has decided to respond directly
           console.log(`[NLI] Task complete, generating summary`);
           const stream = await withRetry(() => openai.chat.completions.create({
             model: "gpt-4o",
             messages,
-            stream: true
+            stream: true,
+            max_tokens: 1000,
+            temperature: 0.2,
+            top_p: 0.8,
+            frequency_penalty: 0.5,
+            presence_penalty: 0
           }), "Streaming final response");
 
           let finalMessage = '';
+          let isStreaming = true;
           for await (const chunk of stream) {
             const content = chunk.choices[0]?.delta?.content || '';
             finalMessage += content;
-            sendWebSocketUpdate(userId, {
-              event: 'taskUpdate',
+            sendWebSocketUpdate(userEmail, {
+              event: 'intermediateResult',
               taskId,
-              status: 'streaming',
-              chunk: content
+              result: { chunk: content },
+              subTask: false,
+              streaming: isStreaming
             });
           }
-          // Handle task completion and generate report
+          isStreaming = false;
+          sendWebSocketUpdate(userEmail, {
+            event: 'intermediateResult',
+            taskId,
+            result: { chunk: 'Stream ended' },
+            subTask: false,
+            streaming: isStreaming
+          });
+
           const finalResult = await processTaskCompletion(userId, taskId, intermediateResults, prompt, runDir, runId);
           finalResult.aiPrepared = { summary: finalMessage };
-          // Update task status and result in the database
-          sendWebSocketUpdate(userId, {
+
+          sendWebSocketUpdate(userEmail, {
             event: 'taskComplete',
             taskId,
             status: 'completed',
@@ -1806,19 +1948,18 @@ Always reference the original request to ensure you're making progress toward th
               }
             }
           );
-          // Update history with final result
+
           await User.updateOne(
             { _id: userId },
             { $push: { history: { _id: taskId, command: prompt, result: finalResult, timestamp: new Date() } } }
           );
-          // Update chat history with final message
+
           await ChatHistory.updateOne(
             { userId },
             { $push: { messages: { $each: [{ role: 'user', content: prompt }, { role: 'assistant', content: finalMessage }], $slice: -20 } } },
             { upsert: true }
           );
 
-          // Clean up browser sessions
           if (lastTaskId && activeBrowsers.has(lastTaskId)) {
             await activeBrowsers.get(lastTaskId).browser.close();
             activeBrowsers.delete(lastTaskId);
@@ -1827,12 +1968,11 @@ Always reference the original request to ensure you're making progress toward th
         }
       }
 
-      // Handle step limit reached
       if (stepCount >= MAX_STEPS) {
         console.log(`[NLI] Maximum steps reached for task ${taskId}`);
         const summary = "Task execution reached the maximum number of steps...\n\n" +
           intermediateResults.map((r, i) => `Step ${i + 1}: ${r.summary || 'No summary'}`).join('\n');
-        sendWebSocketUpdate(userId, {
+        sendWebSocketUpdate(userEmail, {
           event: 'taskComplete',
           taskId,
           status: 'completed',
@@ -1841,15 +1981,13 @@ Always reference the original request to ensure you're making progress toward th
       }
     } catch (error) {
       console.error(`[NLI] Critical error:`, error);
-      // Send error to client
-      sendWebSocketUpdate(userId, {
+      sendWebSocketUpdate(userEmail, {
         event: 'taskError',
         taskId,
         status: 'error',
         error: error.message
       });
 
-      // Update task in database
       await User.updateOne(
         { _id: userId, 'activeTasks._id': taskId },
         {
@@ -1863,7 +2001,6 @@ Always reference the original request to ensure you're making progress toward th
         }
       );
 
-      // Clean up browser sessions
       if (lastTaskId && activeBrowsers.has(lastTaskId)) {
         await activeBrowsers.get(lastTaskId).browser.close();
         activeBrowsers.delete(lastTaskId);

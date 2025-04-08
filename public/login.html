@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>O.P.E.R.A.T.O.R Login</title>
+  <title>Login - O.P.E.R.A.T.O.R</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="icon" type="image/png" sizes="36x36" href="/assets/images/dail-fav.png">
   <style>
@@ -102,8 +102,10 @@
       <a href="#" onclick="toggleForm()">Switch to Register</a>
     </div>
   </div>
+  
   <script>
     let isLogin = true;
+
     function toggleForm() {
       isLogin = !isLogin;
       document.getElementById('form-title').textContent = isLogin ? 'Login' : 'Register';
@@ -111,6 +113,7 @@
       document.querySelector('.toggle a').textContent = isLogin ? 'Switch to Register' : 'Switch to Login';
       document.getElementById('error-message').style.display = 'none';
     }
+
     async function submitForm() {
       const email = document.getElementById('email').value.trim();
       const password = document.getElementById('password').value.trim();
@@ -130,6 +133,8 @@
         });
         const data = await response.json();
         if (data.success) {
+          // Store the userId (email) in localStorage
+          localStorage.setItem('userId', data.userId);
           window.location.href = '/';
         } else {
           errorMessage.textContent = data.error;

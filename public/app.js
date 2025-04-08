@@ -1,3 +1,4 @@
+// app.js
 import { init, startAnimations, updateTaskState, updateSentinelState, handleResize, cleanup } from './animations.js';
 
 // Global state
@@ -7,36 +8,59 @@ let scheduledTasks = [];
 let repetitiveTasks = [];
 
 // WebSocket setup
-const wsUrl = `${process.env.OPERATOR_APP_WS_URL || 'ws://localhost:3400'}`;
-const ws = new WebSocket(wsUrl);
-ws.onopen = () => console.log('Connected');
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  if (data.event === 'taskUpdate') {
-    updateTaskProgress(data.taskId, data.progress, data.status, data.error);
-  } else if (data.event === 'intermediateResult') {
-    handleIntermediateResult(data.taskId, data.result);
-  } else if (data.event === 'taskComplete') {
-    handleTaskCompletion(data.taskId, data.status, data.result);
-  }
-};
-
+let ws = null;
 let reconnectAttempts = 0;
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 5000;
 
-ws.onclose = () => {
-  console.log('[WebSocket] Disconnected');
-  if (reconnectAttempts < MAX_RETRIES) {
-    console.log(`[WebSocket] Reconnecting... Attempt ${reconnectAttempts + 1}/${MAX_RETRIES}`);
-    setTimeout(() => {
-      ws = new WebSocket(wsUrl);
-      reconnectAttempts++;
-    }, RETRY_DELAY);
-  } else {
-    showNotification('Failed to reconnect to WebSocket.', 'error');
+// Function to initialize WebSocket connection
+function initWebSocket(userId) {
+  if (!userId) {
+    console.error('Cannot connect to WebSocket: userId is missing');
+    return;
   }
-};
+
+  const wsUrl = `ws://localhost:3400?userId=${userId}`;
+  ws = new WebSocket(wsUrl);
+
+  ws.onopen = () => {
+    console.log('Connected');
+    reconnectAttempts = 0;
+  };
+
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    console.log('WebSocket message received:', data);
+
+    if (data.event === 'taskUpdate') {
+      updateTaskProgress(data.taskId, data.progress, data.status, data.error, data.milestone, data.subTask);
+    } else if (data.event === 'intermediateResult') {
+      handleIntermediateResult(data.taskId, data.result, data.subTask, data.streaming);
+    } else if (data.event === 'taskComplete') {
+      handleTaskCompletion(data.taskId, data.status, data.result);
+    } else if (data.event === 'taskError') {
+      handleTaskError(data.taskId, data.error);
+    }
+  };
+
+  ws.onclose = () => {
+    console.log('[WebSocket] Disconnected');
+    if (reconnectAttempts < MAX_RETRIES) {
+      console.log(`[WebSocket] Reconnecting... Attempt ${reconnectAttempts + 1}/${MAX_RETRIES}`);
+      setTimeout(() => initWebSocket(userId), RETRY_DELAY * Math.pow(2, reconnectAttempts));
+    } else {
+      showNotification('Failed to reconnect to WebSocket.', 'error');
+    }
+  };
+
+  ws.onerror = (error) => {
+    console.error('WebSocket error:', error);
+  };
+}
+
+// Initialize WebSocket connection on app load
+const userId = localStorage.getItem('userId'); // Replace with your method of getting userId
+initWebSocket(userId);
 
 /**************************** Utility Functions ****************************/
 
@@ -50,27 +74,56 @@ function isWebGLAvailable() {
   }
 }
 
+function handleTaskError(taskId, error) {
+  const nliResults = document.getElementById('nli-results');
+  const errorMessage = document.createElement('div');
+  errorMessage.className = 'chat-message ai-message animate-in';
+  errorMessage.innerHTML = `
+    <div class="message-content">
+      <p class="summary-text error">Error: ${error}</p>
+      <span class="timestamp">${new Date().toLocaleTimeString()}</span>
+    </div>
+  `;
+  nliResults.prepend(errorMessage);
+  nliResults.scrollTop = 0;
+
+  updateTaskProgress(taskId, 0, 'error', error);
+}
+
+function initializeResultCard(taskId, command) {
+  const outputContainer = document.getElementById('output-container');
+  if (document.getElementById('no-results')) document.getElementById('no-results').remove();
+
+  let resultCard = document.querySelector(`.result-card[data-task-id="${taskId}"]`);
+  if (!resultCard) {
+    resultCard = document.createElement('div');
+    resultCard.className = 'result-card animate-in';
+    resultCard.dataset.taskId = taskId;
+    const timestamp = new Date();
+    const formattedTime = timestamp.toLocaleTimeString();
+
+    resultCard.innerHTML = `
+      <div class="result-header">
+        <h4><i class="fas fa-globe"></i> Processing...</h4>
+        <p><strong>Command:</strong> ${command || 'Unknown'}</p>
+        <div class="meta">
+          <span>${formattedTime}</span>
+        </div>
+      </div>
+      <div class="result-content">
+        <div class="outputs"></div>
+        <div class="screenshots"></div>
+      </div>
+    `;
+    outputContainer.prepend(resultCard);
+    outputContainer.style.display = 'block';
+  }
+  return resultCard;
+}
+
 /**************************** Initialization ****************************/
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // Initialize animations
-  init();
-  handleResize();
-  const webGLSupported = isWebGLAvailable();
-  if (webGLSupported) {
-    startAnimations();
-    document.getElementById('sentinel-canvas').style.display = 'block';
-    document.getElementById('sentinel-fallback').style.display = 'none';
-  } else {
-    console.warn('WebGL not supported. Using fallback.');
-    document.getElementById('sentinel-canvas').style.display = 'none';
-    document.getElementById('sentinel-fallback').style.display = 'block';
-  }
-
-  // Load initial data and set animation state
-  await loadActiveTasks();
-  loadHistory();
-  setInterval(() => { loadActiveTasks(); loadHistory(); }, 120000);
 
   // Splash screen animation
   const loadingProgress = document.getElementById('loading-progress');
@@ -92,6 +145,28 @@ document.addEventListener('DOMContentLoaded', async () => {
       }, 500);
     }
   }, 100);
+  
+  // Load initial data and set animation state
+  await loadActiveTasks();
+  await loadHistory();
+
+  // Refresh History
+  //setInterval(() => { loadActiveTasks(); loadHistory(); }, 120000);
+
+  // Initialize animations
+  init();
+  handleResize();
+  const webGLSupported = isWebGLAvailable();
+  if (webGLSupported) {
+    startAnimations();
+    document.getElementById('sentinel-canvas').style.display = 'block';
+    document.getElementById('sentinel-fallback').style.display = 'none';
+  } else {
+    console.warn('WebGL not supported. Using fallback.');
+    document.getElementById('sentinel-canvas').style.display = 'none';
+    document.getElementById('sentinel-fallback').style.display = 'block';
+  }
+  
 
 });
 
@@ -199,6 +274,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       let url = null;
+      let taskId; // Declare taskId in the outer scope
 
       try {
         const res = await fetch('/nli', {
@@ -211,34 +287,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!data.success) throw new Error(data.error || 'Command failed');
 
         if (data.taskId) {
-          taskId = data.taskId;
+          taskId = data.taskId; // Assign taskId from server response
           const runId = data.runId;
 
           // Call loadActiveTasks immediately to show the task in active-tasks-container
           await loadActiveTasks();
 
-          const outputContainer = document.getElementById('output-container');
-          if (document.getElementById('no-results')) document.getElementById('no-results').remove();
-
-          // Create resultCard with separate outputs and screenshots containers
-          const resultCard = document.createElement('div');
-          resultCard.className = 'result-card animate-in';
-          resultCard.dataset.taskId = taskId;
-          resultCard.innerHTML = `
-            <div class="result-header">
-              <h4><i class="fas fa-globe"></i> Processing...</h4>
-              <p><strong>Command:</strong> ${prompt}</p>
-              <div class="meta">
-                <span>${new Date().toLocaleTimeString()}</span>
-              </div>
-            </div>
-            <div class="result-content">
-              <div class="outputs"></div>
-              <div class="screenshots"></div>
-            </div>
-          `;
-          outputContainer.prepend(resultCard);
-          outputContainer.style.display = 'block';
+          const resultCard = initializeResultCard(taskId, prompt);
 
           // Set up EventSource with corrected intermediate results handling
           const eventSource = new EventSource(`/tasks/${taskId}/stream`);
@@ -254,23 +309,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Handle intermediate results
             if (update.intermediateResults && Array.isArray(update.intermediateResults)) {
               update.intermediateResults.forEach(result => {
-                if (result.screenshotPath) {
-                  console.log('Appending intermediate screenshot for taskId:', taskId, 'Path:', result.screenshotPath);
-                  const screenshotsContainer = resultCard.querySelector('.screenshots');
-                  if (screenshotsContainer) {
-                    const img = document.createElement('img');
-                    img.src = result.screenshotPath;
-                    img.alt = 'Live Screenshot';
-                    img.style.maxWidth = '100%';
-                    img.style.marginTop = '10px';
-                    img.style.display = 'block';
-                    img.onerror = () => console.error('Image load failed:', result.screenshotPath);
-                    img.onload = () => console.log('Image loaded:', result.screenshotPath);
-                    screenshotsContainer.appendChild(img);
-                  } else {
-                    console.error('Screenshots container not found for taskId:', taskId);
-                  }
-                }
+                handleIntermediateResult(taskId, result, true, false);
               });
             }
 
@@ -437,6 +476,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         saveChatMessage('assistant', `Error: ${err.message}`);
 
+        // Use taskId if defined, otherwise create a fallback taskId
+        if (!taskId) {
+          taskId = `error-${Date.now().toString()}`; // Fallback taskId for error cases
+        }
         const existingCard = document.querySelector(`.result-card[data-task-id="${taskId}"]`);
         if (existingCard) {
           existingCard.querySelector('.result-header h4').innerHTML = `<i class="fas fa-globe"></i> Error`;
@@ -508,10 +551,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('manual-command').value = decodeURIComponent(urlParams.get('command'));
     toggleTaskTab('manual');
   }
-  
-  loadActiveTasks();
-  loadHistory();
-  setInterval(() => { loadActiveTasks(); loadHistory(); }, 120000);
   
   // Mode Toggle
   document.getElementById('mode-toggle').onclick = () => {
@@ -697,6 +736,10 @@ async function executeTaskWithAnimation(url, command, taskType) {
     updateTaskState(true);
     const result = await executeTask(url, command);
     result.taskType = taskType;
+
+    // Initialize resultCard as soon as taskId is available
+    initializeResultCard(result.taskId, command);
+
     await handleTaskResult(result.taskId, result);
     showNotification("Task completed successfully!", "success");
   } catch (error) {
@@ -733,6 +776,9 @@ async function executeTask(url, command) {
       if (!data.success) throw new Error(data.error || 'Task execution failed');
       
       const taskId = data.taskId;
+      // Initialize resultCard here
+      initializeResultCard(taskId, command);
+
       const eventSource = new EventSource(`/tasks/${taskId}/stream`);
       
       eventSource.onmessage = async (event) => {
@@ -832,7 +878,7 @@ async function handleTaskResult(taskId, result) {
 }
 
 // Helper to update task progress in UI
-function updateTaskProgress(taskId, progress, status, error, stepData = {}) {
+function updateTaskProgress(taskId, progress, status, error, milestone, subTask) {
   const taskElement = document.querySelector(`.active-task[data-task-id="${taskId}"]`);
   if (taskElement) {
     const progressBar = taskElement.querySelector('.task-progress');
@@ -843,23 +889,11 @@ function updateTaskProgress(taskId, progress, status, error, stepData = {}) {
       statusSpan.className = `task-status ${status.toLowerCase()}`;
     }
     if (error) taskElement.innerHTML += `<div class="task-error text-red-500">${error}</div>`;
-    
-    // Display stepData for progress steps
-    const stepDisplay = taskElement.querySelector('.task-steps') || document.createElement('div');
-    stepDisplay.className = 'task-steps';
-    stepDisplay.innerHTML = `<pre>${JSON.stringify(stepData, null, 2)}</pre>`;
-    if (!taskElement.querySelector('.task-steps')) taskElement.appendChild(stepDisplay);
-    
-    // Update subtasks if available in the DOM
-    const subTasksContainer = taskElement.querySelector('.subtasks');
-    if (subTasksContainer) {
-      const subTaskElements = subTasksContainer.querySelectorAll('.subtask');
-      subTaskElements.forEach((subElement, index) => {
-        const subProgressBar = subElement.querySelector('.subtask-progress');
-        if (subProgressBar) subProgressBar.style.width = `${progress / subTaskElements.length}%`; // Distribute overall progress
-        const subStatusSpan = subElement.querySelector('.subtask-status');
-        if (subStatusSpan) subStatusSpan.textContent = status;
-      });
+    if (milestone) {
+      const milestoneDisplay = taskElement.querySelector('.task-milestone') || document.createElement('div');
+      milestoneDisplay.className = 'task-milestone';
+      milestoneDisplay.textContent = milestone;
+      if (!taskElement.querySelector('.task-milestone')) taskElement.appendChild(milestoneDisplay);
     }
 
     if (status === 'completed' || status === 'error') {
@@ -867,65 +901,182 @@ function updateTaskProgress(taskId, progress, status, error, stepData = {}) {
       loadHistory();
     }
   }
+
+  // Display subtask updates in chatbox
+  if (subTask && milestone) {
+    const nliResults = document.getElementById('nli-results');
+    const subTaskMessage = document.createElement('div');
+    subTaskMessage.className = 'chat-message subtask-message animate-in';
+    subTaskMessage.innerHTML = `
+      <div class="message-content">
+        <p class="summary-text">${milestone}</p>
+        <span class="timestamp">${new Date().toLocaleTimeString()}</span>
+      </div>
+    `;
+    nliResults.prepend(subTaskMessage);
+    nliResults.scrollTop = 0;
+  }
 }
 
-function handleIntermediateResult(taskId, result) {
-  const resultCard = document.querySelector(`.result-card[data-task-id="${taskId}"]`);
-  if (resultCard) {
-    const screenshotsContainer = resultCard.querySelector('.screenshots');
-    // Check both top-level and result for screenshotPath
-    const screenshotPath = result.screenshotPath || (result.result && result.result.screenshotPath);
-    if (screenshotPath) {
-      const img = document.createElement('img');
-      img.src = screenshotPath;
-      img.alt = 'Live Screenshot';
-      img.style.maxWidth = '100%';
-      img.style.marginTop = '10px';
-      img.onerror = () => console.error('Image load failed:', screenshotPath);
-      img.onload = () => console.log('Image loaded:', screenshotPath);
-      screenshotsContainer.appendChild(img);
+function handleIntermediateResult(taskId, result, subTask, streaming) {
+    let resultCard = document.querySelector(`.result-card[data-task-id="${taskId}"]`);
+    const nliResults = document.getElementById('nli-results');
+
+    // If resultCard doesn’t exist, create it with a fallback command
+    if (!resultCard) {
+      const command = result.command || 'Unknown'; // Adjust based on server data
+      resultCard = initializeResultCard(taskId, command);
+    }
+
+    if (subTask) {
+      // Update task results section
+      const outputsDiv = resultCard.querySelector('.outputs');
+      const screenshotsContainer = resultCard.querySelector('.screenshots');
+
+      if (result.screenshotPath) {
+        console.log('Appending screenshot for taskId:', taskId, 'Path:', result.screenshotPath);
+        const img = document.createElement('img');
+        img.src = result.screenshotPath;
+        img.alt = 'Live Screenshot';
+        img.style.maxWidth = '100%';
+        img.style.marginTop = '10px';
+        img.style.display = 'block';
+        img.onerror = () => console.error('Image load failed:', result.screenshotPath);
+        img.onload = () => console.log('Image loaded:', result.screenshotPath);
+        screenshotsContainer.appendChild(img);
+      }
+      if (result.summary) {
+        const summaryDiv = document.createElement('div');
+        summaryDiv.className = 'subtask-summary';
+        summaryDiv.textContent = result.summary;
+        outputsDiv.appendChild(summaryDiv);
+      }
+
+      // Update chatbox for subtask results
+      if (result.summary) {
+        const subTaskMessage = document.createElement('div');
+        subTaskMessage.className = 'chat-message subtask-message animate-in';
+        subTaskMessage.innerHTML = `
+          <div class="message-content">
+            <p class="summary-text">${result.summary}</p>
+            <span class="timestamp">${new Date().toLocaleTimeString()}</span>
+          </div>
+        `;
+        nliResults.prepend(subTaskMessage);
+        nliResults.scrollTop = 0;
+      }
     } else {
-      console.warn('No screenshotPath found for task:', taskId);
+    // Handle streaming chunks (final message)
+    if (result.chunk) {
+      let streamMessage = document.querySelector(`.chat-message.stream-message[data-task-id="${taskId}"]`);
+      if (!streamMessage) {
+        streamMessage = document.createElement('div');
+        streamMessage.className = 'chat-message stream-message animate-in';
+        streamMessage.dataset.taskId = taskId;
+        streamMessage.innerHTML = `
+          <div class="message-content">
+            <p class="summary-text"></p>
+            <span class="timestamp">${new Date().toLocaleTimeString()}</span>
+          </div>
+        `;
+        nliResults.prepend(streamMessage);
+      }
+      const summaryText = streamMessage.querySelector('.summary-text');
+      summaryText.textContent += result.chunk;
+
+      if (!streaming && result.chunk === 'Stream ended') {
+        streamMessage.classList.remove('stream-message');
+        streamMessage.classList.add('ai-message');
+        const endMessage = document.createElement('div');
+        endMessage.className = 'chat-message subtask-end animate-in';
+        endMessage.innerHTML = `
+          <div class="message-content">
+            <p class="summary-text">--- End of Streaming Updates ---</p>
+            <span class="timestamp">${new Date().toLocaleTimeString()}</span>
+          </div>
+        `;
+        nliResults.insertBefore(endMessage, streamMessage.nextSibling);
+      }
+      nliResults.scrollTop = 0;
     }
   }
 }
 
 function handleTaskCompletion(taskId, status, result) {
+  let resultCard = document.querySelector(`.result-card[data-task-id="${taskId}"]`);
+  const nliResults = document.getElementById('nli-results');
   const outputContainer = document.getElementById('output-container');
   if (document.getElementById('no-results')) document.getElementById('no-results').remove();
 
-  const resultCard = document.createElement('div');
-  resultCard.className = 'result-card animate-in';
-  console.log('Result card created with taskId:', taskId);
-  resultCard.dataset.taskId = taskId;
+  // If resultCard doesn’t exist (unlikely), create it
+  if (!resultCard) {
+    resultCard = initializeResultCard(taskId, result.command || 'Unknown');
+  }
+
   const timestamp = new Date();
   const formattedTime = timestamp.toLocaleTimeString() + ' ' + timestamp.toLocaleDateString();
-
   const summary = result?.aiPrepared?.summary || result?.summary || 'No summary available';
   const url = result?.raw?.url || result?.url || 'N/A';
-  const screenshotPath = result?.raw?.screenshotPath || result?.screenshotPath;
 
-  resultCard.innerHTML = `
-    <div class="result-header">
-      <h4><i class="fas fa-globe"></i> ${url}</h4>
-      <p><strong>Command:</strong> ${result.command || 'Unknown'}</p>
-      <div class="meta">
-        <span>${formattedTime}</span>
-      </div>
-    </div>
-    <div class="result-content">
-      <div class="toggle-buttons">
-        <button class="toggle-btn active" data-view="ai">AI Prepared</button>
-        <button class="toggle-btn" data-view="raw">Raw Output</button>
-      </div>
-      <div class="ai-output active">${summary}</div>
-      <div class="raw-output">${result.raw?.pageText || 'No raw output'}</div>
-      ${screenshotPath ? `<img src="${screenshotPath}" alt="Final Screenshot" style="max-width: 100%; margin-top: 10px;">` : ''}
-      ${result.runReport ? `<a href="${result.runReport}" target="_blank" class="btn btn-primary btn-sm mt-2">View Report</a>` : ''}
+  // Update header and keep existing screenshots
+  resultCard.querySelector('.result-header').innerHTML = `
+    <h4><i class="fas fa-globe"></i> ${url}</h4>
+    <p><strong>Command:</strong> ${result.command || 'Unknown'}</p>
+    <div class="meta">
+      <span>${formattedTime}</span>
     </div>
   `;
-  outputContainer.prepend(resultCard);
-  outputContainer.style.display = 'block';
+
+  const outputsDiv = resultCard.querySelector('.outputs');
+  const screenshotsContainer = resultCard.querySelector('.screenshots');
+  outputsDiv.innerHTML = `
+    <div class="toggle-buttons">
+      <button class="toggle-btn active" data-view="ai">AI Prepared</button>
+      <button class="toggle-btn" data-view="raw">Raw Output</button>
+    </div>
+    <div class="ai-output active">${summary}</div>
+    <div class="raw-output">${result.raw?.pageText || 'No raw output'}</div>
+    ${result.runReport ? `<a href="${result.runReport}" target="_blank" class="btn btn-primary btn-sm mt-2">View Report</a>` : ''}
+  `;
+
+  // Append final screenshot if present
+  if (result?.screenshotPath) {
+    const img = document.createElement('img');
+    img.src = result.screenshotPath;
+    img.alt = 'Final Screenshot';
+    img.style.maxWidth = '100%';
+    img.style.marginTop = '10px';
+    img.style.display = 'block';
+    screenshotsContainer.appendChild(img);
+  }
+
+  // Add toggle functionality
+  const toggleButtons = resultCard.querySelectorAll('.toggle-btn');
+  const aiOutput = resultCard.querySelector('.ai-output');
+  const rawOutput = resultCard.querySelector('.raw-output');
+  toggleButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      toggleButtons.forEach(b => b.classList.remove('active'));
+      aiOutput.classList.remove('active');
+      rawOutput.classList.remove('active');
+      btn.classList.add('active');
+      if (btn.dataset.view === 'ai') aiOutput.classList.add('active');
+      else rawOutput.classList.add('active');
+    });
+  });
+
+  // Append final message to chatbox
+  const aiMessage = document.createElement('div');
+  aiMessage.className = 'chat-message ai-message animate-in';
+  aiMessage.innerHTML = `
+    <div class="message-content">
+      <p class="summary-text">${summary}</p>
+      <span class="timestamp">${formattedTime}</span>
+    </div>
+  `;
+  nliResults.prepend(aiMessage);
+  nliResults.scrollTop = 0;
+
   loadActiveTasks();
   loadHistory();
 }
@@ -1607,8 +1758,7 @@ function addToHistory(url, command, result) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  loadHistory();
-  
+
   // Clear history button handler
   const clearHistoryButton = document.getElementById('clear-history');
   if (clearHistoryButton) {

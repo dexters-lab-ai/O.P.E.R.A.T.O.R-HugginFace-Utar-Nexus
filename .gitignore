@@ -1,3 +1,11 @@
+# .gitignore
+node_modules/
+dist/
+.env
+logs/
+# Midscene.js dump files
+sentinel_report/report
+sentinel_report/tmp
 
 # Midscene.js dump files
 midscene_run/report
