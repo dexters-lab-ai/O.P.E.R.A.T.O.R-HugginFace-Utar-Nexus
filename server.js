@@ -90,9 +90,9 @@ app.use('/public', express.static(path.join(__dirname, 'public'), {
 app.use('/midscene_run', express.static(MIDSCENE_RUN_DIR));
 app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
 
+const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://dailAdmin:ua5^bRNFCkU*--c@operator.smeax.mongodb.net/dail?retryWrites=true&w=majority&appName=OPERATOR";
 
-const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://dailAdmin:ua5^bRNFCkU*--c@operator.smeax.mongodb.net/?retryWrites=true&w=majority&appName=OPERATOR";
-// In server.js, after the session middleware setup
+// Robust MongoDB session store setup
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-secret-key',
   resave: false,
@@ -101,8 +101,11 @@ app.use(session({
     mongoUrl: MONGO_URI,
     dbName: 'dail',
     collectionName: 'sessions',
+    ttl: 24 * 60 * 60, // 24 hours in seconds
+    autoRemove: 'native', // Use MongoDB's native TTL cleanup
+    touchAfter: 24 * 3600 // Only update session if older than 24 hours
   }),
-  cookie: { maxAge: 24 * 60 * 60 * 1000 }, // 24 hours
+  cookie: { maxAge: 24 * 60 * 60 * 1000 } // 24 hours in milliseconds
 }));
 
 // Session logging middleware
@@ -110,34 +113,6 @@ app.use((req, res, next) => {
   console.log('Session ID:', req.sessionID);
   console.log('Session Data:', req.session);
   next();
-});
-
-// TTL index and session cleanup after MongoDB connection
-mongoose.connection.once('open', () => {
-  console.log('Connected to MongoDB via Mongoose');
-
-  // Test MongoDB connection
-  mongoose.connection.db.collection('sessions').findOne({}, (err, result) => {
-    if (err) console.error('MongoDB connection test failed:', err);
-    else console.log('MongoDB connection test successful:', result);
-  });
-
-  // Create TTL index for sessions (expire after 24 hours)
-  mongoose.connection.db.collection('sessions').createIndex(
-    { "lastModified": 1 },
-    { expireAfterSeconds: 86400 },
-    (err) => {
-      if (err) console.error('Error creating TTL index for sessions:', err);
-      else console.log('TTL index created for sessions');
-    }
-  );
-
-  // Optional: Clear stale sessions on startup
-  mongoose.connection.db.collection('sessions').deleteMany({}, (err) => {
-    if (err) console.error('Error clearing sessions:', err);
-    else console.log('Sessions cleared');
-  });
-  
 });
 
 // Logger setup
@@ -159,22 +134,36 @@ function requireAuth(req, res, next) {
   next();
 }
 
-// Mongoose connection
-mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log("Connected to MongoDB via Mongoose"))
-  .catch(err => console.error("Mongoose connection error:", err));
+// Mongoose connection with retry logic and timing
+async function connectToMongoDB() {
+  const startTime = Date.now();
+  try {
+    await mongoose.connect(process.env.MONGO_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+      serverSelectionTimeoutMS: 5000, // Timeout for server selection
+      connectTimeoutMS: 10000,       // Timeout for initial connection
+    });
+    console.log(`Connected to MongoDB in ${Date.now() - startTime}ms`);
+  } catch (err) {
+    console.error('Mongoose connection error:', err);
+    logger.error('MongoDB connection failed', { error: err.message });
+    // Retry logic: wait 2 seconds and try again (up to 5 attempts)
+    throw new pRetry.AbortError('MongoDB connection failed after retries');
+  }
+}
 
-// Mongoose schemas
+// Mongoose schemas with indexes
 const userSchema = new mongoose.Schema({
-  email: { type: String, unique: true },
-  password: String,
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
   customUrls: [{ type: String }],
   history: [{
     _id: { type: mongoose.Schema.Types.ObjectId, default: () => new mongoose.Types.ObjectId() },
     url: String,
     command: String,
     result: mongoose.Schema.Types.Mixed,
-    timestamp: { type: Date, default: Date.now },
+    timestamp: { type: Date, default: Date.now }
   }],
   activeTasks: [{
     _id: { type: mongoose.Schema.Types.ObjectId, default: () => new mongoose.Types.ObjectId() },
@@ -193,11 +182,16 @@ const userSchema = new mongoose.Schema({
       status: { type: String, enum: ['pending', 'processing', 'completed', 'error'], default: 'pending' },
       result: mongoose.Schema.Types.Mixed,
       progress: { type: Number, default: 0 },
-      error: String,
+      error: String
     }],
-    intermediateResults: [mongoose.Schema.Types.Mixed],
-  }],
+    intermediateResults: [mongoose.Schema.Types.Mixed]
+  }]
 });
+
+// Define indexes for User schema
+userSchema.index({ email: 1 }, { unique: true }); // Email index
+userSchema.index({ "history.timestamp": -1 }); // History timestamp index (descending)
+
 const User = mongoose.model('User', userSchema);
 
 const chatHistorySchema = new mongoose.Schema({
@@ -205,10 +199,50 @@ const chatHistorySchema = new mongoose.Schema({
   messages: [{
     role: { type: String, enum: ['user', 'assistant'], required: true },
     content: { type: String, required: true },
-    timestamp: { type: Date, default: Date.now },
-  }],
+    timestamp: { type: Date, default: Date.now }
+  }]
 });
+
+// Define index for ChatHistory schema
+chatHistorySchema.index({ userId: 1 });
+
 const ChatHistory = mongoose.model('ChatHistory', chatHistorySchema);
+
+// Ensure indexes are created on startup
+async function ensureIndexes() {
+  try {
+    // Ensure User indexes
+    await User.ensureIndexes();
+    console.log('User indexes ensured');
+
+    // Ensure ChatHistory indexes
+    await ChatHistory.ensureIndexes();
+    console.log('ChatHistory indexes ensured');
+  } catch (err) {
+    console.error('Error ensuring indexes:', err);
+    logger.error('Index creation failed', { error: err.message });
+  }
+}
+
+// Startup function with robust MongoDB connection and index creation
+async function startApp() {
+  try {
+    await pRetry(connectToMongoDB, {
+      retries: 5,
+      minTimeout: 2000,
+      onFailedAttempt: error => {
+        console.log(`MongoDB connection attempt ${error.attemptNumber} failed. Retrying...`);
+      }
+    });
+    await ensureIndexes();
+    console.log('Application started successfully');
+  } catch (err) {
+    console.error('Failed to start application:', err);
+    process.exit(1); // Exit process if startup fails
+  }
+}
+// Run Once to ensure index creation
+await startApp();
 
 // Routes
 app.post('/register', async (req, res) => {
@@ -219,7 +253,7 @@ app.post('/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = await User.create({ email, password: hashedPassword, history: [], activeTasks: [], customUrls: [] });
     req.session.user = newUser._id;
-    res.json({ success: true, userId: email }); 
+    res.json({ success: true, userId: email });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }
@@ -231,7 +265,7 @@ app.post('/login', async (req, res) => {
     const user = await User.findOne({ email });
     if (!user || !(await bcrypt.compare(password, user.password))) throw new Error('Invalid email or password');
     req.session.user = user._id;
-    res.json({ success: true, userId: email }); 
+    res.json({ success: true, userId: email });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }
@@ -241,8 +275,6 @@ app.get('/logout', (req, res) => {
   req.session.destroy((err) => {
     if (err) {
       console.error('Error destroying session:', err);
-      // Optionally, handle the error (e.g., redirect to an error page)
-      // For simplicity, we'll still proceed with the redirect
     }
     res.redirect('/login.html');
   });
@@ -253,7 +285,7 @@ app.get('/history', requireAuth, async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
-    const user = await User.findById(req.session.user);
+    const user = await User.findById(req.session.user).lean();
     if (!user) return res.status(401).json({ error: 'User not found' });
 
     const totalItems = user.history.length;
@@ -315,13 +347,19 @@ app.delete('/history', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/chat-history', requireAuth, async (req, res) => {
+app.get('/chat-history', async (req, res) => {
   try {
-    const chatHistory = await ChatHistory.findOne({ userId: req.session.user });
-    res.json({ messages: chatHistory ? chatHistory.messages : [] });
-  } catch (err) {
-    console.error('Error fetching chat history:', err);
-    res.status(500).json({ success: false, error: 'Failed to fetch chat history' });
+    if (mongoose.connection.readyState !== 1) {
+      throw new Error('Database not connected');
+    }
+    const chatHistory = await ChatHistory.findOne({ userId: req.session.user }).lean();
+    if (!chatHistory) {
+      return res.status(404).json({ error: 'Chat history not found' });
+    }
+    res.json(chatHistory);
+  } catch (error) {
+    console.error('Error fetching chat history:', error);
+    res.status(500).json({ error: 'Failed to fetch chat history' });
   }
 });
 
@@ -337,7 +375,7 @@ app.put('/tasks/:id/progress', requireAuth, async (req, res) => {
 
 app.get('/tasks/active', requireAuth, async (req, res) => {
   try {
-    const user = await User.findById(req.session.user);
+    const user = await User.findById(req.session.user).lean();
     const activeTasks = user.activeTasks.filter(task => ['pending', 'processing', 'canceled'].includes(task.status));
     res.json(activeTasks);
   } catch (err) {
@@ -351,7 +389,7 @@ app.get('/tasks/:id/stream', requireAuth, async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     const sendUpdate = async () => {
-      const user = await User.findById(req.session.user);
+      const user = await User.findById(req.session.user).lean();
       const task = user.activeTasks.find(t => t._id.toString() === req.params.id);
       if (!task) {
         const historyItem = user.history.find(h => h._id.toString() === req.params.id);
@@ -443,7 +481,7 @@ async function ensureElementVisible(page, selector) {
   const isVisible = await element.isIntersectingViewport();
   if (!isVisible) {
     await element.evaluate(el => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
-    await sleep(300);
+    await sleep(100);
   }
   return true;
 }
@@ -496,7 +534,7 @@ function sendWebSocketUpdate(userId, data) {
 }
 
 /**
- * Handle browser action commands
+ * Handle browser action commands with improved error handling and step tracking
  * @param {Object} args - Command arguments
  * @param {string} userId - User ID
  * @param {string} taskId - Task ID
@@ -504,7 +542,7 @@ function sendWebSocketUpdate(userId, data) {
  * @param {string} runDir - Run directory
  * @returns {Object} - Result object
  */
-async function handleBrowserAction(args, userId, taskId, runId, runDir) {
+async function handleBrowserAction(args, userId, taskId, runId, runDir, currentStep, stepDescription) {
   console.log(`[BrowserAction] Starting with args:`, args);
   const { command, url } = args;
   let task_id = args.task_id;
@@ -518,21 +556,51 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir) {
     if (task_id && activeBrowsers.has(task_id)) {
       console.log(`[BrowserAction] Reusing browser session ${task_id}`);
       ({ browser, agent, page } = activeBrowsers.get(task_id));
-    } else {
+      
+      // Verify browser is still valid/open
+      try {
+        await page.evaluate(() => true);
+      } catch (err) {
+        console.log(`[BrowserAction] Browser session invalid, creating new one`);
+        activeBrowsers.delete(task_id);
+        task_id = null;
+      }
+    } 
+    
+    // Create new browser if needed
+    if (!task_id || !activeBrowsers.has(task_id)) {
       if (!url) throw new Error("URL is required for new tasks");
       console.log(`[BrowserAction] Creating new browser session for URL: ${url}`);
-      const newTaskId = task_id || uuidv4();
-      browser = await puppeteerExtra.launch({
-        headless: false,
-        args: ["--no-sandbox", "--disable-setuid-sandbox", "--window-size=1080,768"],
-        timeout: 120000
-      });
+      const newTaskId = uuidv4();
+      
+      // Launch browser with retry mechanism
+      let launchAttempts = 0;
+      const maxLaunchAttempts = 3;
+      
+      while (launchAttempts < maxLaunchAttempts) {
+        try {
+          browser = await puppeteerExtra.launch({
+            headless: false,
+            args: ["--no-sandbox", "--disable-setuid-sandbox", "--window-size=1080,768"],
+            timeout: 120000
+          });
+          break;
+        } catch (err) {
+          launchAttempts++;
+          console.error(`[BrowserAction] Browser launch failed (attempt ${launchAttempts}):`, err);
+          if (launchAttempts >= maxLaunchAttempts) throw err;
+          await new Promise(resolve => setTimeout(resolve, 5000));
+        }
+      }
+      
       page = await browser.newPage();
       await page.setViewport({ 
         width: 1080, 
         height: 768, 
         deviceScaleFactor: process.platform === "darwin" ? 2 : 1 
       });
+      
+      // Navigate to URL with retry mechanism
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           console.log(`[BrowserAction] Navigating to ${url} (attempt ${attempt})`);
@@ -543,6 +611,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir) {
           await new Promise(resolve => setTimeout(resolve, 5000));
         }
       }
+      
       agent = new PuppeteerAgent(page, {
         provider: 'huggingface',
         apiKey: process.env.HF_API_KEY,
@@ -552,18 +621,21 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir) {
         planningTimeout: 180000,
         maxPlanningRetries: 4
       });
+      
       activeBrowsers.set(newTaskId, { browser, agent, page });
       task_id = newTaskId;
     }
 
-    // Update task status in database
-    await updateTaskInDatabase(userId, taskId, {
+    // Send progress update
+    sendWebSocketUpdate(userId, {
+      event: 'stepProgress',
+      taskId,
       status: 'processing',
-      progress: 50,
-      lastAction: command
+      progress: 30,
+      message: `Preparing to execute: ${command}`
     });
 
-    // Task preparation in try-catch
+    // Handle potential overlays or obstacles
     try {
       const preparationSuccessful = await handleTaskPreparation(page, agent);
       console.log("[Midscene] Task preparation status:", preparationSuccessful);
@@ -571,49 +643,63 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir) {
       console.error("[Midscene] Preparation skipped - Error during task preparation:", error);
     }
 
-    // Ensure element visibility (assuming command might include a selector)
-    // For simplicity, we'll assume agent.aiAction handles selector identification
-    // If a specific selector is needed, pass it via args and use ensureElementVisible here
+    // Send progress update
+    sendWebSocketUpdate(userId, {
+      event: 'stepProgress',
+      taskId,
+      status: 'processing',
+      progress: 50,
+      message: `Executing: ${command}`
+    });
 
     // Execute the action
     console.log(`[BrowserAction] Executing command: ${command}`);
     await agent.aiAction(command);
+    
+    // Wait a moment for any page changes to settle
+    await sleep(200);
+    
     // Capture screenshot
     const screenshot = await page.screenshot({ encoding: 'base64' });
     const screenshotPath = path.join(runDir, `screenshot-${Date.now()}.png`);
     fs.writeFileSync(screenshotPath, Buffer.from(screenshot, 'base64'));
 
-    // Verify outcome with handleTaskFinality
-    const finalityStatus = await handleTaskFinality(page, agent, command);
-    const isSuccess = finalityStatus.status_type === 'success';
-    let actionResult = 'Action completed';
+    // Send progress update
+    sendWebSocketUpdate(userId, {
+      event: 'stepProgress',
+      taskId,
+      status: 'processing',
+      progress: 80,
+      message: `Verifying result of: ${command}`
+    });
 
+    // Verify outcome
+    const finalityStatus = await handleTaskFinality(currentStep, page, agent, command, stepDescription);
+    console.log("[Midscene] Task finality status:", finalityStatus);
+    
     // Get current page state
     const currentUrl = await page.url();
     const pageTitle = await page.title();
 
     // Create result with verification
     const result = {
-      success: isSuccess,
+      success: true,
       currentUrl,
       pageTitle,
-      actionOutput: actionResult || "No output returned",
+      actionOutput: `Browser action completed for ${currentStep}, breakdown below.`,
       timestamp: new Date().toISOString(),
       type: "action",
-      summary: isSuccess ? `Performed: ${command}` : `Failed: ${command}`,
-      finalityStatus
+      command: command,
+      summary: `Step completed, here's an overall breakdown of where we now stand with executing the step list: ${finalityStatus}`,
     };
 
-    // Update task progress in database
-    await addIntermediateResult(userId, taskId, result);
-
-    // Send WebSocket update with milestone
+    // Send final progress update
     sendWebSocketUpdate(userId, {
-      event: 'taskUpdate',
+      event: 'stepProgress',
       taskId,
       status: 'processing',
-      progress: 60,
-      milestone: isSuccess ? 'Action completed successfully' : 'Action failed'
+      progress: 100,
+      message: isSuccess ? 'Action completed successfully' : 'Action may not have completed as expected'
     });
 
     return {
@@ -624,17 +710,35 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir) {
     };
   } catch (error) {
     console.error(`[BrowserAction] Error:`, error);
+    
+    // Try to get a screenshot of the error state if possible
+    let screenshot, screenshotPath;
+    try {
+      if (page) {
+        screenshot = await page.screenshot({ encoding: 'base64' });
+        screenshotPath = path.join(runDir, `error-screenshot-${Date.now()}.png`);
+        fs.writeFileSync(screenshotPath, Buffer.from(screenshot, 'base64'));
+        screenshotPath = `/midscene_run/${runId}/${path.basename(screenshotPath)}`;
+      }
+    } catch (ssError) {
+      console.error("[BrowserAction] Could not capture error screenshot:", ssError);
+    }
+    
     return {
       task_id,
       error: error.message,
       errorStack: error.stack,
-      success: false
+      success: false,
+      screenshot,
+      screenshotPath,
+      timestamp: new Date().toISOString(),
+      command: command
     };
   }
 }
 
 /**
- * Handle browser query commands
+ * Handle browser query commands with improved error handling and step tracking
  * @param {Object} args - Query arguments
  * @param {string} userId - User ID
  * @param {string} taskId - Task ID
@@ -642,7 +746,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir) {
  * @param {string} runDir - Run directory
  * @returns {Object} - Result object
  */
-async function handleBrowserQuery(args, userId, taskId, runId, runDir) {
+async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentStep, stepDescription) {
   console.log(`[BrowserQuery] Starting with args:`, args);
   let { query, url, task_id } = args;
   let browser, agent, page;
@@ -655,21 +759,51 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir) {
     if (task_id && activeBrowsers.has(task_id)) {
       console.log(`[BrowserQuery] Reusing browser session ${task_id}`);
       ({ browser, agent, page } = activeBrowsers.get(task_id));
-    } else {
+      
+      // Verify browser is still valid/open
+      try {
+        await page.evaluate(() => true);
+      } catch (err) {
+        console.log(`[BrowserQuery] Browser session invalid, creating new one`);
+        activeBrowsers.delete(task_id);
+        task_id = null;
+      }
+    }
+    
+    // Create new browser if needed
+    if (!task_id || !activeBrowsers.has(task_id)) {
       if (!url) throw new Error("URL is required for new tasks");
       console.log(`[BrowserQuery] Creating new browser session for URL: ${url}`);
-      const newTaskId = task_id || uuidv4();
-      browser = await puppeteerExtra.launch({
-        headless: false,
-        args: ["--no-sandbox", "--disable-setuid-sandbox", "--window-size=1080,768"],
-        timeout: 120000
-      });
+      const newTaskId = uuidv4();
+      
+      // Launch browser with retry mechanism
+      let launchAttempts = 0;
+      const maxLaunchAttempts = 3;
+      
+      while (launchAttempts < maxLaunchAttempts) {
+        try {
+          browser = await puppeteerExtra.launch({
+            headless: false,
+            args: ["--no-sandbox", "--disable-setuid-sandbox", "--window-size=1080,768"],
+            timeout: 120000
+          });
+          break;
+        } catch (err) {
+          launchAttempts++;
+          console.error(`[BrowserQuery] Browser launch failed (attempt ${launchAttempts}):`, err);
+          if (launchAttempts >= maxLaunchAttempts) throw err;
+          await new Promise(resolve => setTimeout(resolve, 5000));
+        }
+      }
+      
       page = await browser.newPage();
       await page.setViewport({ 
         width: 1080, 
-        height: 768, 
+        height: 768,
         deviceScaleFactor: process.platform === "darwin" ? 2 : 1 
       });
+      
+      // Navigate to URL with retry mechanism
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           console.log(`[BrowserQuery] Navigating to ${url} (attempt ${attempt})`);
@@ -680,6 +814,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir) {
           await new Promise(resolve => setTimeout(resolve, 5000));
         }
       }
+      
       agent = new PuppeteerAgent(page, {
         provider: 'huggingface',
         apiKey: process.env.HF_API_KEY,
@@ -689,65 +824,80 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir) {
         planningTimeout: 300000,
         maxPlanningRetries: 4
       });
+      
       activeBrowsers.set(newTaskId, { browser, agent, page });
       task_id = newTaskId;
     }
 
-    // Update task status in database
-    await updateTaskInDatabase(userId, taskId, {
+    // Send progress update before execution
+    sendWebSocketUpdate(userId, {
+      event: 'stepProgress',
+      taskId,
       status: 'processing',
-      progress: 50,
-      lastQuery: query
+      progress: 30,
+      message: `Preparing to query: ${query}`
     });
 
-    // Task preparation in try-catch
-    try {
-      const preparationSuccessful = await handleTaskPreparation(page, agent);
-      console.log("[Midscene] Task preparation status:", preparationSuccessful);
-    } catch (error) {
-      console.error("[Midscene] Preparation skipped - Error during task preparation:", error);
-    }
+    // Update task status in database
+    await User.updateOne(
+      { _id: userId, 'activeTasks._id': taskId },
+      { 
+        $set: { 
+          'activeTasks.$.lastQuery': query,
+          'activeTasks.$.status': 'processing'
+        } 
+      }
+    );
 
-    // Modify the query to ensure comprehensive extraction and sorting by review stars
+    // Execute the query
     console.log(`[BrowserQuery] Executing query: ${query}`);
     const queryResult = await agent.aiQuery(query);
     console.log(`[BrowserQuery] Query result:`, queryResult);
+
+    // Send progress update after execution
+    sendWebSocketUpdate(userId, {
+      event: 'stepProgress',
+      taskId,
+      status: 'processing',
+      progress: 70,
+      message: `Query executed, capturing screenshot`
+    });
 
     // Capture screenshot
     const screenshot = await page.screenshot({ encoding: 'base64' });
     const screenshotPath = path.join(runDir, `screenshot-${Date.now()}.png`);
     fs.writeFileSync(screenshotPath, Buffer.from(screenshot, 'base64'));
 
-    // Verify outcome with handleTaskFinality
-    const finalityStatus = await handleTaskFinality(page, agent, query);
-    const isSuccess = finalityStatus.status_type === 'success';
-
+    // Verify outcome
+    const finalityStatus = await handleTaskFinality(currentStep, page, agent, command, stepDescription);
+    console.log("[Midscene] Task finality status:", finalityStatus);
+    
     // Get current page state
     const currentUrl = await page.url();
     const pageTitle = await page.title();
 
     // Create result with verification
     const result = {
-      success: isSuccess,
+      success: true,
       currentUrl,
       pageTitle,
-      queryOutput: queryResult || "No output returned",
+      queryOutput: `Browser query completed for ${currentStep}, breakdown below.`,
       timestamp: new Date().toISOString(),
       type: "query",
-      summary: isSuccess ? `Queried: ${query}` : `Failed: ${query}`,
-      finalityStatus
+      query: query,
+      summary: `Step completed, here's an overall breakdown of where we now stand with executing the step list: ${finalityStatus}`,
     };
 
-    // Update task progress in database
+    // Save intermediate result to database
     await addIntermediateResult(userId, taskId, result);
 
-    // Send WebSocket update with milestone
+    // Send final progress update
     sendWebSocketUpdate(userId, {
-      event: 'taskUpdate',
+      event: 'stepProgress',
       taskId,
       status: 'processing',
-      progress: 60,
-      milestone: isSuccess ? 'Query completed successfully' : 'Query failed'
+      progress: 100,
+      message: 'Query completed successfully'
     });
 
     return {
@@ -758,133 +908,43 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir) {
     };
   } catch (error) {
     console.error(`[BrowserQuery] Error:`, error);
-    return {
+    
+    // Attempt to capture error screenshot
+    let screenshot, screenshotPath;
+    try {
+      if (page) {
+        screenshot = await page.screenshot({ encoding: 'base64' });
+        screenshotPath = path.join(runDir, `error-screenshot-${Date.now()}.png`);
+        fs.writeFileSync(screenshotPath, Buffer.from(screenshot, 'base64'));
+        screenshotPath = `/midscene_run/${runId}/${path.basename(screenshotPath)}`;
+      }
+    } catch (ssError) {
+      console.error("[BrowserQuery] Could not capture error screenshot:", ssError);
+    }
+
+    // Create error result
+    const errorResult = {
       task_id,
       error: error.message,
       errorStack: error.stack,
-      success: false
+      success: false,
+      screenshot,
+      screenshotPath,
+      timestamp: new Date().toISOString(),
+      query: query
     };
-  }
-}
 
-async function handleTaskFinality(page, agent, commandOrQuery) {
-  const screenshot = await page.screenshot({ encoding: 'base64' });
-  const currentUrl = await page.url();
+    // Save error result to database
+    await addIntermediateResult(userId, taskId, errorResult);
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o",
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: `You are a web agent specialized in verifying automated browsing results. 
-Your job is to supervise automated browsing agents to ensure they landed on the right page area for the task. 
-You check the user intent, then the screen information and URL. If the screenshot and URL show the agent landed on the intended page to execute the task, return status_type=success. 
-If not, return status_type=failed and give a reason. If unsure, return status_type=none. Do not guess.`,
-          },
-          {
-            type: "image_url",
-            image_url: { url: `data:image/png;base64,${screenshot}` },
-          },
-          {
-            type: "text",
-            text: `User intent: ${commandOrQuery}\nCurrent URL: ${currentUrl}`,
-          },
-        ],
-      },
-    ],
-    max_tokens: 200,
-  });
-
-  const analysis = response.choices[0].message.content.toLowerCase();
-  const status_type = analysis.includes('success') ? 'success' : analysis.includes('failed') ? 'failed' : 'none';
-  return { status_type, reason: analysis };
-}
-
-// Utility to extract or generate URL from prompt
-async function getUrlFromPrompt(prompt, providedUrl = null) {
-  // Use providedUrl if available
-  if (providedUrl) {
-    return providedUrl;
-  }
-
-  // Try to extract a URL from the prompt using regex
-  const urlRegex = /(https?:\/\/[^\s]+)/g;
-  const matches = prompt.match(urlRegex);
-  if (matches && matches.length > 0) {
-    return matches[0]; // Return the first URL found
-  }
-
-  // If no URL is found, infer one
-  return await inferUrlFromPrompt(prompt);
-}
-
-async function inferUrlFromPrompt(prompt) {
-  try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [
-        {
-          role: "system",
-          content: `You are a URL generation specialist for web automation tasks. Based on the user's prompt, infer the most appropriate URL. You have knowledge of URLs for a vast range of websites and services—far beyond the examples provided. The list of common URLs is **not exhaustive**; it serves only as a guide to help you understand URL formats and structures. Your task is to generate accurate URLs for **any website** mentioned in the prompt, even if it’s not listed below.
-
-**Common URLs (Examples Only):**
-** Here’s a broad selection of websites across multiple categories, formatted for easy reference:**
-Shopping:
-Amazon: https://www.amazon.com, Walmart: https://www.walmart.com, Target: https://www.target.com, Best Buy: https://www.bestbuy.com, eBay: https://www.ebay.com, Etsy: https://www.etsy.com, Alibaba: https://www.alibaba.com, AliExpress: https://www.aliexpress.com, Taobao: https://www.taobao.com, JD.com: https://www.jd.com, Tmall: https://www.tmall.com, Shein: https://www.shein.com, Fashion Nova: https://www.fashionnova.com, Boohoo: https://www.boohoo.com, Newegg: https://www.newegg.com, B&H Photo Video: https://www.bhphotovideo.com
-
-Social Media:
-Twitter: https://twitter.com, Facebook: https://www.facebook.com, Instagram: https://www.instagram.com, Snapchat: https://www.snapchat.com, TikTok: https://www.tiktok.com, Pinterest: https://www.pinterest.com, Tumblr: https://www.tumblr.com, Weibo: https://www.weibo.com, LinkedIn: https://www.linkedin.com
-
-Cryptocurrency:
-CoinGecko: https://www.coingecko.com, CryptoCompare: https://www.cryptocompare.com, CoinMarketCap: https://coinmarketcap.com, Coinbase: https://www.coinbase.com/explore, Binance: https://www.binance.com, Kucoin: https://www.kucoin.com, Dexscreener: https://dexscreener.com, Kraken: https://www.kraken.com, Bitfinex: https://www.bitfinex.com, Gemini: https://www.gemini.com, MetaMask: https://metamask.io, Trust Wallet: https://trustwallet.com, SushiSwap: https://sushi.com, PancakeSwap: https://pancakeswap.finance
-
-News:
-CNN: https://www.cnn.com, BBC: https://www.bbc.com, The New York Times: https://www.nytimes.com, The Guardian: https://www.theguardian.com, Al Jazeera: https://www.aljazeera.com
-
-Entertainment:
-YouTube: https://www.youtube.com, Netflix: https://www.netflix.com, Hulu: https://www.hulu.com, Disney+: https://www.disneyplus.com, Twitch: https://www.twitch.tv, Steam: https://store.steampowered.com, Epic Games: https://www.epicgames.com
-
-Food Delivery:
-Grubhub: https://www.grubhub.com, Postmates: https://postmates.com, Deliveroo: https://deliveroo.co.uk
-
-Travel:
-Booking.com: https://www.booking.com, Expedia: https://www.expedia.com, Airbnb: https://www.airbnb.com, TripAdvisor: https://www.tripadvisor.com
-
-Education:
-Coursera: https://www.coursera.org, Udemy: https://www.udemy.com, Khan Academy: https://www.khanacademy.org, edX: https://www.edx.org
-
-Health:
-WebMD: https://www.webmd.com, Mayo Clinic: https://www.mayoclinic.org, Healthline: https://www.healthline.com, Teladoc: https://www.teladoc.com
-
-General/Other:
-Google: https://www.google.com, Reddit: https://www.reddit.com, Wikipedia: https://www.wikipedia.org, GitHub: https://github.com
-
-
-
-**Instructions:**
-- Return a single URL string (e.g., "https://www.amazon.com").
-- If the prompt mentions a specific website, return its URL (e.g., "visit Amazon" → "https://www.amazon.com").
-- If the prompt implies a search on a specific website, use your knowledge to generate the appropriate search URL for that site. For example, "search for BTC on CoinGecko" → "https://www.coingecko.com/en/search?query=BTC".
-- If the prompt requests a specific page or action on a website, generate a direct URL for that page or action. For example, "open a Bitcoin chart and check the price" → "https://www.coinbase.com/price/bitcoin".
-- For websites not in the examples, use your expertise as a URL specialist to generate the correct URL. If unsure, assume a standard format like "https://www.[sitename].com" and replace "[sitename]" with the website name from the prompt (e.g., "visit New York Times" → "https://www.nytimes.com").
-- If the prompt implies a general search without specifying a website (e.g., "find dog videos"), return "https://www.google.com/search?q=<query>".
-- Default to "https://www.google.com" if no clear intent is detected.
-- Leverage your extensive knowledge of website structures to create URLs for any site, including search URLs or specific pages, even if not explicitly listed. For reference, some search URL patterns include:
-  - Amazon: https://www.amazon.com/s?k=<query>
-  - YouTube: https://www.youtube.com/results?search_query=<query>
-  - CoinGecko: https://www.coingecko.com/en/search?query=<query>`
-        },
-        { role: "user", content: prompt }
-      ],
-      temperature: 0.3,
+    // Send error update
+    sendWebSocketUpdate(userId, {
+      event: 'stepError',
+      taskId,
+      error: error.message
     });
-    return response.choices[0].message.content.trim();
-  } catch (error) {
-    console.error("[Error] Failed to infer URL from prompt:", error);
-    return "https://www.google.com"; // Default fallback
+
+    return errorResult;
   }
 }
 
@@ -1129,6 +1189,29 @@ async function addIntermediateResult(userId, taskId, result) {
   }
 }
 
+
+async function handleTaskFinality(page, agent, commandOrQuery) {
+  const screenshot = await page.screenshot({ encoding: 'base64' });
+  const currentUrl = await page.url();
+  // TODO - Lose the openAI, use a VLM like UTars by calling agent.aiQuery to extract information from the page.
+  // instructions: "aiQuery was executing this command, the last info we saved was this ${lastStepData}, and the current page info is this ${currentUrl}, and the command is this ${commandOrQuery}. Now, look at the current page and extract key main content info relevant to achieveing the "main command" not current step command and extract it.
+  // start the response with: progresseed or unprogressed marker, then the page info
+
+  // we want to keep a mapping of page info so this function always has a reference for last info for last step, and then can compare it with the current page info to determine if the agent has progressed.
+  // map entry example: { step: "1", step 3 result - progressed, data - page now shows iphone 15 pro $2200, iphone 15 $800, iphone 14 Pro $750
+  // .... its should prepare the current step map entry after extracting info from page in a similar format. find a good format not exactly what i did above
+  // This function is supposed to be passed the main user command, and the current step command
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [    ],
+    max_tokens: 200,
+  });
+
+  const analysis = response.choices[0].message.content.toLowerCase();
+  return {  };
+}
+
 /**
  * Process task completion and generate reports
  * @param {string} userId - User ID
@@ -1195,9 +1278,6 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
       console.warn(`[TaskCompletion] No agent available to generate Midscene SDK report`);
     }
 
-    // Determine completion status
-    const completionStatus = await determineCompletionStatus(originalPrompt, intermediateResults);
-
     // Include the last URL visited in finalResult to fix history card URL display
     // Extract the last currentUrl from intermediateResults
     const lastResult = intermediateResults[intermediateResults.length - 1];
@@ -1205,14 +1285,13 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
 
     // Ensure final AI-prepared summary is included in finalResult for NLI output
     const finalResult = {
-      success: completionStatus.isSuccess,
+      success: true,
       intermediateResults,
       finalScreenshotPath: finalScreenshotPath ? `/midscene_run/${runId}/${path.basename(finalScreenshotPath)}` : null,
       landingReportUrl: landingReportPath ? `/midscene_run/report/${path.basename(landingReportPath)}` : null,
       midsceneReportUrl,
-      summary: completionStatus.summary || "Task execution completed",
+      summary: lastResult || "Task execution completed",
       url: url, // Added for history card URL display
-      aiPrepared: { summary: completionStatus.summary || "Task execution completed" } // Ensure AI summary is included
     };
 
     console.log(`[TaskCompletion] Task completed with status: ${finalResult.success ? 'success' : 'partial success'}`);
@@ -1630,7 +1709,7 @@ async function editMidsceneReport(midsceneReportPath) {
 }
 
 /**
- * Main NLI endpoint handler
+ * Main NLI endpoint handler with improved step processing
  */
 app.post('/nli', requireAuth, async (req, res) => {
   const { prompt, url } = req.body;
@@ -1673,19 +1752,33 @@ app.post('/nli', requireAuth, async (req, res) => {
     return res.status(500).json({ success: false, error: 'Database error' });
   }
 
+  // Immediately respond to client with task info
   res.json({ success: true, taskId, runId });
 
-  (async () => {
+  // Start task processing in background
+  processTask(userId, userEmail, taskId, runId, runDir, prompt, url);
+});
+
+/**
+ * Process an NLI task by planning steps and executing them sequentially
+ */
+async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url) {
+  let activeBrowserId = null;
+  let intermediateResults = [];
+  let currentStepIndex = 0;
+  
+  try {
+    // Get relevant chat history for context
     const chatHistory = await ChatHistory.findOne({ userId });
     let recentMessages = [];
     if (chatHistory) {
       recentMessages = chatHistory.messages.slice(-5);
     }
 
-    let messages = [
-      {
-        role: "system",
-        content: `
+    // Initial system message
+    const systemMessage = {
+      role: "system",
+      content: `
 You are an advanced AI task automation assistant. Your purpose is to help users complete complex tasks by breaking them down into manageable steps and executing them sequentially.
 
 GUIDELINES:
@@ -1702,9 +1795,9 @@ CAPABILITIES:
 - You make decisions based on function results to determine next steps.
 
 FUNCTIONS AVAILABLE:
-- browser_action: Execute actions on websites (clicking, typing, navigating, scrolling) - no information is returned.
-- browser_query: Extract information from websites whilst navigating/scrolling - information is returned in the response.
-- You must always start with one of these functions - direct responses are not helpful.
+- browser_action: Execute actions on websites (clicking, typing, navigating, scrolling)
+- browser_query: Extract information from websites
+- You must always start with creating a step-by-step plan and then execute each step.
 
 TASK EXECUTION STRATEGY:
 1. After receiving the original request, outline a plan with numbered steps.
@@ -1714,7 +1807,7 @@ TASK EXECUTION STRATEGY:
 5. If 10 function calls are reached, summarize progress and return a status update.
 6. Summarize the steps accomplished only. But when it comes to data requested or crucial to the users ask, you must detail the key information for depth and clarity, with maximum focus on key data like prices, names, dates, reviews, users, etc.
 7. For browser_action and browser_query, if a URL is provided in the user prompt or context, include it in the function call under the 'url' parameter for new tasks. If continuing a previous task, use the 'task_id' parameter instead.
-8. You can switch between aiAction to navigate to correct page and section, then switch to aiQuery to extract information, then use that information to call aiAction again to do another action based on the new info you have. aiAction does not return data its for actions only. aiQuery can do limited navigation and exctract all the data - its best to call it when on the page required and the next step is extracting info.
+8. You can switch between browser_action to navigate to correct page and section, then switch to browser_query to extract information, then use that information to call browser_action again to do another action based on the new info you have. browser_action does not return data its for actions only. browser_query can do limited navigation and exctract all the data - its best to call it when on the page required and the next step is extracting info.
 
 TIPS:
 - If stuck on a page with a popup, or capture try solve the CAPTCHA, Challenge, Accept Cookies - instruct the agent through a browser_action or browser_query call to close the overlay in the next step by pressing Esc key on keyboard. If its a Cookies overlay instruct it to accept cookies.
@@ -1722,7 +1815,7 @@ TIPS:
 - If a step fails, try a different approach or rephrase the query.
 
 ERROR HANDLING:
-- If an element isn’t found, try alternative selectors or wait 5 seconds and retry.
+- If an element isn't found, try alternative selectors or wait 5 seconds and retry.
 - If a query returns no data, verify the page has loaded or rephrase the query.
 - If navigation fails, check the URL and retry.
 - If information is not fully visible on page scroll down to look for information required.
@@ -1731,283 +1824,405 @@ ERROR HANDLING:
 
 Always reference the original request to ensure you're making progress toward the user's goal.
 ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_action or browser_query calls when starting a new task.` : ''}
-        `
-      },
-      ...recentMessages,
-      { role: "user", content: prompt }
-    ];
+      `
+    };
 
-    let lastTaskId = null;
-    let intermediateResults = [];
-    let stepCount = 0;
-    const MAX_STEPS = 10;
-    const MAX_RETRIES = 3;
+    // First, get LLM to plan the steps
+    console.log(`[NLI] Planning steps for task: ${taskId}`);
+    const planResponse = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        systemMessage,
+        ...recentMessages,
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.2,
+      max_tokens: 1000
+    });
 
-    async function withRetry(operation, description) {
-      return pRetry(async () => {
-        try {
-          return await operation();
-        } catch (error) {
-          console.error(`[NLI] ${description} failed:`, error);
-          throw error;
-        }
-      }, {
-        retries: MAX_RETRIES,
-        minTimeout: 1000,
-        factor: 2,
-        onFailedAttempt: (error) => {
-          console.log(`[NLI] Retry attempt ${error.attemptNumber} for ${description}: ${error.message}`);
-        }
-      });
+    const planContent = planResponse.choices[0].message.content;
+    console.log(`[NLI] Task plan: ${planContent}`);
+    
+    // Extract steps from the plan
+    const stepMatches = planContent.match(/\d+\.\s*(.*?)(?=\n\d+\.|\n*$)/gs) || [];
+    const steps = stepMatches.map(step => step.trim().replace(/^\d+\.\s*/, ''));
+    
+    if (steps.length === 0) {
+      throw new Error("Could not parse steps from the plan");
     }
 
-    try {
-      while (stepCount < MAX_STEPS) {
-        console.log(`[NLI] Processing step ${stepCount + 1}`);
-        const response = await withRetry(() => openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages,
-          max_tokens: 300,
-          temperature: 0.2,
-          top_p: 0.8,
-          frequency_penalty: 0.5,
-          presence_penalty: 0,
-          n: 1,
-          functions: [
-            {
-              name: "browser_action",
-              description: "Perform an action on a web page. Provide 'url' for new tasks or 'task_id' to continue.",
-              parameters: {
-                type: "object",
-                properties: {
-                  command: { type: "string", description: "Action to perform (e.g., 'search for cats on Google' or 'Scroll down and look for Solana then click it' or 'press Esc key on page through browser_action')" },
-                  url: { type: "string", description: "URL for new tasks" },
-                  task_id: { type: "string", description: "ID of an existing task" }
-                },
-                required: ["command"]
-              }
-            },
-            {
-              name: "browser_query",
-              description: "Query info from a web page. Provide 'url' for new tasks or 'task_id' to continue.",
-              parameters: {
-                type: "object",
-                properties: {
-                  query: { type: "string", description: "Info to extract (e.g., 'get the top search result')" },
-                  url: { type: "string", description: "URL for new tasks" },
-                  task_id: { type: "string", description: "ID of an existing task" }
-                },
-                required: ["query"]
-              }
-            },
-            {
-              name: "desktop_action",
-              description: "Perfom computer operations on windows or mac os. Open apps, use and nagivate apps, save and close apps. Control mouse and keyboard actions; mouse move, scroll, click, drag and drop, tap, type, etc.",
-              parameters: {
-                type: "object",
-                properties: {
-                  command: { type: "string", description: "Action to perfom on the computer (e.g., 'open excel, create a list of numbers from 1 to 10, with 2 columns (Token & Contract Address), and 10 rows, and save it in a text file, close the file.)" },
-                  task_id: { type: "string", description: "ID of an existing task" }
-                },
-                required: ["command"]
-              }
+    // Store the plan in the database and notify the user
+    await User.updateOne(
+      { _id: userId, 'activeTasks._id': taskId },
+      { 
+        $set: { 
+          'activeTasks.$.plan': planContent,
+          'activeTasks.$.steps': steps,
+          'activeTasks.$.totalSteps': steps.length,
+          'activeTasks.$.currentStep': 0,
+          'activeTasks.$.status': 'processing'
+        } 
+      }
+    );
+
+    // Send initial plan to client
+    sendWebSocketUpdate(userEmail, {
+      event: 'taskPlan',
+      taskId,
+      plan: planContent,
+      steps: steps,
+      totalSteps: steps.length
+    });
+
+    // Initialize messages array with system message and user prompt
+    let messages = [
+      systemMessage,
+      ...recentMessages,
+      { role: "user", content: prompt },
+      { role: "assistant", content: planContent }
+    ];
+
+    // Process each step
+    const MAX_STEPS = 10;
+    const actualSteps = Math.min(steps.length, MAX_STEPS);
+    
+    for (let i = 0; i < actualSteps; i++) {
+      currentStepIndex = i;
+      const stepDescription = steps[i];
+      console.log(`[NLI] Processing step ${i + 1}/${actualSteps}: ${stepDescription}`);
+      
+      // Update database and notify client that we're starting this step
+      await User.updateOne(
+        { _id: userId, 'activeTasks._id': taskId },
+        { 
+          $set: { 
+            'activeTasks.$.currentStep': i,
+            'activeTasks.$.progress': Math.floor((i / actualSteps) * 100),
+            'activeTasks.$.currentStepDescription': stepDescription
+          } 
+        }
+      );
+      
+      // Notify user of current step being processed (before execution)
+      sendWebSocketUpdate(userEmail, {
+        event: 'stepStart',
+        taskId,
+        stepIndex: i,
+        stepDescription: stepDescription,
+        progress: Math.floor((i / actualSteps) * 100)
+      });
+
+      // Get the LLM to determine the function to call for this step
+      const stepFunctionResponse = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          ...messages,
+          { 
+            role: "user", 
+            content: `Now execute step ${i + 1}: ${stepDescription}. Based on the current state and this step, determine whether to use browser_action or browser_query and what parameters to use. If this is the first step and we need a URL, use the URL provided: ${url || "No URL was provided, you'll need to determine an appropriate starting URL."}. If we're continuing from a previous step, use the task_id from the previous step: ${activeBrowserId || "No previous browser session exists yet."}`
+          }
+        ],
+        max_tokens: 300,
+        temperature: 0.2,
+        functions: [
+          {
+            name: "browser_action",
+            description: "Perform an action on a web page. Provide 'url' for new tasks or 'task_id' to continue.",
+            parameters: {
+              type: "object",
+              properties: {
+                command: { type: "string", description: "Action to perform (e.g., 'search for cats on Google' or 'Scroll down and look for Solana then click it' or 'press Esc key on page through browser_action')" },
+                url: { type: "string", description: "URL for new tasks" },
+                task_id: { type: "string", description: "ID of an existing task" }
+              },
+              required: ["command"]
             }
-          ],
-          function_call: "auto"
-        }), "OpenAI API call");
-
-        const assistantMessage = response.choices[0].message;
-        console.log('[AI Message]', assistantMessage);
-
-        if (assistantMessage.function_call) {
-          const functionName = assistantMessage.function_call.name;
-          let args = JSON.parse(assistantMessage.function_call.arguments);
-
-          if (url && !args.url && !args.task_id) {
-            args.url = url;
-          }
-
-          sendWebSocketUpdate(userEmail, { // Use userEmail instead of userId
-            event: 'taskUpdate',
-            taskId,
-            status: 'processing',
-            progress: stepCount * 10 + 10,
-            milestone: `Executing step ${stepCount + 1}: ${functionName}`,
-            subTask: true
-          });
-
-          let functionResult;
-          try {
-            console.log(`[NLI] Executing ${functionName} with args:`, args);
-            if (functionName === "browser_action") {
-              functionResult = await withRetry(() => handleBrowserAction(args, userId, taskId, runId, runDir), "browser_action");
-            } else if (functionName === "browser_query") {
-              functionResult = await withRetry(() => handleBrowserQuery(args, userId, taskId, runId, runDir), "browser_query");
-            } else if (functionName === "desktop_action") {
-              functionResult = await withRetry(() => handleDesktopAction(args.command), "desktop_action");
-            } else {
-              functionResult = { error: "Unknown function" };
+          },
+          {
+            name: "browser_query",
+            description: "Query info from a web page. Provide 'url' for new tasks or 'task_id' to continue.",
+            parameters: {
+              type: "object",
+              properties: {
+                query: { type: "string", description: "Info to extract (e.g., 'get the top search result')" },
+                url: { type: "string", description: "URL for new tasks" },
+                task_id: { type: "string", description: "ID of an existing task" }
+              },
+              required: ["query"]
             }
-
-            if (functionResult.task_id) lastTaskId = functionResult.task_id;
-            intermediateResults.push(functionResult);
-
-            sendWebSocketUpdate(userEmail, {
-              event: 'intermediateResult',
-              taskId,
-              result: functionResult,
-              subTask: true
-            });
-
-            sendWebSocketUpdate(userEmail, {
-              event: 'taskUpdate',
-              taskId,
-              status: 'processing',
-              progress: stepCount * 10 + 20,
-              milestone: `Step ${stepCount + 1} completed`,
-              subTask: true
-            });
-          } catch (error) {
-            console.error(`[NLI] Function execution error after retries:`, error);
-            functionResult = { error: error.message, errorStack: error.stack };
-            intermediateResults.push(functionResult);
-            sendWebSocketUpdate(userEmail, {
-              event: 'intermediateResult',
-              taskId,
-              result: functionResult,
-              subTask: true
-            });
           }
+        ],
+        function_call: "auto"
+      });
 
-          messages.push({
-            role: "assistant",
-            content: null,
-            function_call: { name: functionName, arguments: JSON.stringify(args) }
-          });
-          messages.push({
-            role: "function",
-            name: functionName,
-            content: JSON.stringify(cleanFunctionResult(functionResult))
-          });
+      const functionMessage = stepFunctionResponse.choices[0].message;
+      if (!functionMessage.function_call) {
+        console.log(`[NLI] No function call for step ${i + 1}, continuing with next step`);
+        continue;
+      }
 
-          stepCount++;
-        } else {
-          console.log(`[NLI] Task complete, generating summary`);
-          const stream = await withRetry(() => openai.chat.completions.create({
-            model: "gpt-4o",
-            messages,
-            stream: true,
-            max_tokens: 1000,
-            temperature: 0.2,
-            top_p: 0.8,
-            frequency_penalty: 0.5,
-            presence_penalty: 0
-          }), "Streaming final response");
-
-          let finalMessage = '';
-          let isStreaming = true;
-          for await (const chunk of stream) {
-            const content = chunk.choices[0]?.delta?.content || '';
-            finalMessage += content;
-            sendWebSocketUpdate(userEmail, {
-              event: 'intermediateResult',
-              taskId,
-              result: { chunk: content },
-              subTask: false,
-              streaming: isStreaming
-            });
-          }
-          isStreaming = false;
-          sendWebSocketUpdate(userEmail, {
-            event: 'intermediateResult',
-            taskId,
-            result: { chunk: 'Stream ended' },
-            subTask: false,
-            streaming: isStreaming
-          });
-
-          const finalResult = await processTaskCompletion(userId, taskId, intermediateResults, prompt, runDir, runId);
-          finalResult.aiPrepared = { summary: finalMessage };
-
-          sendWebSocketUpdate(userEmail, {
-            event: 'taskComplete',
-            taskId,
-            status: 'completed',
-            result: finalResult
-          });
-
-          await User.updateOne(
-            { _id: userId, 'activeTasks._id': taskId },
-            {
-              $set: {
-                'activeTasks.$.status': 'completed',
-                'activeTasks.$.progress': 100,
-                'activeTasks.$.result': finalResult,
-                'activeTasks.$.endTime': new Date(),
-                'activeTasks.$.isStreaming': false
-              }
-            }
-          );
-
-          await User.updateOne(
-            { _id: userId },
-            { $push: { history: { _id: taskId, command: prompt, result: finalResult, timestamp: new Date() } } }
-          );
-
-          await ChatHistory.updateOne(
-            { userId },
-            { $push: { messages: { $each: [{ role: 'user', content: prompt }, { role: 'assistant', content: finalMessage }], $slice: -20 } } },
-            { upsert: true }
-          );
-
-          if (lastTaskId && activeBrowsers.has(lastTaskId)) {
-            await activeBrowsers.get(lastTaskId).browser.close();
-            activeBrowsers.delete(lastTaskId);
-          }
-          break;
+      // Extract function details
+      const functionName = functionMessage.function_call.name;
+      let args = JSON.parse(functionMessage.function_call.arguments);
+      
+      // Add URL or task_id if needed
+      if (!args.url && !args.task_id) {
+        if (activeBrowserId) {
+          args.task_id = activeBrowserId;
+        } else if (url) {
+          args.url = url;
         }
       }
 
-      if (stepCount >= MAX_STEPS) {
-        console.log(`[NLI] Maximum steps reached for task ${taskId}`);
-        const summary = "Task execution reached the maximum number of steps...\n\n" +
-          intermediateResults.map((r, i) => `Step ${i + 1}: ${r.summary || 'No summary'}`).join('\n');
-        sendWebSocketUpdate(userEmail, {
-          event: 'taskComplete',
-          taskId,
-          status: 'completed',
-          result: { success: false, summary, intermediateResults }
-        });
-      }
-    } catch (error) {
-      console.error(`[NLI] Critical error:`, error);
-      sendWebSocketUpdate(userEmail, {
-        event: 'taskError',
-        taskId,
-        status: 'error',
-        error: error.message
-      });
-
+      // Log the function call
+      console.log(`[NLI] Step ${i + 1} function: ${functionName} with args:`, args);
+      
+      // Update step in database with function call info
       await User.updateOne(
         { _id: userId, 'activeTasks._id': taskId },
-        {
-          $set: {
-            'activeTasks.$.status': 'error',
-            'activeTasks.$.progress': 0,
-            'activeTasks.$.error': error.message,
-            'activeTasks.$.endTime': new Date(),
-            'activeTasks.$.isStreaming': false
-          }
+        { 
+          $set: { 
+            'activeTasks.$.currentStepFunction': functionName,
+            'activeTasks.$.currentStepArgs': args
+          } 
         }
       );
 
-      if (lastTaskId && activeBrowsers.has(lastTaskId)) {
-        await activeBrowsers.get(lastTaskId).browser.close();
-        activeBrowsers.delete(lastTaskId);
+      // Notify client of function call
+      sendWebSocketUpdate(userEmail, {
+        event: 'stepFunction',
+        taskId,
+        stepIndex: i,
+        functionName: functionName,
+        args: args
+      });
+
+      // Execute the function
+      let functionResult;
+      try {
+        if (functionName === "browser_action") {
+          functionResult = await handleBrowserAction(args, userId, taskId, runId, runDir, currentStepIndex, stepDescription);
+        } else if (functionName === "browser_query") {
+          functionResult = await handleBrowserQuery(args, userId, taskId, runId, runDir, currentStepIndex, stepDescription);
+        } else {
+          throw new Error(`Unknown function: ${functionName}`);
+        }
+
+        // Store browser ID for subsequent steps
+        if (functionResult.task_id) {
+          activeBrowserId = functionResult.task_id;
+        }
+
+        // Store result
+        intermediateResults.push(functionResult);
+        
+        // If screenshot available, send it to client
+        if (functionResult.screenshot) {
+          sendWebSocketUpdate(userEmail, {
+            event: 'stepScreenshot',
+            taskId,
+            stepIndex: i,
+            screenshot: `data:image/png;base64,${functionResult.screenshot}`,
+            screenshotPath: functionResult.screenshotPath
+          });
+        }
+        
+        // Notify client of function result
+        sendWebSocketUpdate(userEmail, {
+          event: 'stepComplete',
+          taskId,
+          stepIndex: i,
+          result: cleanFunctionResult(functionResult),
+          success: !functionResult.error
+        });
+        
+      } catch (error) {
+        console.error(`[NLI] Error in step ${i + 1}:`, error);
+        functionResult = { error: error.message, errorStack: error.stack };
+        
+        // Notify client of step error
+        sendWebSocketUpdate(userEmail, {
+          event: 'stepError',
+          taskId,
+          stepIndex: i,
+          error: error.message
+        });
+      }
+
+      // Add the function call and result to messages
+      messages.push({
+        role: "assistant",
+        content: null,
+        function_call: { name: functionName, arguments: JSON.stringify(args) }
+      });
+      
+      messages.push({
+        role: "function",
+        name: functionName,
+        content: JSON.stringify(cleanFunctionResult(functionResult))
+      });
+
+      // Check if we need to adjust the plan based on the result
+      if (i < actualSteps - 1) {
+        const adjustmentResponse = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [
+            ...messages,
+            { 
+              role: "user", 
+              content: `Based on the result of step ${i + 1}, do we need to adjust our plan for the remaining steps? If yes, provide the adjusted steps. If no, just say "Continue with the current plan."`
+            }
+          ],
+          max_tokens: 500,
+          temperature: 0.2
+        });
+
+        const adjustmentContent = adjustmentResponse.choices[0].message.content;
+        if (!adjustmentContent.includes("Continue with the current plan")) {
+          console.log(`[NLI] Adjusting plan after step ${i + 1}: ${adjustmentContent}`);
+          
+          // Extract adjusted steps if available
+          const adjustedStepMatches = adjustmentContent.match(/\d+\.\s*(.*?)(?=\n\d+\.|\n*$)/gs) || [];
+          if (adjustedStepMatches.length > 0) {
+            const adjustedSteps = adjustedStepMatches.map(step => step.trim().replace(/^\d+\.\s*/, ''));
+            
+            // Update remaining steps
+            steps.splice(i + 1, steps.length - (i + 1), ...adjustedSteps);
+            
+            // Update database with adjusted steps
+            await User.updateOne(
+              { _id: userId, 'activeTasks._id': taskId },
+              { 
+                $set: { 
+                  'activeTasks.$.steps': steps,
+                  'activeTasks.$.totalSteps': steps.length,
+                  'activeTasks.$.planAdjustment': adjustmentContent
+                } 
+              }
+            );
+            
+            // Notify client of plan adjustment
+            sendWebSocketUpdate(userEmail, {
+              event: 'planAdjusted',
+              taskId,
+              newSteps: steps,
+              totalSteps: steps.length,
+              adjustment: adjustmentContent
+            });
+          }
+        }
+        
+        // Add adjustment message to conversation
+        messages.push({ role: "assistant", content: adjustmentContent });
       }
     }
-  })();
-});
+
+    // Final summary generation
+    console.log(`[NLI] Task complete, generating summary`);
+    const stream = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        ...messages,
+        { 
+          role: "user", 
+          content: `Please provide a final summary of the task execution. Include what was accomplished, any challenges faced, and the key information requested. Focus on the most important data extracted or actions performed.` 
+        }
+      ],
+      stream: true,
+      max_tokens: 1000,
+      temperature: 0.2
+    });
+
+    // Stream the final summary to the client
+    let finalMessage = '';
+    let isStreaming = true;
+    for await (const chunk of stream) {
+      const content = chunk.choices[0]?.delta?.content || '';
+      finalMessage += content;
+      sendWebSocketUpdate(userEmail, {
+        event: 'finalSummaryChunk',
+        taskId,
+        chunk: content,
+        streaming: isStreaming
+      });
+    }
+    isStreaming = false;
+    sendWebSocketUpdate(userEmail, {
+      event: 'finalSummaryComplete',
+      taskId,
+      summary: finalMessage,
+      streaming: isStreaming
+    });
+
+    // Process task completion and update database
+    const finalResult = await processTaskCompletion(userId, taskId, intermediateResults, prompt, runDir, runId);
+    finalResult.aiPrepared = { summary: finalMessage };
+
+    sendWebSocketUpdate(userEmail, {
+      event: 'taskComplete',
+      taskId,
+      status: 'completed',
+      result: finalResult
+    });
+
+    await User.updateOne(
+      { _id: userId, 'activeTasks._id': taskId },
+      {
+        $set: {
+          'activeTasks.$.status': 'completed',
+          'activeTasks.$.progress': 100,
+          'activeTasks.$.result': finalResult,
+          'activeTasks.$.endTime': new Date(),
+          'activeTasks.$.isStreaming': false
+        }
+      }
+    );
+
+    await User.updateOne(
+      { _id: userId },
+      { $push: { history: { _id: taskId, command: prompt, result: finalResult, timestamp: new Date() } } }
+    );
+
+    await ChatHistory.updateOne(
+      { userId },
+      { $push: { messages: { $each: [{ role: 'user', content: prompt }, { role: 'assistant', content: finalMessage }], $slice: -20 } } },
+      { upsert: true }
+    );
+
+  } catch (error) {
+    console.error(`[NLI] Critical error:`, error);
+    sendWebSocketUpdate(userEmail, {
+      event: 'taskError',
+      taskId,
+      status: 'error',
+      error: error.message
+    });
+
+    await User.updateOne(
+      { _id: userId, 'activeTasks._id': taskId },
+      {
+        $set: {
+          'activeTasks.$.status': 'error',
+          'activeTasks.$.progress': 0,
+          'activeTasks.$.error': error.message,
+          'activeTasks.$.endTime': new Date(),
+          'activeTasks.$.isStreaming': false
+        }
+      }
+    );
+  } finally {
+    // Always close the browser when done
+    if (activeBrowserId && activeBrowsers.has(activeBrowserId)) {
+      console.log(`[NLI] Closing browser for task_id: ${activeBrowserId}`);
+      try {
+        await activeBrowsers.get(activeBrowserId).browser.close();
+        activeBrowsers.delete(activeBrowserId);
+      } catch (err) {
+        console.error(`[NLI] Error closing browser:`, err);
+      }
+    }
+  }
+}
 
 /**
  * Clean function result to reduce token usage
@@ -2015,41 +2230,8 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
  * @returns {Object} - Cleaned result
  */
 function cleanFunctionResult(result) {
-  // Create a copy to avoid modifying the original
-  const cleanResult = { ...result };
-  
-  // Remove large properties
-  if (cleanResult.screenshot) {
-    // Keep only first 100 chars as a reference
-    cleanResult.screenshot = cleanResult.screenshot.substring(0, 100) + '...';
-  }
-  
-  // Add screenshotSize if screenshot was present
-  if (result.screenshot) {
-    cleanResult.screenshotSize = result.screenshot.length;
-  }
-  
-  // Clean up nested objects
-  if (cleanResult.result && typeof cleanResult.result === 'object') {
-    // Keep important properties, summarize the rest
-    const { currentUrl, pageTitle, success } = cleanResult.result;
-    cleanResult.result = { currentUrl, pageTitle, success };
-    
-    // Add summary of other properties
-    if (result.result.actionOutput) {
-      cleanResult.result.actionSummary = typeof result.result.actionOutput === 'string' 
-        ? result.result.actionOutput.substring(0, 200) + '...'
-        : 'Action completed successfully';
-    }
-    
-    if (result.result.queryOutput) {
-      cleanResult.result.querySummary = typeof result.result.queryOutput === 'string'
-        ? result.result.queryOutput.substring(0, 200) + '...'
-        : 'Query executed successfully';
-    }
-  }
-  
-  return cleanResult;
+  const { screenshot, screenshotPath, ...cleaned } = result;
+  return cleaned;
 }
 
 // Start server
