@@ -540,9 +540,12 @@ function sendWebSocketUpdate(userId, data) {
  * @param {string} taskId - Task ID
  * @param {string} runId - Run ID
  * @param {string} runDir - Run directory
+ * @param {number} currentStep - Current step number
+ * @param {string} stepDescription - Description of the current step
+ * @param {Object} stepMap - Map of all steps with their status and results
  * @returns {Object} - Result object
  */
-async function handleBrowserAction(args, userId, taskId, runId, runDir, currentStep, stepDescription) {
+async function handleBrowserAction(args, userId, taskId, runId, runDir, currentStep, stepDescription, stepMap) {
   console.log(`[BrowserAction] Starting with args:`, args);
   const { command, url } = args;
   let task_id = args.task_id;
@@ -635,12 +638,35 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       message: `Preparing to execute: ${command}`
     });
 
+    // Initialize step in step map if not already done
+    if (!stepMap[currentStep]) {
+      stepMap[currentStep] = {
+        step: currentStep,
+        description: stepDescription,
+        status: "started",
+        beforeInfo: null,
+        afterInfo: null,
+        progress: "pending"
+      };
+    }
+
+    // Get page info BEFORE action using handleTaskFinality
+    const beforeInfo = await handleTaskFinality(currentStep, page, agent, command, stepDescription, stepMap);
+    console.log("[BrowserAction] Before state captured:", beforeInfo);
+
+        // Update task status in database
+        await updateTaskInDatabase(userId, taskId, {
+          status: 'processing',
+          progress: 50,
+          lastAction: command
+        });
+    
     // Handle potential overlays or obstacles
     try {
       const preparationSuccessful = await handleTaskPreparation(page, agent);
-      console.log("[Midscene] Task preparation status:", preparationSuccessful);
+      console.log("[BrowserAction] Task preparation status:", preparationSuccessful);
     } catch (error) {
-      console.error("[Midscene] Preparation skipped - Error during task preparation:", error);
+      console.error("[BrowserAction] Preparation skipped - Error during task preparation:", error);
     }
 
     // Send progress update
@@ -673,24 +699,28 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       message: `Verifying result of: ${command}`
     });
 
-    // Verify outcome
-    const finalityStatus = await handleTaskFinality(currentStep, page, agent, command, stepDescription);
-    console.log("[Midscene] Task finality status:", finalityStatus);
+    // Get page info AFTER action using handleTaskFinality
+    const finalityStatus = await handleTaskFinality(currentStep, page, agent, command, stepDescription, stepMap);
+    console.log("[BrowserAction] Task finality status:", finalityStatus);
     
     // Get current page state
     const currentUrl = await page.url();
     const pageTitle = await page.title();
+    
+    // Determine if action was successful
+    const isSuccess = finalityStatus.status === "progressed";
 
     // Create result with verification
     const result = {
-      success: true,
+      success: isSuccess,
       currentUrl,
       pageTitle,
-      actionOutput: `Browser action completed for ${currentStep}, breakdown below.`,
+      actionOutput: `Browser action completed for step ${currentStep}: ${stepDescription}`,
       timestamp: new Date().toISOString(),
       type: "action",
       command: command,
-      summary: `Step completed, here's an overall breakdown of where we now stand with executing the step list: ${finalityStatus}`,
+      extractedInfo: finalityStatus.extractedInfo,
+      stepSummary: finalityStatus.stepSummary
     };
 
     // Send final progress update
@@ -724,6 +754,13 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       console.error("[BrowserAction] Could not capture error screenshot:", ssError);
     }
     
+    // Update step status in step map
+    if (stepMap[currentStep]) {
+      stepMap[currentStep].status = "error";
+      stepMap[currentStep].progress = "error";
+      stepMap[currentStep].afterInfo = `Error: ${error.message}`;
+    }
+    
     return {
       task_id,
       error: error.message,
@@ -732,7 +769,8 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       screenshot,
       screenshotPath,
       timestamp: new Date().toISOString(),
-      command: command
+      command: command,
+      stepSummary: stepMap ? generateStepSummary(stepMap) : "Error occurred, no step summary available"
     };
   }
 }
@@ -744,9 +782,12 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
  * @param {string} taskId - Task ID
  * @param {string} runId - Run ID
  * @param {string} runDir - Run directory
+ * @param {number} currentStep - Current step number
+ * @param {string} stepDescription - Description of the current step
+ * @param {Object} stepMap - Map of all steps with their status and results
  * @returns {Object} - Result object
  */
-async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentStep, stepDescription) {
+async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentStep, stepDescription, stepMap) {
   console.log(`[BrowserQuery] Starting with args:`, args);
   let { query, url, task_id } = args;
   let browser, agent, page;
@@ -838,6 +879,22 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
       message: `Preparing to query: ${query}`
     });
 
+    // Initialize step in step map if not already done
+    if (!stepMap[currentStep]) {
+      stepMap[currentStep] = {
+        step: currentStep,
+        description: stepDescription,
+        status: "started",
+        beforeInfo: null,
+        afterInfo: null,
+        progress: "pending"
+      };
+    }
+
+    // Get page info BEFORE query using handleTaskFinality
+    const beforeInfo = await handleTaskFinality(currentStep, page, agent, query, stepDescription, stepMap);
+    console.log("[BrowserQuery] Before state captured:", beforeInfo);
+
     // Update task status in database
     await User.updateOne(
       { _id: userId, 'activeTasks._id': taskId },
@@ -868,24 +925,28 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
     const screenshotPath = path.join(runDir, `screenshot-${Date.now()}.png`);
     fs.writeFileSync(screenshotPath, Buffer.from(screenshot, 'base64'));
 
-    // Verify outcome
-    const finalityStatus = await handleTaskFinality(currentStep, page, agent, command, stepDescription);
-    console.log("[Midscene] Task finality status:", finalityStatus);
+    // Get page info AFTER query using handleTaskFinality
+    const finalityStatus = await handleTaskFinality(currentStep, page, agent, query, stepDescription, stepMap);
+    console.log("[BrowserQuery] Task finality status:", finalityStatus);
     
     // Get current page state
     const currentUrl = await page.url();
     const pageTitle = await page.title();
+    
+    // Determine if query was successful
+    const isSuccess = finalityStatus.status === "progressed";
 
     // Create result with verification
     const result = {
-      success: true,
+      success: isSuccess,
       currentUrl,
       pageTitle,
-      queryOutput: `Browser query completed for ${currentStep}, breakdown below.`,
+      queryOutput: queryResult,
       timestamp: new Date().toISOString(),
       type: "query",
       query: query,
-      summary: `Step completed, here's an overall breakdown of where we now stand with executing the step list: ${finalityStatus}`,
+      extractedInfo: finalityStatus.extractedInfo,
+      stepSummary: finalityStatus.stepSummary
     };
 
     // Save intermediate result to database
@@ -921,6 +982,13 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
     } catch (ssError) {
       console.error("[BrowserQuery] Could not capture error screenshot:", ssError);
     }
+    
+    // Update step status in step map
+    if (stepMap[currentStep]) {
+      stepMap[currentStep].status = "error";
+      stepMap[currentStep].progress = "error";
+      stepMap[currentStep].afterInfo = `Error: ${error.message}`;
+    }
 
     // Create error result
     const errorResult = {
@@ -931,7 +999,8 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
       screenshot,
       screenshotPath,
       timestamp: new Date().toISOString(),
-      query: query
+      query: query,
+      stepSummary: stepMap ? generateStepSummary(stepMap) : "Error occurred, no step summary available"
     };
 
     // Save error result to database
@@ -1016,6 +1085,7 @@ function generateKomputerReport(prompt, result, screenshotPath) {
   `;
 }
 
+/*
 async function handleTaskPreparation(page, agent) {
   const screenshot = await page.screenshot({ encoding: 'base64' });
 
@@ -1115,6 +1185,7 @@ Do not guess. If unsure, return task_type=none`,
   const verification = verificationResponse.choices[0].message.content.toLowerCase();
   return verification.includes("yes");
 }
+*/
 
 /**
  * Update task in database and notify clients
@@ -1189,27 +1260,162 @@ async function addIntermediateResult(userId, taskId, result) {
   }
 }
 
-
-async function handleTaskFinality(page, agent, commandOrQuery) {
-  const screenshot = await page.screenshot({ encoding: 'base64' });
+/**
+ * Analyzes the current page state and compares it to previous state to determine step progress
+ * @param {number} currentStep - The current step number
+ * @param {Page} page - Puppeteer page object
+ * @param {PuppeteerAgent} agent - Browser agent for AI operations
+ * @param {string} commandOrQuery - The command or query that was executed
+ * @param {string} stepDescription - Description of the current step
+ * @param {Object} stepMap - Map of all steps with their status and results
+ * @returns {Object} - The finality status object
+ */
+async function handleTaskFinality(currentStep, page, agent, commandOrQuery, stepDescription, stepMap) {
+  // Get current page basic info
   const currentUrl = await page.url();
-  // TODO - Lose the openAI, use a VLM like UTars by calling agent.aiQuery to extract information from the page.
-  // instructions: "aiQuery was executing this command, the last info we saved was this ${lastStepData}, and the current page info is this ${currentUrl}, and the command is this ${commandOrQuery}. Now, look at the current page and extract key main content info relevant to achieveing the "main command" not current step command and extract it.
-  // start the response with: progresseed or unprogressed marker, then the page info
+  const pageTitle = await page.title();
+  
+  // Create step tracking entry if it doesn't exist
+  if (!stepMap[currentStep]) {
+    stepMap[currentStep] = {
+      step: currentStep,
+      description: stepDescription,
+      status: "started",
+      beforeInfo: null,
+      afterInfo: null,
+      progress: "pending"
+    };
+  }
+  
+  // Get the last step info if available
+  const lastStep = currentStep > 0 ? stepMap[currentStep - 1] : null;
+  const lastStepData = lastStep ? lastStep.afterInfo : "No previous step data";
+  
+  // Construct context for AI query before action
+  if (!stepMap[currentStep].beforeInfo) {
+    const beforeContext = `
+      I'm analyzing a web page before performing an action. 
+      Current URL: ${currentUrl}
+      Page Title: ${pageTitle}
+      Step ${currentStep}: ${stepDescription}
+      Command/Query to execute: ${commandOrQuery}
+      
+      Extract only key main content that is relevant to the command/query. Ignore navigation elements, 
+      ads, and other unrelated content. Focus on prices, product details, main text content, or other 
+      data that will help determine if the action succeeds. Be specific and concise.
+    `;
+    
+    try {
+      // Use aiQuery to get page information before action
+      const beforeInfo = await agent.aiQuery(beforeContext);
+      stepMap[currentStep].beforeInfo = beforeInfo;
+    } catch (error) {
+      console.error(`[TaskFinality] Error getting before info: ${error.message}`);
+      stepMap[currentStep].beforeInfo = "Error extracting page information";
+    }
+  }
+  
+  // Construct context for AI query after action
+  const afterContext = `
+    I'm analyzing a web page after performing an action to determine if it succeeded.
+    Current URL: ${currentUrl}
+    Page Title: ${pageTitle}
+    Step ${currentStep}: ${stepDescription}
+    Command/Query that was executed: ${commandOrQuery}
+    
+    What I saw before the action: ${stepMap[currentStep].beforeInfo || "No before information"}
+    Previous step info: ${lastStepData}
+    
+    Extract only key main content that is relevant to the command/query. Ignore navigation elements, 
+    ads, and other unrelated content. Focus on prices, product details, main text content, or other 
+    data that will help determine if the action succeeded. Be specific and concise.
+    
+    Start your response with either "PROGRESSED: " or "UNPROGRESSED: " based on whether the page 
+    content shows the action was successful. Then provide the extracted information.
+  `;
+  
+  try {
+    // Use aiQuery to get page information after action
+    const afterInfo = await agent.aiQuery(afterContext);
+    stepMap[currentStep].afterInfo = afterInfo;
+    
+    // Determine if step progressed based on AI response
+    if (afterInfo.toLowerCase().startsWith("progressed:")) {
+      stepMap[currentStep].status = "completed";
+      stepMap[currentStep].progress = "progressed";
+    } else {
+      stepMap[currentStep].status = "completed";
+      stepMap[currentStep].progress = "unprogressed";
+    }
+    
+    // Clean up the extracted info by removing the progress marker
+    const cleanedInfo = afterInfo.replace(/^(PROGRESSED|UNPROGRESSED):\s*/i, "").trim();
+    
+    // Generate summary of all steps for LLM context
+    const stepSummary = generateStepSummary(stepMap);
+    
+    return {
+      currentStep,
+      stepDescription,
+      currentUrl,
+      pageTitle,
+      commandOrQuery,
+      executed: true,
+      status: stepMap[currentStep].progress,
+      extractedInfo: cleanedInfo,
+      stepSummary
+    };
+  } catch (error) {
+    console.error(`[TaskFinality] Error getting after info: ${error.message}`);
+    stepMap[currentStep].status = "error";
+    stepMap[currentStep].progress = "error";
+    stepMap[currentStep].afterInfo = `Error: ${error.message}`;
+    
+    // Even with error, try to generate step summary
+    const stepSummary = generateStepSummary(stepMap);
+    
+    return {
+      currentStep,
+      stepDescription,
+      currentUrl,
+      pageTitle,
+      commandOrQuery,
+      executed: false,
+      status: "error",
+      error: error.message,
+      stepSummary
+    };
+  }
+}
 
-  // we want to keep a mapping of page info so this function always has a reference for last info for last step, and then can compare it with the current page info to determine if the agent has progressed.
-  // map entry example: { step: "1", step 3 result - progressed, data - page now shows iphone 15 pro $2200, iphone 15 $800, iphone 14 Pro $750
-  // .... its should prepare the current step map entry after extracting info from page in a similar format. find a good format not exactly what i did above
-  // This function is supposed to be passed the main user command, and the current step command
-
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o",
-    messages: [    ],
-    max_tokens: 200,
-  });
-
-  const analysis = response.choices[0].message.content.toLowerCase();
-  return {  };
+/**
+ * Generates a summary of all steps for LLM context
+ * @param {Object} stepMap - Map of all steps with their status and results
+ * @returns {string} - Summary of all steps
+ */
+function generateStepSummary(stepMap) {
+  let summary = "STEP PROGRESS SUMMARY:\n\n";
+  
+  const steps = Object.values(stepMap).sort((a, b) => a.step - b.step);
+  
+  for (const step of steps) {
+    const statusEmoji = step.progress === "progressed" ? "✅" : 
+                        step.progress === "unprogressed" ? "⚠️" : 
+                        step.progress === "error" ? "❌" : "⏳";
+    
+    summary += `${statusEmoji} Step ${step.step}: ${step.description}\n`;
+    
+    if (step.status === "completed" || step.status === "error") {
+      summary += `   Result: ${step.afterInfo ? step.afterInfo.substring(0, 150) : "No result data"}\n`;
+      if (step.afterInfo && step.afterInfo.length > 150) {
+        summary += "   ...(truncated)\n";
+      }
+    }
+    
+    summary += "\n";
+  }
+  
+  return summary;
 }
 
 /**
@@ -1370,37 +1576,6 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
       }
     }
   }
-}
-/**
- * Helper function to determine task completion status
- * @param {string} originalPrompt - Original prompt
- * @param {Array} results - Task results
- * @returns {Object} - Completion status
- */
-async function determineCompletionStatus(originalPrompt, results) {
-  // Default completion status
-  let status = {
-    isSuccess: true,
-    summary: "Task executed successfully"
-  };
-  
-  // Check for errors in results
-  const hasErrors = results.some(result => result.error);
-  if (hasErrors) {
-    status.isSuccess = false;
-    status.summary = "Task encountered errors during execution";
-  }
-  
-  // Check if the last result indicates success
-  if (results.length > 0) {
-    const lastResult = results[results.length - 1];
-    if (lastResult.success === false) {
-      status.isSuccess = false;
-      status.summary = lastResult.summary || "Task execution failed in the final step";
-    }
-  }
-  
-  return status;
 }
 
 /**
@@ -1766,6 +1941,7 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
   let activeBrowserId = null;
   let intermediateResults = [];
   let currentStepIndex = 0;
+  let stepMap = {}; // Map to track detailed step information
   
   try {
     // Get relevant chat history for context
@@ -1808,19 +1984,7 @@ TASK EXECUTION STRATEGY:
 6. Summarize the steps accomplished only. But when it comes to data requested or crucial to the users ask, you must detail the key information for depth and clarity, with maximum focus on key data like prices, names, dates, reviews, users, etc.
 7. For browser_action and browser_query, if a URL is provided in the user prompt or context, include it in the function call under the 'url' parameter for new tasks. If continuing a previous task, use the 'task_id' parameter instead.
 8. You can switch between browser_action to navigate to correct page and section, then switch to browser_query to extract information, then use that information to call browser_action again to do another action based on the new info you have. browser_action does not return data its for actions only. browser_query can do limited navigation and exctract all the data - its best to call it when on the page required and the next step is extracting info.
-
-TIPS:
-- If stuck on a page with a popup, or capture try solve the CAPTCHA, Challenge, Accept Cookies - instruct the agent through a browser_action or browser_query call to close the overlay in the next step by pressing Esc key on keyboard. If its a Cookies overlay instruct it to accept cookies.
-- If on the correct url or page, always scroll to bring full page info into view and search for required information before proceeding.
-- If a step fails, try a different approach or rephrase the query.
-
-ERROR HANDLING:
-- If an element isn't found, try alternative selectors or wait 5 seconds and retry.
-- If a query returns no data, verify the page has loaded or rephrase the query.
-- If navigation fails, check the URL and retry.
-- If information is not fully visible on page scroll down to look for information required.
-- If navigation sends us to a dead-end go back to the home menu to try again a different approach.
-- Overlays can affect navigation, check if the overlay is still there, if so, try to click a button to accept or close the overlay
+9. PAY CAREFUL ATTENTION to the step summaries returned after each step. They contain valuable information about the current state of each step, including whether it was successful and what information was extracted.
 
 Always reference the original request to ensure you're making progress toward the user's goal.
 ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_action or browser_query calls when starting a new task.` : ''}
@@ -1851,6 +2015,18 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
       throw new Error("Could not parse steps from the plan");
     }
 
+    // Initialize step map with all steps
+    steps.forEach((step, index) => {
+      stepMap[index] = {
+        step: index,
+        description: step,
+        status: "pending",
+        beforeInfo: null,
+        afterInfo: null,
+        progress: "pending"
+      };
+    });
+
     // Store the plan in the database and notify the user
     await User.updateOne(
       { _id: userId, 'activeTasks._id': taskId },
@@ -1860,7 +2036,8 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
           'activeTasks.$.steps': steps,
           'activeTasks.$.totalSteps': steps.length,
           'activeTasks.$.currentStep': 0,
-          'activeTasks.$.status': 'processing'
+          'activeTasks.$.status': 'processing',
+          'activeTasks.$.stepMap': stepMap
         } 
       }
     );
@@ -1891,6 +2068,9 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
       const stepDescription = steps[i];
       console.log(`[NLI] Processing step ${i + 1}/${actualSteps}: ${stepDescription}`);
       
+      // Update step status in step map
+      stepMap[i].status = "processing";
+      
       // Update database and notify client that we're starting this step
       await User.updateOne(
         { _id: userId, 'activeTasks._id': taskId },
@@ -1898,7 +2078,8 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
           $set: { 
             'activeTasks.$.currentStep': i,
             'activeTasks.$.progress': Math.floor((i / actualSteps) * 100),
-            'activeTasks.$.currentStepDescription': stepDescription
+            'activeTasks.$.currentStepDescription': stepDescription,
+            'activeTasks.$.stepMap': stepMap
           } 
         }
       );
@@ -1958,6 +2139,12 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
       const functionMessage = stepFunctionResponse.choices[0].message;
       if (!functionMessage.function_call) {
         console.log(`[NLI] No function call for step ${i + 1}, continuing with next step`);
+        
+        // Update step in stepMap to indicate no function call made
+        stepMap[i].status = "skipped";
+        stepMap[i].progress = "skipped";
+        stepMap[i].afterInfo = "No function call was made for this step";
+        
         continue;
       }
 
@@ -1983,7 +2170,8 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
         { 
           $set: { 
             'activeTasks.$.currentStepFunction': functionName,
-            'activeTasks.$.currentStepArgs': args
+            'activeTasks.$.currentStepArgs': args,
+            'activeTasks.$.stepMap': stepMap
           } 
         }
       );
@@ -2001,9 +2189,9 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
       let functionResult;
       try {
         if (functionName === "browser_action") {
-          functionResult = await handleBrowserAction(args, userId, taskId, runId, runDir, currentStepIndex, stepDescription);
+          functionResult = await handleBrowserAction(args, userId, taskId, runId, runDir, currentStepIndex, stepDescription, stepMap);
         } else if (functionName === "browser_query") {
-          functionResult = await handleBrowserQuery(args, userId, taskId, runId, runDir, currentStepIndex, stepDescription);
+          functionResult = await handleBrowserQuery(args, userId, taskId, runId, runDir, currentStepIndex, stepDescription, stepMap);
         } else {
           throw new Error(`Unknown function: ${functionName}`);
         }
@@ -2015,6 +2203,16 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
 
         // Store result
         intermediateResults.push(functionResult);
+        
+        // Update step map in database
+        await User.updateOne(
+          { _id: userId, 'activeTasks._id': taskId },
+          { 
+            $set: { 
+              'activeTasks.$.stepMap': stepMap
+            } 
+          }
+        );
         
         // If screenshot available, send it to client
         if (functionResult.screenshot) {
@@ -2033,19 +2231,36 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
           taskId,
           stepIndex: i,
           result: cleanFunctionResult(functionResult),
-          success: !functionResult.error
+          success: !functionResult.error,
+          stepSummary: functionResult.result?.stepSummary || stepMap[i]?.afterInfo || "No step summary available"
         });
         
       } catch (error) {
         console.error(`[NLI] Error in step ${i + 1}:`, error);
         functionResult = { error: error.message, errorStack: error.stack };
         
+        // Update step status in step map to indicate error
+        stepMap[i].status = "error";
+        stepMap[i].progress = "error";
+        stepMap[i].afterInfo = `Error: ${error.message}`;
+        
+        // Update step map in database
+        await User.updateOne(
+          { _id: userId, 'activeTasks._id': taskId },
+          { 
+            $set: { 
+              'activeTasks.$.stepMap': stepMap
+            } 
+          }
+        );
+        
         // Notify client of step error
         sendWebSocketUpdate(userEmail, {
           event: 'stepError',
           taskId,
           stepIndex: i,
-          error: error.message
+          error: error.message,
+          stepMap: stepMap
         });
       }
 
@@ -2064,13 +2279,16 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
 
       // Check if we need to adjust the plan based on the result
       if (i < actualSteps - 1) {
+        // Add step summary info to the prompt to better contextualize the decision
+        const stepSummary = stepMap[i]?.afterInfo || functionResult.result?.stepSummary || "No step summary available";
+        
         const adjustmentResponse = await openai.chat.completions.create({
           model: "gpt-4o-mini",
           messages: [
             ...messages,
             { 
               role: "user", 
-              content: `Based on the result of step ${i + 1}, do we need to adjust our plan for the remaining steps? If yes, provide the adjusted steps. If no, just say "Continue with the current plan."`
+              content: `Based on the result of step ${i + 1} and considering the current step summary: "${stepSummary}", do we need to adjust our plan for the remaining steps? If yes, provide the adjusted steps. If no, just say "Continue with the current plan."`
             }
           ],
           max_tokens: 500,
@@ -2089,6 +2307,20 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
             // Update remaining steps
             steps.splice(i + 1, steps.length - (i + 1), ...adjustedSteps);
             
+            // Update step map with new steps
+            for (let j = i + 1; j < steps.length; j++) {
+              if (j < MAX_STEPS) {
+                stepMap[j] = {
+                  step: j,
+                  description: steps[j],
+                  status: "pending",
+                  beforeInfo: null,
+                  afterInfo: null,
+                  progress: "pending"
+                };
+              }
+            }
+            
             // Update database with adjusted steps
             await User.updateOne(
               { _id: userId, 'activeTasks._id': taskId },
@@ -2096,7 +2328,8 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
                 $set: { 
                   'activeTasks.$.steps': steps,
                   'activeTasks.$.totalSteps': steps.length,
-                  'activeTasks.$.planAdjustment': adjustmentContent
+                  'activeTasks.$.planAdjustment': adjustmentContent,
+                  'activeTasks.$.stepMap': stepMap
                 } 
               }
             );
@@ -2107,7 +2340,8 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
               taskId,
               newSteps: steps,
               totalSteps: steps.length,
-              adjustment: adjustmentContent
+              adjustment: adjustmentContent,
+              stepMap: stepMap
             });
           }
         }
@@ -2117,6 +2351,9 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
       }
     }
 
+    // Generate a comprehensive step summary for final context
+    const finalStepSummary = generateStepSummary(stepMap);
+
     // Final summary generation
     console.log(`[NLI] Task complete, generating summary`);
     const stream = await openai.chat.completions.create({
@@ -2125,7 +2362,11 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
         ...messages,
         { 
           role: "user", 
-          content: `Please provide a final summary of the task execution. Include what was accomplished, any challenges faced, and the key information requested. Focus on the most important data extracted or actions performed.` 
+          content: `Please provide a final summary of the task execution. Include what was accomplished, any challenges faced, and the key information requested. Focus on the most important data extracted or actions performed.
+          
+Here is a summary of all steps executed: ${finalStepSummary}
+
+Be concise but detailed about the key information found. Highlight specific data points (prices, names, dates, reviews, etc.) that were extracted during the task.` 
         }
       ],
       stream: true,
@@ -2156,13 +2397,17 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
 
     // Process task completion and update database
     const finalResult = await processTaskCompletion(userId, taskId, intermediateResults, prompt, runDir, runId);
-    finalResult.aiPrepared = { summary: finalMessage };
+    finalResult.aiPrepared = { 
+      summary: finalMessage,
+      stepSummary: finalStepSummary 
+    };
 
     sendWebSocketUpdate(userEmail, {
       event: 'taskComplete',
       taskId,
       status: 'completed',
-      result: finalResult
+      result: finalResult,
+      stepMap: stepMap
     });
 
     await User.updateOne(
@@ -2173,7 +2418,8 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
           'activeTasks.$.progress': 100,
           'activeTasks.$.result': finalResult,
           'activeTasks.$.endTime': new Date(),
-          'activeTasks.$.isStreaming': false
+          'activeTasks.$.isStreaming': false,
+          'activeTasks.$.stepMap': stepMap
         }
       }
     );
@@ -2191,11 +2437,20 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
 
   } catch (error) {
     console.error(`[NLI] Critical error:`, error);
+    
+    // Update step map to reflect the error
+    if (stepMap[currentStepIndex]) {
+      stepMap[currentStepIndex].status = "error";
+      stepMap[currentStepIndex].progress = "error";
+      stepMap[currentStepIndex].afterInfo = `Critical error: ${error.message}`;
+    }
+    
     sendWebSocketUpdate(userEmail, {
       event: 'taskError',
       taskId,
       status: 'error',
-      error: error.message
+      error: error.message,
+      stepMap: stepMap
     });
 
     await User.updateOne(
@@ -2206,7 +2461,8 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
           'activeTasks.$.progress': 0,
           'activeTasks.$.error': error.message,
           'activeTasks.$.endTime': new Date(),
-          'activeTasks.$.isStreaming': false
+          'activeTasks.$.isStreaming': false,
+          'activeTasks.$.stepMap': stepMap
         }
       }
     );
@@ -2232,6 +2488,43 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
 function cleanFunctionResult(result) {
   const { screenshot, screenshotPath, ...cleaned } = result;
   return cleaned;
+}
+
+/**
+ * Helper function for handling task preparation tasks like closing modals or accepting cookies
+ * @param {Page} page - Puppeteer page object
+ * @param {PuppeteerAgent} agent - Browser agent
+ * @returns {boolean} - Whether preparation was successful
+ */
+async function handleTaskPreparation(page, agent) {
+  try {
+    // Try to detect and close common overlays (cookie notices, modals, etc.)
+    const preparationQuery = `
+      Look at the current page and determine if there are any obstacles like cookie notices, 
+      modals, or popups. If you find any, tell me what to click to dismiss them (like 'Accept All', 
+      'Continue', 'Close', etc.). If there are none, say 'No obstacles detected'.
+    `;
+    
+    const obstacles = await agent.aiQuery(preparationQuery);
+    
+    if (obstacles.toLowerCase().includes('no obstacles detected')) {
+      return true;
+    }
+    
+    // If obstacles were detected, try to dismiss them
+    const dismissAction = `
+      Look for and dismiss any modals, cookie notices, or popups by clicking 'Accept', 'Close', 
+      'Continue', 'I Agree', 'X', or similar buttons. If you see multiple, handle the most prominent one first.
+    `;
+    
+    await agent.aiAction(dismissAction);
+    await sleep(500); // Brief pause to let the page update
+    
+    return true;
+  } catch (error) {
+    console.error(`[TaskPreparation] Error during preparation:`, error);
+    return false;
+  }
 }
 
 // Start server
