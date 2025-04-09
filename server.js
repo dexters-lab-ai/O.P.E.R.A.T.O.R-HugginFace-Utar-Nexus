@@ -663,7 +663,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
         maxPlanningRetries: 4
       });
 
-      activeBrowsers.set(newTaskId, { browser, agent, page, release });
+      activeBrowsers.set(newTaskId, { browser, agent, page, release, closed: false });
       task_id = newTaskId;
     }
 
@@ -869,7 +869,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
         maxPlanningRetries: 4
       });
 
-      activeBrowsers.set(newTaskId, { browser, agent, page, release });
+      activeBrowsers.set(newTaskId, { browser, agent, page, release, closed: false });
       task_id = newTaskId;
     }
 
@@ -1268,7 +1268,7 @@ async function handleTaskFinality(currentStep, page, agent, commandOrQuery, step
       Command/Query to execute: ${commandOrQuery}
       
       Extract only key main content that is relevant to the command/query. Ignore navigation elements, 
-      ads, and other unrelated content. Focus on prices, product details, main text content, or other 
+      ads, and other unrelated content. Focus on headings, titles, descriptions, prices, product details, main text content, or other 
       data that will help determine if the action succeeds. Be specific and concise describing whats visible.
     `;
     
@@ -1293,8 +1293,8 @@ async function handleTaskFinality(currentStep, page, agent, commandOrQuery, step
     What I saw before the action: ${stepMap[currentStep].beforeInfo || "No before information"}
     Previous step info: ${lastStepData}
     
-    Extract only key main content that is relevant to the command/query. Ignore unclickable placeholder images, decoration elements, background images, 
-    ads, and other unrelated content. Focus on clickable navigation elements, menu descriptions, prices, product details, main text content, or other 
+    Extract only key main content that is relevant to the command/query. Ignore navigation elements, 
+    ads, and other unrelated content. Focus on headings, titles, descriptions, prices, product details, main text content, or other 
     data that will help determine if the command execution changed what was on the page and achieved the action desired. 
     Pay attention to the page before & after changes in relation to the command executed and state if the command action suceeded or not.
     
@@ -1462,15 +1462,22 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
     };
   } finally {
     if (activeBrowsers.size > 0) {
-      for (const [id, { browser, release }] of activeBrowsers.entries()) {
-        try {
-          await browser.close();
-          release();
-          activeBrowsers.delete(id);
-          console.log(`[TaskCompletion] Closed browser session ${id}`);
-        } catch (error) {
-          console.error(`[TaskCompletion] Error closing browser session ${id}:`, error);
-        }
+      for (const [id, session] of activeBrowsers.entries()) {
+          if (!session.closed) {
+              try {
+                  await session.browser.close();
+                  if (typeof session.release === 'function') {
+                      session.release();
+                  } else {
+                      console.error(`[TaskCompletion] release is not a function for session ${id}, skipping release`);
+                  }
+                  session.closed = true;
+                  activeBrowsers.delete(id);
+                  console.log(`[TaskCompletion] Closed browser session ${id}`);
+              } catch (error) {
+                  console.error(`[TaskCompletion] Error closing browser session ${id}:`, error);
+              }
+          }
       }
     }
   }
@@ -2089,7 +2096,9 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
       } else {
         throw new Error(`Unknown function: ${functionName}`);
       }
-
+      if (functionResult.error) {
+        console.log(`[NLI] Step ${i + 1} failed: ${functionResult.error}, continuing to next step`);
+      }
       activeBrowserId = functionResult.task_id || activeBrowserId;
       intermediateResults.push(functionResult);
 
@@ -2202,14 +2211,21 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
     );
   } finally {
     if (activeBrowserId && activeBrowsers.has(activeBrowserId)) {
-      console.log(`[NLI] Closing browser for task_id: ${activeBrowserId}`);
-      try {
-        const { browser, release } = activeBrowsers.get(activeBrowserId);
-        await browser.close();
-        release();
-        activeBrowsers.delete(activeBrowserId);
-      } catch (err) {
-        console.error(`[NLI] Error closing browser:`, err);
+      const session = activeBrowsers.get(activeBrowserId);
+      if (!session.closed) {
+          console.log(`[NLI] Closing browser for task_id: ${activeBrowserId}`);
+          try {
+              await session.browser.close();
+              if (typeof session.release === 'function') {
+                  session.release();
+              } else {
+                  console.error(`[NLI] release is not a function for session ${activeBrowserId}, skipping release`);
+              }
+              session.closed = true;
+              activeBrowsers.delete(activeBrowserId);
+          } catch (err) {
+              console.error(`[NLI] Error closing browser:`, err);
+          }
       }
     }
   }
