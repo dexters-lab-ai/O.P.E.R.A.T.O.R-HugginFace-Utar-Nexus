@@ -1449,7 +1449,7 @@ textarea:focus, input:focus {
     display: flex;
     margin: 5px 0;
     border-radius: 8px;
-    max-width: 45%;
+    max-width: 50%;
   }
   
   .user-message {
@@ -1472,7 +1472,7 @@ textarea:focus, input:focus {
   
   .summary-text {
     font-family: 'Arial', sans-serif;
-    font-size: 1.1em;
+    font-size: 1em;
     line-height: 1.5;
   }
   
@@ -1655,6 +1655,7 @@ textarea:focus, input:focus {
   }
 
   .result-card { padding: 15px; margin-bottom: 10px; }
+  .outputs { color: var(--secondary);}
 .toggle-buttons { margin: 10px 0; }
 .toggle-btn { padding: 5px 10px; margin-right: 5px; }
 .toggle-btn.active { background: #007bff; color: white; }

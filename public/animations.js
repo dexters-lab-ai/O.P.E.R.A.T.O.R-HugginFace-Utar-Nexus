@@ -89,7 +89,7 @@ function initBackgroundScene() {
 
 function createWormhole() {
   // Optimize geometry with fewer segments where possible
-  const wormholeGeometry = new THREE.TorusGeometry(10, 3, 12, 48);
+  const wormholeGeometry = new THREE.TorusGeometry(10, 3, 8, 24);
   
   // Use a more efficient shader without unnecessary calculations
   const wormholeMaterial = new THREE.ShaderMaterial({
@@ -127,8 +127,7 @@ function createWormhole() {
 
 function createParticles() {
   // Use fewer particles for better performance
-  const particleCount = window.innerWidth < 768 ? 1000 : 1500;
-  
+  const particleCount = window.innerWidth < 768 ? 500 : 1000;
   // Create geometry
   const particlesGeometry = new THREE.BufferGeometry();
   
@@ -488,10 +487,12 @@ function createJetFumes() {
 }
 
 // Animation loop - restructured with proper time handling
-function animate() {
+function animate(currentTime) {
   // Use requestAnimationFrame with proper cancellation
   animationFrameId = requestAnimationFrame(animate);
-  
+  const frameInterval = 1000 / 30;
+  if (currentTime - (window.lastFrameTime || 0) < frameInterval) return;
+  window.lastFrameTime = currentTime;
   // Get delta time for smooth animations regardless of frame rate
   const delta = Math.min(clock.getDelta(), 0.1); // Cap delta to avoid large jumps
   const elapsedTime = clock.getElapsedTime();
@@ -918,6 +919,9 @@ function handleResize() {
 
 // Public API functions
 function startAnimations() {
+  if (!bgScene) initBackgroundScene();
+  if (!sentinelScene) initSentinelScene();
+  
   // Reset clock to avoid large time jumps
   clock.start();
   
@@ -930,7 +934,7 @@ function startAnimations() {
   }
   
   // Start animation loop
-  animate();
+  animate(performance.now());
 }
 
 function stopAnimations() {

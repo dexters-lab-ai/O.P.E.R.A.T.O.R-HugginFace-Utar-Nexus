@@ -13,6 +13,7 @@ import puppeteer from 'puppeteer';
 import { PuppeteerAgent } from '@midscene/web/puppeteer';
 import path from 'path';
 import fs from 'fs';
+import { Parser } from 'htmlparser2';
 import { v4 as uuidv4 } from 'uuid';
 import OpenAI from 'openai';
 import puppeteerExtra from 'puppeteer-extra';
@@ -165,8 +166,6 @@ const userSchema = new mongoose.Schema({
 
 // Define indexes for User schema
 userSchema.index({ email: 1 }, { unique: true }); // Email index
-userSchema.index({ "history.timestamp": -1 }); // History timestamp index (descending)
-
 const User = mongoose.model('User', userSchema);
 
 const chatHistorySchema = new mongoose.Schema({
@@ -180,7 +179,6 @@ const chatHistorySchema = new mongoose.Schema({
 
 // Define index for ChatHistory schema
 chatHistorySchema.index({ userId: 1 });
-
 const ChatHistory = mongoose.model('ChatHistory', chatHistorySchema);
 
 // Ensure indexes are created on startup
@@ -262,7 +260,7 @@ app.post('/register', async (req, res) => {
     const existing = await User.findOne({ email });
     if (existing) throw new Error('Email already exists');
     const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = await User.create({ email, password: hashedPassword, history: [], activeTasks: [], customUrls: [] });
+    const newUser = await User.create({ email, password: hashedPassword, customUrls: [] });
     req.session.user = newUser._id;
     res.json({ success: true, userId: email });
   } catch (err) {
@@ -326,15 +324,18 @@ app.get('/history', requireAuth, async (req, res) => {
 app.get('/history/:id', requireAuth, async (req, res) => {
   try {
     res.setHeader('Content-Type', 'application/json');
-    const user = await User.findById(req.session.user);
-    const historyItem = user.history.find(h => h._id.toString() === req.params.id);
-    if (!historyItem) return res.status(404).json({ error: 'History item not found' });
+    const task = await Task.findOne({ _id: req.params.id, userId: req.session.user }).lean();
+    if (!task) return res.status(404).json({ error: 'History item not found' });
     res.json({
-      _id: historyItem._id,
-      url: historyItem.url || 'Unknown URL',
-      command: historyItem.command,
-      timestamp: historyItem.timestamp,
-      result: { raw: historyItem.result?.raw || null, aiPrepared: historyItem.result?.aiPrepared || null, runReport: historyItem.result?.runReport || null },
+      _id: task._id,
+      url: task.url || 'Unknown URL',
+      command: task.command,
+      timestamp: task.endTime,
+      result: {
+        raw: task.result?.raw || null,
+        aiPrepared: task.result?.aiPrepared || null,
+        runReport: task.result?.runReport || null
+      },
     });
   } catch (err) {
     console.error('Error fetching history item:', err);
@@ -344,7 +345,10 @@ app.get('/history/:id', requireAuth, async (req, res) => {
 
 app.delete('/history/:id', requireAuth, async (req, res) => {
   try {
-    await User.updateOne({ _id: req.session.user }, { $pull: { history: { _id: req.params.id } } });
+    const result = await Task.deleteOne({ _id: req.params.id, userId: req.session.user });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ success: false, error: 'Task not found' });
+    }
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -353,7 +357,7 @@ app.delete('/history/:id', requireAuth, async (req, res) => {
 
 app.delete('/history', requireAuth, async (req, res) => {
   try {
-    await User.updateOne({ _id: req.session.user }, { $set: { history: [] } });
+    await Task.deleteMany({ userId: req.session.user, status: 'completed' });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -379,7 +383,13 @@ app.get('/chat-history', async (req, res) => {
 app.put('/tasks/:id/progress', requireAuth, async (req, res) => {
   const { progress } = req.body;
   try {
-    await User.updateOne({ _id: req.session.user, 'activeTasks._id': req.params.id }, { $set: { 'activeTasks.$.progress': progress } });
+    const result = await Task.updateOne(
+      { _id: req.params.id, userId: req.session.user },
+      { $set: { progress: progress } }
+    );
+    if (result.modifiedCount === 0) {
+      return res.status(404).json({ success: false, error: 'Task not found or not updated' });
+    }
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -407,7 +417,7 @@ app.get('/tasks/:id/stream', requireAuth, async (req, res) => {
         const task = await Task.findById(req.params.id).lean();
         if (!task) {
           res.write(`data: ${JSON.stringify({ done: true, error: 'Task not found' })}\n\n`);
-          clearInterval(updateInterval); // Use the named variable
+          clearInterval(updateInterval);
           res.end();
           return;
         }
@@ -425,7 +435,7 @@ app.get('/tasks/:id/stream', requireAuth, async (req, res) => {
             error: task.error,
             done: true
           })}\n\n`);
-          clearInterval(updateInterval); // Use the named variable
+          clearInterval(updateInterval);
           res.end();
         }
       } catch (error) {
@@ -437,7 +447,7 @@ app.get('/tasks/:id/stream', requireAuth, async (req, res) => {
     };
 
     await sendUpdate();
-    const updateInterval = setInterval(sendUpdate, 1000); // Declare interval here
+    const updateInterval = setInterval(sendUpdate, 1000);
 
     req.on('close', () => {
       clearInterval(updateInterval);
@@ -613,7 +623,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       while (launchAttempts < maxLaunchAttempts) {
         try {
           browser = await puppeteerExtra.launch({
-            headless: true,
+            headless: false,
             args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
             timeout: 30000
           });
@@ -700,8 +710,9 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       message: `Executing: ${command}`
     });
 
+    //await autoScroll(page); // Scroll before querying
     console.log(`[BrowserAction] Executing command: ${command}`);
-    await agent.aiAction(command);
+    await agent.aiAction(`Scroll into main view to remove header adverts, then execute this command: ${command}. Unresponsive clicks may mean you are clicking an image, find elements only or use main menu if clicking on images fails to navigate further`);
     await sleep(200);
 
     const screenshot = await page.screenshot({ encoding: 'base64' });
@@ -818,7 +829,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
       while (launchAttempts < maxLaunchAttempts) {
         try {
           browser = await puppeteerExtra.launch({
-            headless: true,
+            headless: false,
             args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
             timeout: 30000
           });
@@ -891,7 +902,8 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
     });
 
     console.log(`[BrowserQuery] Executing query: ${query}`);
-    const queryResult = await agent.aiQuery(`Scroll and extract all crucial page data relevant to this command: ${query}`);
+    await autoScroll(page); // Scroll before querying
+    const queryResult = await agent.aiQuery(`Scroll into main view to remove adverts, then extract all crucial page data relevant to this command: ${query}`);
     console.log(`[BrowserQuery] Query result:`, queryResult);
 
     sendWebSocketUpdate(userId, {
@@ -1140,6 +1152,24 @@ Do not guess. If unsure, return task_type=none`,
 }
 */
 
+async function autoScroll(page) {
+  await page.evaluate(async () => {
+    await new Promise((resolve) => {
+      let totalHeight = 0;
+      const distance = 100;
+      const timer = setInterval(() => {
+        const scrollHeight = document.body.scrollHeight;
+        window.scrollBy(0, distance);
+        totalHeight += distance;
+        if (totalHeight >= scrollHeight) {
+          clearInterval(timer);
+          resolve();
+        }
+      }, 100);
+    });
+  });
+}
+
 /**
  * Update task in database and notify clients
  * @param {string} userId - User ID
@@ -1153,10 +1183,10 @@ async function updateTaskInDatabase(taskId, updates) {
   }
   console.log(`[Database] Updating task ${taskId}:`, updates);
   try {
-    await Task.updateOne({ _id: taskId }, { $set: updates });
-    const task = await Task.findById(taskId);
+    await Task.updateOne({ _id: new mongoose.Types.ObjectId(taskId) }, { $set: updates });
+    const task = await Task.findById(new mongoose.Types.ObjectId(taskId));
     if (task && task.userId) {
-      sendWebSocketUpdate(task.userId, { event: 'taskUpdate', taskId, ...updates });
+      sendWebSocketUpdate(task.userId.toString(), { event: 'taskUpdate', taskId, ...updates });
     } else {
       console.warn(`[Database] Task ${taskId} not found or missing userId`);
     }
@@ -1263,8 +1293,8 @@ async function handleTaskFinality(currentStep, page, agent, commandOrQuery, step
     What I saw before the action: ${stepMap[currentStep].beforeInfo || "No before information"}
     Previous step info: ${lastStepData}
     
-    Extract only key main content that is relevant to the command/query. Ignore navigation elements, 
-    ads, and other unrelated content. Focus on prices, product details, main text content, or other 
+    Extract only key main content that is relevant to the command/query. Ignore unclickable placeholder images, decoration elements, background images, 
+    ads, and other unrelated content. Focus on clickable navigation elements, menu descriptions, prices, product details, main text content, or other 
     data that will help determine if the command execution changed what was on the page and achieved the action desired. 
     Pay attention to the page before & after changes in relation to the command executed and state if the command action suceeded or not.
     
@@ -1415,7 +1445,7 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
       landingReportUrl: landingReportPath ? `/midscene_run/report/${path.basename(landingReportPath)}` : null,
       midsceneReportUrl,
       summary: lastResult || "Task execution completed",
-      url
+      url: lastResult?.result?.currentUrl || url || 'N/A' 
     };
 
     return finalResult;
@@ -1624,131 +1654,180 @@ async function generateReport(prompt, results, screenshotPath, runId) {
   return reportPath;
 }
 
-/**
- * Edit the Midscene SDK report with branding and fallbacks
- * @param {string} midsceneReportPath - Path to the Midscene SDK report
- * @returns {string} - Path to the edited report
- */
-async function editMidsceneReport(midsceneReportPath) {
-  console.log(`[MidsceneReport] Editing Midscene SDK report at ${midsceneReportPath}`);
+// Custom CSS styles to be injected into the <head>
+const customCss = `
+    /* General styling */
+    body { background: linear-gradient(to bottom, #1a1a1a, #000); color: #e8e8e8; }
+    .side-bar, .page-nav, .panel-title { background: #000 !important; color: #e8e8e8 !important; }
+    .main-right .main-content-container, .detail-panel { background: #111 !important; color: #FFF !important; }
+    .detail-side .item-list .item, .page-nav, .page-side, .main-right .main-content-container, .detail-side .meta-kv, .timeline-wrapper { border-color: #333 !important; }
+    a, .side-item-name, .meta-key, .meta-value { color: #e8e8e8 !important; }
+    .main-right .main-side, .detail-content { background-color: dodgerblue !important; color: #000 !important; }
 
-  const cheerio = await import('cheerio');
-  const reportContent = fs.readFileSync(midsceneReportPath, 'utf8');
-  const $ = cheerio.load(reportContent);
-
-  // 1. Update the report title
-  $('title').text('VLM Run Report | O.P.E.R.A.T.O.R.');
-      
-  // 2. Update favicon 
-  $('link[rel="icon"]').attr('href', '/assets/images/dail.png');
-  
-  // 3. Replace logo images - Multiple targeting strategies for maximum reliability
-  const localLogoPath = '/assets/images/dail.png';
-  
-  // Target by alt text (case insensitive)
-  $('img[alt*="midscene" i], img[alt*="Midscene" i]').each(function() {
-    $(this).attr('src', localLogoPath);
-    $(this).attr('alt', 'OPERATOR_logo');
-  });
-  
-  // Target by src attribute containing Midscene.png
-  $('img[src*="Midscene.png"]').each(function() {
-    $(this).attr('src', localLogoPath);
-    $(this).attr('alt', 'OPERATOR_logo');
-  });
-  
-  // Target by class name containing logo
-  $('img[class*="logo"]').each(function() {
-    $(this).attr('src', localLogoPath);
-    $(this).attr('alt', 'OPERATOR_logo');
-  });
-
-  // Update SDK version with JavaScript
-  const newSdkVersion = "1.0.1";
-  $('script[type="midscene_web_dump"]').each(function () {
-    let scriptContent = $(this).html();
-    try {
-      const jsonMatch = scriptContent.match(/(\{[\s\S]*\})/);
-      if (jsonMatch && jsonMatch[0]) {
-        const data = JSON.parse(jsonMatch[0]);
-        if (data.executions) {
-          data.executions.forEach(exec => { if (exec.sdkVersion) exec.sdkVersion = newSdkVersion; });
-        }
-        if (data.groupName) data.groupName = "O.P.E.R.A.T.O.R - Sentinel Report";
-        scriptContent = scriptContent.replace(jsonMatch[0], JSON.stringify(data, null, 2));
-        $(this).html(scriptContent);
-      }
-    } catch (error) {
-      scriptContent = scriptContent.replace(/"sdkVersion"\s*:\s*"([^"]+)"/g, `"sdkVersion": "${newSdkVersion}"`);
-      $(this).html(scriptContent);
-    }
-  });
-
-  // Add CSS fallbacks and custom styles
-  $('head').append(`
-    <style>
-      /* General styling */
-      body { background: linear-gradient(to bottom, #1a1a1a, #000); color: #e8e8e8; }
-      .side-bar, .page-nav, .panel-title { background: #000 !important; color: #e8e8e8 !important; }
-      .main-right .main-content-container, .detail-panel { background: #111 !important; color: #FFF !important; }
-      .detail-side .item-list .item, .page-nav, .page-side, .main-right .main-content-container, .detail-side .meta-kv, .timeline-wrapper { border-color: #333 !important; }
-      a, .side-item-name, .meta-key, .meta-value { color: #e8e8e8 !important; }
-      .main-right .main-side, .detail-content { background-color: dodgerblue !important; color: #000 !important; }
-
-      /* CSS fallback for logo replacement */
-      img[src*="Midscene.png"], img[alt*="midscene" i], img[class*="logo"] {
+    /* Logo replacement */
+    img[src*="Midscene.png" i], img[alt*="midscene" i], img[class*="logo" i], img[src*="logo" i] {
         content: url("/assets/images/dail-fav.png") !important;
         width: 50px !important;
-      }
+        height: 50px !important;
+    }
 
-      /* CSS fallback for version number update */
-      .task-list-sub-name:contains("v0.12.8"),
-      .task-list-sub-name:contains("v0."),
-      .task-list-sub-name:contains("default model") {
+    /* Version number update */
+    .task-list-sub-name {
         visibility: hidden;
         position: relative;
-      }
-      .task-list-sub-name:contains("v0.12.8")::after,
-      .task-list-sub-name:contains("v0.")::after,
-      .task-list-sub-name:contains("default model")::after {
-        content: "v${newSdkVersion}, OPERATOR model";
+    }
+    .task-list-sub-name::after {
+        content: "v1.0.1, OPERATOR model";
         visibility: visible;
         position: absolute;
         left: 0;
         color: #e8e8e8;
+    }
+`;
+
+/**
+ * Edit the Midscene SDK report with branding and updates using a streaming approach
+ * @param {string} midsceneReportPath - Path to the Midscene SDK report
+ * @returns {Promise<string>} - Path to the edited report
+ */
+async function editMidsceneReport(midsceneReportPath) {
+  console.log(`[MidsceneReport] Editing report at ${midsceneReportPath}`);
+
+  const readStream = fs.createReadStream(midsceneReportPath, 'utf8');
+  const tempPath = `${midsceneReportPath}.tmp`;
+  const writeStream = fs.createWriteStream(tempPath, 'utf8');
+
+  // State variables for parsing
+  let insideTitle = false;
+  let insideScript = false;
+  let scriptContent = '';
+  let insideHead = false;
+  let appendedCss = false;
+
+  const parser = new Parser({
+    // Handle opening tags
+    onopentag: (name, attribs) => {
+      if (name === 'title') {
+          // Replace title
+          writeStream.write('<title>VLM Run Report | O.P.E.R.A.T.O.R.</title>');
+          insideTitle = true;
+      } else if (name === 'link' && attribs.rel === 'icon') {
+          // Replace favicon
+          writeStream.write('<link rel="icon" href="/assets/images/dail-fav.png" type="image/png" sizes="32x32">');
+      } else if (
+          name === 'img' &&
+          (attribs.src?.toLowerCase().includes('midscene.png') ||
+           attribs.alt?.toLowerCase().includes('midscene') ||
+           attribs.class?.toLowerCase().includes('logo') ||
+           attribs.src?.toLowerCase().includes('logo'))
+      ) {
+          // Replace logo images
+          writeStream.write('<img src="/assets/images/dail-fav.png" alt="OPERATOR_logo" class="logo" width="50" height="50">');
+      } else if (name === 'script' && attribs.type === 'midscene_web_dump') {
+          // Start collecting script content
+          insideScript = true;
+          scriptContent = '';
+          writeStream.write('<script type="midscene_web_dump" type="application/json">');
+      } else {
+          // Write original tag
+          const attribsStr = Object.entries(attribs)
+              .map(([key, value]) => ` ${key}="${value}"`)
+              .join('');
+          writeStream.write(`<${name}${attribsStr}>`);
       }
+      if (name === 'head') {
+          insideHead = true;
+      }
+    },
 
-      /* Logo replacement fallback */
-          img[alt*="midscene" i], 
-          img[alt*="Midscene" i], 
-          img[src*="Midscene.png"],
-          .logo img {
-            content: url("/assets/images/dail.png") !important;
-          }
-          
-          /* Version number replacement */
-          .task-list-sub-name:contains("v0.12.8"),
-          .task-list-sub-name:contains("v0."),
-          .task-list-sub-name:contains("default model") {
-            visibility: hidden;
-            position: relative;
-          }
-          
-          .task-list-sub-name:contains("v0.12.8")::after,
-          .task-list-sub-name:contains("v0.")::after,
-          .task-list-sub-name:contains("default model")::after {
-            content: "v${newSdkVersion}, OPERATOR model";
-            visibility: visible;
-            position: absolute;
-            left: 0;
-          }
-    </style>
-  `);
+    // Handle text content
+    ontext: (text) => {
+      if (insideScript) {
+        scriptContent += text;
+      } else if (!insideTitle) {
+        writeStream.write(text);
+      }
+      // Skip original title text since we replaced it
+    },
 
-  // Save the updated report
-  fs.writeFileSync(midsceneReportPath, $.html());
-  console.log(`[MidsceneReport] Updated Midscene SDK report at ${midsceneReportPath}`);
-  return midsceneReportPath;
+    // Handle closing tags
+    onclosetag: (name) => {
+      if (name === 'title') {
+        insideTitle = false;
+      } else if (name === 'script' && insideScript) {
+        try {
+          // Handle truncated JSON by attempting to complete it
+          let jsonContent = scriptContent.trim();
+          if (!jsonContent.endsWith('}')) {
+            jsonContent += '"}]}'; // Attempt to close truncated JSON
+          }
+          const data = JSON.parse(jsonContent);
+          if (data.executions) {
+            data.executions.forEach((exec) => {
+              if (exec.sdkVersion) exec.sdkVersion = '1.0.1';
+            });
+          }
+          if (data.groupName) data.groupName = 'O.P.E.R.A.T.O.R - Sentinel Report';
+          writeStream.write(JSON.stringify(data));
+        } catch (error) {
+          console.error('[MidsceneReport] Error parsing script content:', error);
+          // Fallback to original content if JSON parsing fails
+          writeStream.write(scriptContent);
+        }
+        writeStream.write('</script>');
+        insideScript = false;
+      } else if (name === 'head' && insideHead) {
+        // Append custom CSS before closing head
+        if (!appendedCss) {
+          writeStream.write(`\n<style>${customCss}</style>\n`);
+          appendedCss = true;
+        }
+        writeStream.write('</head>');
+        insideHead = false;
+      } else {
+        writeStream.write(`</${name}>`);
+      }
+    },
+
+    // Handle parsing errors
+    onerror: (error) => {
+      console.error('[MidsceneReport] Parser error:', error);
+    }
+  }, { decodeEntities: true });
+
+  // Pipe the read stream into the parser
+  readStream.on('data', (chunk) => {
+    parser.write(chunk);
+  });
+
+  readStream.on('end', () => {
+    parser.end();
+    writeStream.end();
+  });
+
+  readStream.on('error', (err) => {
+    console.error('[MidsceneReport] Read stream error:', err);
+    writeStream.end();
+  });
+
+  // Return a promise that resolves when writing is complete
+  return new Promise((resolve, reject) => {
+    writeStream.on('finish', () => {
+      try {
+        fs.renameSync(tempPath, midsceneReportPath);
+        console.log(`[MidsceneReport] Updated report at ${midsceneReportPath}`);
+        resolve(midsceneReportPath);
+      } catch (renameErr) {
+        console.error('[MidsceneReport] Error renaming file:', renameErr);
+        reject(renameErr);
+      }
+    });
+
+    writeStream.on('error', (err) => {
+      console.error('[MidsceneReport] Write stream error:', err);
+      reject(err);
+    });
+  });
 }
 
 /**
@@ -1757,14 +1836,17 @@ async function editMidsceneReport(midsceneReportPath) {
 app.post('/nli', requireAuth, async (req, res) => {
   const { prompt, url } = req.body;
   if (!prompt) return res.status(400).json({ success: false, error: 'Prompt is required.' });
-
+/*
+  streamEvent(taskId, { event: 'taskUpdate', status: 'starting' }); // Send immediately
+  sendWebSocketUpdate(userEmail, { event: 'taskPlan', taskId, plan: planContent, steps, totalSteps: steps.length });
+  sendWebSocketUpdate(task.userId.toString(), { event: 'taskUpdate', taskId, ...updates });
+*/
   const userId = req.session.user; // ObjectId
-  // Fetch the user's email using the ObjectId
-  const user = await User.findById(userId);
+  const user = await User.findById(userId).select('email').lean();
   if (!user) return res.status(400).json({ success: false, error: 'User not found' });
-  const userEmail = user.email; // Use email for WebSocket updates
+  const userEmail = user.email;
 
-  const taskId = new mongoose.Types.ObjectId().toString();
+  const taskId = new mongoose.Types.ObjectId(); // Keep as ObjectId
   const runId = uuidv4();
   const runDir = path.join(MIDSCENE_RUN_DIR, runId);
   fs.mkdirSync(runDir, { recursive: true });
@@ -1774,12 +1856,28 @@ app.post('/nli', requireAuth, async (req, res) => {
   if (url) console.log(`[NLI] URL: ${url}`);
 
   try {
+    // Create a new Task document
+    const newTask = new Task({
+      _id: taskId,
+      userId: userId,
+      command: prompt,
+      status: 'pending',
+      progress: 0,
+      startTime: new Date(),
+      isStreaming: true,
+      url: url || null,
+      runId: runId
+    });
+    await newTask.save();
+    console.log(`[NLI] Task ${taskId} created in Task collection`);
+
+    // Update User's activeTasks
     await User.updateOne(
       { _id: userId },
       {
         $push: {
           activeTasks: {
-            _id: taskId,
+            _id: taskId.toString(), // Convert to string for User document
             command: prompt,
             status: 'pending',
             progress: 0,
@@ -1795,11 +1893,11 @@ app.post('/nli', requireAuth, async (req, res) => {
     return res.status(500).json({ success: false, error: 'Database error' });
   }
 
-  // Immediately respond to client with task info
-  res.json({ success: true, taskId, runId });
+  // Respond with taskId as string
+  res.json({ success: true, taskId: taskId.toString(), runId });
 
-  // Start task processing in background
-  processTask(userId, userEmail, taskId, runId, runDir, prompt, url);
+  // Pass taskId as string to processTask
+  processTask(userId, userEmail, taskId.toString(), runId, runDir, prompt, url);
 });
 
 /**
@@ -1853,10 +1951,10 @@ TASK EXECUTION STRATEGY:
 
 GENERAL TIPS::
 1. DIRECT URL NAVIGATION: For search queries and known patterns, construct URLs directly:
-   - Google search: https://google.com/search?q=your+query
-   - Amazon search: https://amazon.com/s?k=your+query
-   - YouTube search: https://youtube.com/results?search_query=your+query
-   - Never rely on coinbase.com, use a search query or click the main menu, the homepage shows pictures not clickable elements
+    - https://www.coinbase.com/explore instead of https://www.coinbase.com
+   - Google search: https://google.com/search?q=your+query instead of https://www.google.com
+   - Amazon search: https://amazon.com/s?k=your+query instead of https://amazon.com
+   - YouTube search: https://youtube.com/results?search_query=your+query instead of https://youtube.com
    
 2. MULTI-APPROACH PIPELINE: If direct navigation fails:
    a. Try query parameter URL navigation first
@@ -1870,10 +1968,10 @@ GENERAL TIPS::
 
 4. ERROR RECOVERY:
    - When stuck on a page, try URL construction with query parameters, or instruct browser_action to navigate through main menu or sidebar.
-   - When element selection fails, try different selectors or wait longer
+   - When element selection fails, treat them as placeholders and try different selectors
    - When timeouts occur, retry with longer timeouts
 - Scroll down to look for information required.
-- If a page is not changing its a dead end, go to menu bar, look for the most relevant menu to navigate to required page
+- If clicking a image or element does not work use the top main menu options or sidebar menus interchachably to discover your way around the site and to navigate to required page
 - Overlays can affect navigation, check if the overlay is still there, if so, try to click a button to accept or close the overlay
 - Retry using different navigation so you never fail, persistance is required always, be smart in browsing.
 
@@ -1888,8 +1986,8 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
     const planResponse = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [systemMessage, ...recentMessages, { role: "user", content: prompt }],
-      temperature: 0.2,
-      max_tokens: 1000
+      temperature: 0.3,
+      max_tokens: 500
     });
 
     const planContent = planResponse.choices[0].message.content;
@@ -1901,7 +1999,7 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
     });
 
     await Task.updateOne(
-      { _id: taskId },
+      { _id: new mongoose.Types.ObjectId(taskId) }, // Convert string to ObjectId
       { $set: { plan: planContent, steps, totalSteps: steps.length, currentStep: 0, status: 'processing', stepMap } }
     );
 
@@ -1940,7 +2038,7 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
                 url: { type: "string", description: "URL for new tasks" },
                 task_id: { type: "string", description: "ID of an existing task" }
               },
-              required: ["command"]
+              required: ["command", "url", "task_id"]
             }
           },
           {
@@ -1953,7 +2051,7 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
                 url: { type: "string", description: "URL for new tasks" },
                 task_id: { type: "string", description: "ID of an existing task" }
               },
-              required: ["query"]
+              required: ["query", "url", "task_id"]
             }
           }
         ],
@@ -2116,6 +2214,7 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
     }
   }
 }
+
 /**
  * Clean function result to reduce token usage
  * @param {Object} result - Function result

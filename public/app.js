@@ -24,7 +24,7 @@ function initWebSocket(userId) {
   ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
-    console.log('Connected');
+    console.log('WebSocket connected at', new Date().toISOString());
     reconnectAttempts = 0;
   };
 
@@ -247,6 +247,7 @@ document.addEventListener('DOMContentLoaded', () => {
     nliForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const prompt = document.getElementById('nli-prompt').value.trim();
+      console.log('Form submitted at', new Date().toISOString());
       if (!prompt) {
         showNotification('Please enter a command', 'error');
         return;
@@ -267,23 +268,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
       saveChatMessage('user', prompt);
       showNotification('Executing command...', 'success');
-      updateTaskState(true);
-      updateSentinelState('tasking');
-      if (isWebGLAvailable()) {
-        //sentinelCanvas.style.display = 'block';
-      }
+
+      // New: Dispatch custom events
+      document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: true } }));
+      document.dispatchEvent(new CustomEvent('sentinelStateChange', { detail: { state: 'tasking' } }));
 
       let url = null;
       let taskId; // Declare taskId in the outer scope
 
       try {
+        console.time('NLI Request');
         const res = await fetch('/nli', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ prompt, url }),
         });
+        console.timeEnd('NLI Request');
         const data = await res.json();
+        console.log('NLI response received at', new Date().toISOString(), data);
         if (!data.success) throw new Error(data.error || 'Command failed');
 
         if (data.taskId) {
@@ -298,6 +301,7 @@ document.addEventListener('DOMContentLoaded', () => {
           // Set up EventSource with corrected intermediate results handling
           const eventSource = new EventSource(`/tasks/${taskId}/stream`);
           eventSource.onmessage = (event) => {
+            console.log('First stream event at', new Date().toISOString(), JSON.parse(event.data));
             const update = JSON.parse(event.data);
             console.log('Event received for taskId:', taskId, 'Update:', update);
 
@@ -412,9 +416,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 status: status === 'error' ? 'error' : 'completed',
               };
               addToHistory(chatResult.url, chatResult.command, chatResult);
-
-              updateTaskState(false);
-              updateSentinelState('normal');
+              
+              // Dispatch Events
+              document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: false } }));
+              document.dispatchEvent(new CustomEvent('sentinelStateChange', { detail: { state: 'normal' } }));
 
               // Refresh active tasks and history after completion
               loadActiveTasks();
@@ -458,8 +463,9 @@ document.addEventListener('DOMContentLoaded', () => {
           };
           addToHistory(chatResult.url, chatResult.command, chatResult);
 
-          updateTaskState(false);
-          updateSentinelState('normal');
+          // Dispatch Events
+          document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: false } }));
+          document.dispatchEvent(new CustomEvent('sentinelStateChange', { detail: { state: 'normal' } }));
         }
       } catch (err) {
         showNotification(err.message, 'error');
@@ -501,8 +507,9 @@ document.addEventListener('DOMContentLoaded', () => {
           addToHistory(chatResult.url, chatResult.command, chatResult);
         }
 
-        updateTaskState(false);
-        updateSentinelState('normal');
+        // Dispatch Events
+        document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: false } }));
+        document.dispatchEvent(new CustomEvent('sentinelStateChange', { detail: { state: 'normal' } }));
       } finally {
         nliForm.querySelector('button[type="submit"]').disabled = false;
       }
@@ -510,6 +517,19 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
+
+// ===============================================
+// Dispatch Events Listeners 
+document.addEventListener('taskStateChange', (event) => {
+  updateTaskState(event.detail.running);
+});
+
+document.addEventListener('taskStateChange', (event) => {
+  updateSentinelState('tasking');
+});
+
+// ===============================================
+// Clear Task Results
 document.getElementById('clear-results').addEventListener('click', clearTaskResults);
 
 // Update clearTaskResults to reset animation state
@@ -532,8 +552,10 @@ function clearTaskResults() {
     if (isWebGLAvailable()) {
       //sentinelCanvas.style.display = 'block';
       //sentinelFallback.style.display = 'none';
-      updateTaskState(false);
-      updateSentinelState('idle'); // Reset to idle when results are cleared
+      
+      // Dispatch Events
+      document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: false } }));
+      document.dispatchEvent(new CustomEvent('sentinelStateChange', { detail: { state: 'normal' } }));
     } else {
       //sentinelCanvas.style.display = 'none';
       //sentinelFallback.style.display = 'block';
@@ -733,7 +755,11 @@ function toggleTaskTab(taskType) {
 async function executeTaskWithAnimation(url, command, taskType) {
   try {
     showNotification("Task started – please wait...", "success");
-    updateTaskState(true);
+    
+    // Dispatch Events
+    document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: true } }));
+    document.dispatchEvent(new CustomEvent('sentinelStateChange', { detail: { state: 'running' } }));
+    
     const result = await executeTask(url, command);
     result.taskType = taskType;
 
@@ -755,7 +781,10 @@ async function executeTaskWithAnimation(url, command, taskType) {
     };
     
     // Reset states
-    updateTaskState(false);
+    // Dispatch Events
+    document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: false } }));
+    document.dispatchEvent(new CustomEvent('sentinelStateChange', { detail: { state: 'normal' } }));
+    
     await handleTaskResult(errorResult.taskId, errorResult);
     showNotification(`Task execution failed: ${error.message}`, "error");
   }
@@ -867,8 +896,9 @@ async function handleTaskResult(taskId, result) {
     await loadActiveTasks();
     
     // Update UI state
-    updateSentinelState('normal');
-    updateTaskState(false);
+    // Dispatch Events
+    document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: false } }));
+    document.dispatchEvent(new CustomEvent('sentinelStateChange', { detail: { state: 'normal' } }));
     
     return true;
   } catch (err) {
@@ -919,86 +949,99 @@ function updateTaskProgress(taskId, progress, status, error, milestone, subTask)
 }
 
 function handleIntermediateResult(taskId, result, subTask, streaming) {
-    let resultCard = document.querySelector(`.result-card[data-task-id="${taskId}"]`);
-    const nliResults = document.getElementById('nli-results');
+  let resultCard = document.querySelector(`.result-card[data-task-id="${taskId}"]`);
+  const nliResults = document.getElementById('nli-results');
 
-    // If resultCard doesn’t exist, create it with a fallback command
-    if (!resultCard) {
+  // If resultCard doesn’t exist, create it with a fallback command
+  if (!resultCard) {
       const command = result.command || 'Unknown'; // Adjust based on server data
       resultCard = initializeResultCard(taskId, command);
-    }
+  }
 
-    if (subTask) {
+  if (subTask) {
       // Update task results section
       const outputsDiv = resultCard.querySelector('.outputs');
       const screenshotsContainer = resultCard.querySelector('.screenshots');
 
       if (result.screenshotPath) {
-        console.log('Appending screenshot for taskId:', taskId, 'Path:', result.screenshotPath);
-        const img = document.createElement('img');
-        img.src = result.screenshotPath;
-        img.alt = 'Live Screenshot';
-        img.style.maxWidth = '100%';
-        img.style.marginTop = '10px';
-        img.style.display = 'block';
-        img.onerror = () => console.error('Image load failed:', result.screenshotPath);
-        img.onload = () => console.log('Image loaded:', result.screenshotPath);
-        screenshotsContainer.appendChild(img);
+          console.log('Appending screenshot for taskId:', taskId, 'Path:', result.screenshotPath);
+          const img = document.createElement('img');
+          img.src = result.screenshotPath;
+          img.alt = 'Live Screenshot';
+          img.style.maxWidth = '100%';
+          img.style.marginTop = '10px';
+          img.style.display = 'block';
+          img.onerror = () => {
+              console.error('Image load failed:', result.screenshotPath);
+              // Optionally display a placeholder or error message
+              const errorText = document.createElement('p');
+              errorText.textContent = 'Failed to load screenshot.';
+              errorText.style.color = 'red';
+              screenshotsContainer.appendChild(errorText);
+          };
+          img.onload = () => {
+              console.log('Image loaded:', result.screenshotPath);
+              // Force DOM update
+              screenshotsContainer.appendChild(img);
+              // Ensure the container is visible
+              screenshotsContainer.style.display = 'block';
+          };
+          screenshotsContainer.appendChild(img);
       }
       if (result.summary) {
-        const summaryDiv = document.createElement('div');
-        summaryDiv.className = 'subtask-summary';
-        summaryDiv.textContent = result.summary;
-        outputsDiv.appendChild(summaryDiv);
+          const summaryDiv = document.createElement('div');
+          summaryDiv.className = 'subtask-summary';
+          summaryDiv.textContent = result.summary;
+          outputsDiv.appendChild(summaryDiv);
       }
 
       // Update chatbox for subtask results
       if (result.summary) {
-        const subTaskMessage = document.createElement('div');
-        subTaskMessage.className = 'chat-message subtask-message animate-in';
-        subTaskMessage.innerHTML = `
-          <div class="message-content">
-            <p class="summary-text">${result.summary}</p>
-            <span class="timestamp">${new Date().toLocaleTimeString()}</span>
-          </div>
-        `;
-        nliResults.prepend(subTaskMessage);
-        nliResults.scrollTop = 0;
+          const subTaskMessage = document.createElement('div');
+          subTaskMessage.className = 'chat-message subtask-message animate-in';
+          subTaskMessage.innerHTML = `
+              <div class="message-content">
+                  <p class="summary-text">${result.summary}</p>
+                  <span class="timestamp">${new Date().toLocaleTimeString()}</span>
+              </div>
+          `;
+          nliResults.prepend(subTaskMessage);
+          nliResults.scrollTop = 0;
       }
-    } else {
-    // Handle streaming chunks (final message)
-    if (result.chunk) {
-      let streamMessage = document.querySelector(`.chat-message.stream-message[data-task-id="${taskId}"]`);
-      if (!streamMessage) {
-        streamMessage = document.createElement('div');
-        streamMessage.className = 'chat-message stream-message animate-in';
-        streamMessage.dataset.taskId = taskId;
-        streamMessage.innerHTML = `
-          <div class="message-content">
-            <p class="summary-text"></p>
-            <span class="timestamp">${new Date().toLocaleTimeString()}</span>
-          </div>
-        `;
-        nliResults.prepend(streamMessage);
-      }
-      const summaryText = streamMessage.querySelector('.summary-text');
-      summaryText.textContent += result.chunk;
+  } else {
+      // Handle streaming chunks (final message)
+      if (result.chunk) {
+          let streamMessage = document.querySelector(`.chat-message.stream-message[data-task-id="${taskId}"]`);
+          if (!streamMessage) {
+              streamMessage = document.createElement('div');
+              streamMessage.className = 'chat-message stream-message animate-in';
+              streamMessage.dataset.taskId = taskId;
+              streamMessage.innerHTML = `
+                  <div class="message-content">
+                      <p class="summary-text"></p>
+                      <span class="timestamp">${new Date().toLocaleTimeString()}</span>
+                  </div>
+              `;
+              nliResults.prepend(streamMessage);
+          }
+          const summaryText = streamMessage.querySelector('.summary-text');
+          summaryText.textContent += result.chunk;
 
-      if (!streaming && result.chunk === 'Stream ended') {
-        streamMessage.classList.remove('stream-message');
-        streamMessage.classList.add('ai-message');
-        const endMessage = document.createElement('div');
-        endMessage.className = 'chat-message subtask-end animate-in';
-        endMessage.innerHTML = `
-          <div class="message-content">
-            <p class="summary-text">--- End of Streaming Updates ---</p>
-            <span class="timestamp">${new Date().toLocaleTimeString()}</span>
-          </div>
-        `;
-        nliResults.insertBefore(endMessage, streamMessage.nextSibling);
+          if (!streaming && result.chunk === 'Stream ended') {
+              streamMessage.classList.remove('stream-message');
+              streamMessage.classList.add('ai-message');
+              const endMessage = document.createElement('div');
+              endMessage.className = 'chat-message subtask-end animate-in';
+              endMessage.innerHTML = `
+                  <div class="message-content">
+                      <p class="summary-text">--- End of Streaming Updates ---</p>
+                      <span class="timestamp">${new Date().toLocaleTimeString()}</span>
+                  </div>
+              `;
+              nliResults.insertBefore(endMessage, streamMessage.nextSibling);
+          }
+          nliResults.scrollTop = 0;
       }
-      nliResults.scrollTop = 0;
-    }
   }
 }
 
@@ -1210,70 +1253,70 @@ function createTaskElement(task) {
   let statusClass = 'pending';
   let statusIcon = 'clock';
   switch (task.status) {
-    case 'processing':
-      statusClass = 'processing';
-      statusIcon = 'spinner fa-spin';
-      break;
-    case 'completed':
-      statusClass = 'completed';
-      statusIcon = 'check';
-      break;
-    case 'error':
-      statusClass = 'error';
-      statusIcon = 'exclamation-triangle';
-      break;
+      case 'processing':
+          statusClass = 'processing';
+          statusIcon = 'spinner fa-spin';
+          break;
+      case 'completed':
+          statusClass = 'completed';
+          statusIcon = 'check';
+          break;
+      case 'error':
+          statusClass = 'error';
+          statusIcon = 'exclamation-triangle';
+          break;
   }
   element.innerHTML = `
-    <div class="task-header">
-      <h4><i class="fas fa-${statusIcon}"></i> ${task.command}</h4>
-      <span class="task-status ${statusClass}">${task.status}</span>
-      <button class="cancel-task-btn btn btn-danger btn-sm">Cancel</button>
-    </div>
-    <div class="task-url"><i class="fas fa-link"></i> ${task.url}</div>
-    <div class="task-progress-container">
-      <div class="task-progress" style="width: ${task.progress || 0}%"></div>
-    </div>
-    <div class="task-meta">
-      <span class="task-time"><i class="fas fa-play"></i> Started: ${new Date(task.startTime).toLocaleTimeString()}</span>
-      ${task.endTime ? `<span class="task-time"><i class="fas fa-flag-checkered"></i> Ended: ${new Date(task.endTime).toLocaleTimeString()}</span>` : ''}
-    </div>
-    ${task.subTasks && task.subTasks.length > 0 ? `
-      <div class="subtasks">
-        <h5>Subtasks</h5>
-        ${task.subTasks.map(subtask => `
-          <div class="subtask">
-            <p>${subtask.command}</p>
-            <div class="subtask-progress-container">
-              <div class="subtask-progress" style="width: ${subtask.progress || 0}%"></div>
-            </div>
-            <span class="subtask-status ${subtask.status}">${subtask.status}</span>
+      <div class="task-header">
+          <h4><i class="fas fa-${statusIcon}"></i> ${task.command}</h4>
+          <span class="task-status ${statusClass}">${task.status}</span>
+          <button class="cancel-task-btn btn btn-danger btn-sm">Cancel</button>
+      </div>
+      <div class="task-url"><i class="fas fa-link"></i> ${task.url || 'N/A'}</div>
+      <div class="task-progress-container">
+          <div class="task-progress" style="width: ${task.progress || 0}%"></div>
+      </div>
+      <div class="task-meta">
+          <span class="task-time"><i class="fas fa-play"></i> Started: ${new Date(task.startTime).toLocaleTimeString()}</span>
+          ${task.endTime ? `<span class="task-time"><i class="fas fa-flag-checkered"></i> Ended: ${new Date(task.endTime).toLocaleTimeString()}</span>` : ''}
+      </div>
+      ${task.subTasks && task.subTasks.length > 0 ? `
+          <div class="subtasks">
+              <h5>Subtasks</h5>
+              ${task.subTasks.map(subtask => `
+                  <div class="subtask">
+                      <p>${subtask.command}</p>
+                      <div class="subtask-progress-container">
+                          <div class="subtask-progress" style="width: ${subtask.progress || 0}%"></div>
+                      </div>
+                      <span class="subtask-status ${subtask.status}">${subtask.status}</span>
+                  </div>
+              `).join('')}
           </div>
-        `).join('')}
-      </div>
-    ` : ''}
-    ${task.intermediateResults && task.intermediateResults.length > 0 ? `
-      <div class="intermediate-results">
-        <h5>Intermediate Results</h5>
-        ${task.intermediateResults.map(result => `
-          <pre>${JSON.stringify(result, null, 2)}</pre>
-        `).join('')}
-      </div>
-    ` : ''}
-    ${task.error ? `<div class="task-error"><i class="fas fa-exclamation-circle"></i> ${task.error}</div>` : ''}
+      ` : ''}
+      ${task.intermediateResults && task.intermediateResults.length > 0 ? `
+          <div class="intermediate-results">
+              <h5>Intermediate Results</h5>
+              ${task.intermediateResults.map(result => `
+                  <pre>${JSON.stringify(result, null, 2)}</pre>
+              `).join('')}
+          </div>
+      ` : ''}
+      ${task.error ? `<div class="task-error"><i class="fas fa-exclamation-circle"></i> ${task.error}</div>` : ''}
   `;
   element.querySelector('.cancel-task-btn').addEventListener('click', async () => {
-    try {
-      const response = await fetch(`/tasks/${task._id}/cancel`, { method: 'POST', credentials: 'same-origin' });
-      const result = await response.json();
-      if (result.success) {
-        showNotification('Task canceled successfully!');
-        element.remove();
-      } else {
-        showNotification(result.error, 'error');
+      try {
+          const response = await fetch(`/tasks/${task._id}/cancel`, { method: 'POST', credentials: 'same-origin' });
+          const result = await response.json();
+          if (result.success) {
+              showNotification('Task canceled successfully!');
+              element.remove();
+          } else {
+              showNotification(result.error, 'error');
+          }
+      } catch (err) {
+          showNotification('Error canceling task: ' + err.message, 'error');
       }
-    } catch (err) {
-      showNotification('Error canceling task: ' + err.message, 'error');
-    }
   });
   return element;
 }
@@ -1600,128 +1643,151 @@ async function loadHistory(page = 1) {
 function handleHistoryCardClick(e) {
   if (e.target.tagName === 'A' || e.target.closest('a')) return;
 
-  const taskId = e.currentTarget.dataset.taskId; // Use e.currentTarget instead of this
+  const taskId = e.currentTarget.dataset.taskId;
   const popup = document.getElementById('history-popup');
   const details = document.getElementById('history-details-content');
 
   fetch(`/history/${taskId}`, { credentials: 'include' })
-    .then(res => {
-      if (!res.ok) {
-        if (res.status === 401) {
-          window.location.href = '/login.html';
-          return;
-        }
-        throw new Error('Failed to fetch history item');
-      }
-      return res.json();
-    })
-    .then(item => {
-      if (item) {
-        const result = item.result || {};
-        const aiPrepared = result.aiPrepared || {};
-        const raw = result.raw || {};
+      .then(res => {
+          if (!res.ok) {
+              if (res.status === 401) {
+                  window.location.href = '/login.html';
+                  return;
+              }
+              throw new Error('Failed to fetch history item');
+          }
+          return res.json();
+      })
+      .then(item => {
+          if (item) {
+              const result = item.result || {};
+              const aiPrepared = result.aiPrepared || {};
+              const raw = result.raw || {};
 
-        // Prepare AI Summary
-        let aiSummary = 'No summary available';
-        if (typeof aiPrepared.summary === 'string') {
-          aiSummary = aiPrepared.summary;
-        } else if (aiPrepared.summary && typeof aiPrepared.summary === 'object') {
-          if (aiPrepared.summary.summary && typeof aiPrepared.summary.summary === 'string') {
-            aiSummary = aiPrepared.summary.summary;
+              // Prepare AI Summary
+              let aiSummary = 'No summary available';
+              if (typeof aiPrepared.summary === 'string') {
+                  aiSummary = aiPrepared.summary;
+              } else if (aiPrepared.summary && typeof aiPrepared.summary === 'object') {
+                  if (aiPrepared.summary.summary && typeof aiPrepared.summary.summary === 'string') {
+                      aiSummary = aiPrepared.summary.summary;
+                  } else {
+                      aiSummary = JSON.stringify(aiPrepared.summary, null, 2);
+                  }
+              } else if (aiPrepared.subtasks && aiPrepared.subtasks.length > 0) {
+                  const subtaskSummaries = aiPrepared.subtasks
+                      .map((subtask, i) => subtask.summary ? `Subtask ${i + 1}: ${subtask.summary}` : null)
+                      .filter(Boolean);
+                  if (subtaskSummaries.length > 0) {
+                      aiSummary = subtaskSummaries.join('\n');
+                  }
+              } else if (aiPrepared && Object.keys(aiPrepared).length > 0) {
+                  aiSummary = JSON.stringify(aiPrepared, null, 2);
+              }
+
+              // Prepare Screenshots
+              let screenshotsHtml = '';
+              if (raw && raw.screenshotPath) {
+                  screenshotsHtml = `<img src="${raw.screenshotPath}" alt="Screenshot" style="max-width: 100%; border-radius: 5px; margin: 10px 0;">`;
+              } else if (result.finalScreenshotPath) {
+                  screenshotsHtml = `<img src="${result.finalScreenshotPath}" alt="Final Screenshot" style="max-width: 100%; border-radius: 5px; margin: 10px 0;">`;
+              }
+
+              // Prepare Report Link
+              let reportLinkHtml = '';
+              if (result.landingReportUrl) {
+                  reportLinkHtml = `
+                      <a href="${result.landingReportUrl}" target="_blank" class="btn btn-primary btn-sm" style="display: inline-block; margin-top: 10px; padding: 8px 16px; background: #007bff; color: #fff; text-decoration: none; border-radius: 5px;">
+                          View Landing Report
+                      </a>
+                  `;
+              }
+              if (result.midsceneReportUrl) {
+                  reportLinkHtml += `
+                      <a href="${result.midsceneReportUrl}" target="_blank" class="btn btn-primary btn-sm" style="display: inline-block; margin-top: 10px; margin-left: 10px; padding: 8px 16px; background: #007bff; color: #fff; text-decoration: none; border-radius: 5px;">
+                          View Midscene Report
+                      </a>
+                  `;
+              }
+
+              details.innerHTML = `
+                  <h4 style="color: #e8e8e8; margin-bottom: 15px;">Task Details</h4>
+                  <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0;">
+                      <strong>Command:</strong> ${item.command}
+                  </p>
+                  <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0;">
+                      <strong>URL:</strong> ${item.url || 'N/A'}
+                  </p>
+                  <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0;">
+                      <strong>Timestamp:</strong> ${new Date(item.timestamp).toLocaleString()}
+                  </p>
+                  <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">AI Summary</h4>
+                  <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0; white-space: pre-wrap; max-height: 200px; overflow-y: auto;">
+                      ${aiSummary}
+                  </p>
+                  ${aiPrepared.subtasks && Array.isArray(aiPrepared.subtasks) ? `
+                      <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">Subtasks</h4>
+                      ${aiPrepared.subtasks.map((subtask, i) => `
+                          <div class="ai-result" style="margin-bottom: 15px;">
+                              <h5 style="color: #e8e8e8; margin-bottom: 10px;">Subtask ${i + 1}</h5>
+                              <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0; white-space: pre-wrap;">
+                                  ${subtask.summary || 'No summary'}
+                              </p>
+                              ${subtask.data ? `
+                                  <pre style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0; max-height: 200px; overflow-y: auto; white-space: pre-wrap;">
+                                      ${typeof subtask.data === 'object' ? JSON.stringify(subtask.data, null, 2) : subtask.data}
+                                  </pre>
+                              ` : ''}
+                          </div>
+                      `).join('')}
+                  ` : ''}
+                  <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">Screenshots</h4>
+                  ${screenshotsHtml || '<p>No screenshots available.</p>'}
+                  <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">Raw Output</h4>
+                  ${Array.isArray(raw) ? raw.map(r => `
+                      ${r.screenshotPath ? `<img src="${r.screenshotPath}" alt="Screenshot" style="max-width: 100%; border-radius: 5px; margin: 10px 0;">` : ''}
+                      <pre style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0; max-height: 200px; overflow-y: auto; white-space: pre-wrap;">
+                          ${r.pageText || 'No text'}
+                      </pre>
+                  `).join('') : `
+                      ${raw.screenshotPath ? `<img src="${raw.screenshotPath}" alt="Screenshot" style="max-width: 100%; border-radius: 5px; margin: 10px 0;">` : ''}
+                      <pre style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0; max-height: 200px; overflow-y: auto; white-space: pre-wrap;">
+                          ${raw.pageText || 'No text'}
+                      </pre>
+                  `}
+                  ${reportLinkHtml || '<p>No report available.</p>'}
+              `;
+
+              popup.classList.add('active');
+
+              // Add close button event listener
+              document.getElementById('close-history-popup').onclick = () => {
+                  popup.classList.remove('active');
+              };
+
+              // Close on background click
+              popup.onclick = (e) => {
+                  if (e.target === popup) {
+                      popup.classList.remove('active');
+                  }
+              };
+
+              // Close on escape key
+              const escapeHandler = (e) => {
+                  if (e.key === 'Escape') {
+                      popup.classList.remove('active');
+                      document.removeEventListener('keydown', escapeHandler);
+                  }
+              };
+              document.addEventListener('keydown', escapeHandler);
           } else {
-            aiSummary = JSON.stringify(aiPrepared.summary, null, 2);
+              showNotification('History item not found', 'error');
           }
-        } else if (aiPrepared.subtasks && aiPrepared.subtasks.length > 0) {
-          const subtaskSummaries = aiPrepared.subtasks
-            .map((subtask, i) => subtask.summary ? `Subtask ${i + 1}: ${subtask.summary}` : null)
-            .filter(Boolean);
-          if (subtaskSummaries.length > 0) {
-            aiSummary = subtaskSummaries.join('\n');
-          }
-        } else if (aiPrepared && Object.keys(aiPrepared).length > 0) {
-          aiSummary = JSON.stringify(aiPrepared, null, 2);
-        }
-
-        details.innerHTML = `
-          <h4 style="color: #e8e8e8; margin-bottom: 15px;">Task Details</h4>
-          <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0;">
-            <strong>Command:</strong> ${item.command}
-          </p>
-          <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0;">
-            <strong>URL:</strong> ${item.url}
-          </p>
-          <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0;">
-            <strong>Timestamp:</strong> ${new Date(item.timestamp).toLocaleString()}
-          </p>
-          <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">AI Summary</h4>
-          <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0; white-space: pre-wrap; max-height: 200px; overflow-y: auto;">
-            ${aiSummary}
-          </p>
-          ${aiPrepared.subtasks && Array.isArray(aiPrepared.subtasks) ? `
-            <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">Subtasks</h4>
-            ${aiPrepared.subtasks.map((subtask, i) => `
-              <div class="ai-result" style="margin-bottom: 15px;">
-                <h5 style="color: #e8e8e8; margin-bottom: 10px;">Subtask ${i + 1}</h5>
-                <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0; white-space: pre-wrap;">
-                  ${subtask.summary || 'No summary'}
-                </p>
-                ${subtask.data ? `
-                  <pre style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0; max-height: 200px; overflow-y: auto; white-space: pre-wrap;">
-                    ${typeof subtask.data === 'object' ? JSON.stringify(subtask.data, null, 2) : subtask.data}
-                  </pre>
-                ` : ''}
-              </div>
-            `).join('')}
-          ` : ''}
-          <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">Raw Output</h4>
-          ${Array.isArray(raw) ? raw.map(r => `
-            ${r.screenshotPath ? `<img src="${r.screenshotPath}" alt="Screenshot" style="max-width: 100%; border-radius: 5px; margin: 10px 0;">` : ''}
-            <pre style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0; max-height: 200px; overflow-y: auto; white-space: pre-wrap;">
-              ${r.pageText || 'No text'}
-            </pre>
-          `).join('') : `
-            ${raw.screenshotPath ? `<img src="${raw.screenshotPath}" alt="Screenshot" style="max-width: 100%; border-radius: 5px; margin: 10px 0;">` : ''}
-            <pre style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0; max-height: 200px; overflow-y: auto; white-space: pre-wrap;">
-              ${raw.pageText || 'No text'}
-            </pre>
-          `}
-          ${result.runReport ? `
-            <a href="${result.runReport}" target="_blank" class="btn btn-primary btn-sm" style="display: inline-block; margin-top: 10px; padding: 8px 16px; background: #007bff; color: #fff; text-decoration: none; border-radius: 5px;">
-              Read Report
-            </a>
-          ` : ''}
-        `;
-
-        popup.classList.add('active');
-
-        // Add close button event listener
-        document.getElementById('close-history-popup').onclick = () => {
-          popup.classList.remove('active');
-        };
-
-        // Close on background click
-        popup.onclick = (e) => {
-          if (e.target === popup) {
-            popup.classList.remove('active');
-          }
-        };
-
-        // Close on escape key
-        const escapeHandler = (e) => {
-          if (e.key === 'Escape') {
-            popup.classList.remove('active');
-            document.removeEventListener('keydown', escapeHandler);
-          }
-        };
-        document.addEventListener('keydown', escapeHandler);
-      } else {
-        showNotification('History item not found', 'error');
-      }
-    })
-    .catch(err => {
-      console.error('Error fetching history details:', err);
-      showNotification('Error loading task details', 'error');
-    });
+      })
+      .catch(err => {
+          console.error('Error fetching history details:', err);
+          showNotification('Error loading task details', 'error');
+      });
 }
 
 function addToHistory(url, command, result) {
@@ -1739,19 +1805,19 @@ function addToHistory(url, command, result) {
   const escapedCommand = command.replace(/'/g, "\\'");
 
   historyItem.innerHTML = `
-    <h4><i class="fas fa-history"></i> Task: ${command.length > 30 ? command.substring(0, 30) + '...' : command}</h4>
-    <p>URL: ${url}</p>
-    <div class="meta">
-      <span>${formattedTime}</span>
-      <div class="share-buttons">
-        <a href="#" onclick="event.stopPropagation(); rerunHistoryTask('${taskId}', '${url}', '${escapedCommand}')">
-          <i class="fas fa-redo"></i>
-        </a>
-        <a href="#" onclick="event.stopPropagation(); deleteHistoryTask('${taskId}')">
-          <i class="fas fa-trash"></i>
-        </a>
+      <h4><i class="fas fa-history"></i> Task: ${command.length > 30 ? command.substring(0, 30) + '...' : command}</h4>
+      <p>URL: ${url || result.url || 'N/A'}</p>
+      <div class="meta">
+          <span>${formattedTime}</span>
+          <div class="share-buttons">
+              <a href="#" onclick="event.stopPropagation(); rerunHistoryTask('${taskId}', '${url || result.url || 'N/A'}', '${escapedCommand}')">
+                  <i class="fas fa-redo"></i>
+              </a>
+              <a href="#" onclick="event.stopPropagation(); deleteHistoryTask('${taskId}')">
+                  <i class="fas fa-trash"></i>
+              </a>
+          </div>
       </div>
-    </div>
   `;
   historyList.prepend(historyItem);
   historyItem.addEventListener('click', handleHistoryCardClick);
