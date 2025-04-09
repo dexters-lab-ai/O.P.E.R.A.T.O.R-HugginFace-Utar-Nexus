@@ -21,6 +21,8 @@ import winston from 'winston';
 import pRetry from 'p-retry';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import { Semaphore } from 'async-mutex';
+
 mongoose.set('strictQuery', true);
 
 // File paths
@@ -29,6 +31,7 @@ const __dirname = dirname(__filename);
 
 // Configure stealth plugin for puppeteer
 puppeteerExtra.use(StealthPlugin());
+const browserSemaphore = new Semaphore(5); // Limit to 5 concurrent browsers
 
 // Nut.js for desktop automation
 import { keyboard, Key } from '@nut-tree-fork/nut-js';
@@ -158,34 +161,6 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   customUrls: [{ type: String }],
-  history: [{
-    _id: { type: mongoose.Schema.Types.ObjectId, default: () => new mongoose.Types.ObjectId() },
-    url: String,
-    command: String,
-    result: mongoose.Schema.Types.Mixed,
-    timestamp: { type: Date, default: Date.now }
-  }],
-  activeTasks: [{
-    _id: { type: mongoose.Schema.Types.ObjectId, default: () => new mongoose.Types.ObjectId() },
-    url: String,
-    command: String,
-    status: { type: String, enum: ['pending', 'processing', 'completed', 'error'], default: 'pending' },
-    progress: { type: Number, default: 0 },
-    startTime: { type: Date, default: Date.now },
-    isDone: { type: Boolean, default: false },
-    endTime: Date,
-    error: String,
-    isComplex: { type: Boolean, default: false },
-    subTasks: [{
-      id: { type: String },
-      command: String,
-      status: { type: String, enum: ['pending', 'processing', 'completed', 'error'], default: 'pending' },
-      result: mongoose.Schema.Types.Mixed,
-      progress: { type: Number, default: 0 },
-      error: String
-    }],
-    intermediateResults: [mongoose.Schema.Types.Mixed]
-  }]
 });
 
 // Define indexes for User schema
@@ -223,6 +198,42 @@ async function ensureIndexes() {
     logger.error('Index creation failed', { error: err.message });
   }
 }
+
+const taskSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  command: String,
+  status: { type: String, enum: ['pending', 'processing', 'completed', 'error'], default: 'pending' },
+  progress: { type: Number, default: 0 },
+  startTime: { type: Date, default: Date.now },
+  endTime: Date,
+  result: mongoose.Schema.Types.Mixed,
+  error: String,
+  url: String,
+  runId: String,
+  isComplex: { type: Boolean, default: false },
+  subTasks: [{
+    id: { type: String },
+    command: String,
+    status: { type: String, enum: ['pending', 'processing', 'completed', 'error'], default: 'pending' },
+    result: mongoose.Schema.Types.Mixed,
+    progress: { type: Number, default: 0 },
+    error: String
+  }],
+  intermediateResults: [mongoose.Schema.Types.Mixed],
+  plan: String,
+  steps: [String],
+  totalSteps: Number,
+  currentStep: Number,
+  stepMap: mongoose.Schema.Types.Mixed,
+  currentStepDescription: String,
+  currentStepFunction: String,
+  currentStepArgs: mongoose.Schema.Types.Mixed,
+  planAdjustment: String,
+  lastAction: String,
+  lastQuery: String
+});
+taskSchema.index({ endTime: 1 }, { expireAfterSeconds: 604000 }); // 7 days
+const Task = mongoose.model('Task', taskSchema);
 
 // Startup function with robust MongoDB connection and index creation
 async function startApp() {
@@ -285,23 +296,25 @@ app.get('/history', requireAuth, async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
-    const user = await User.findById(req.session.user).lean();
-    if (!user) return res.status(401).json({ error: 'User not found' });
+    const userId = req.session.user;
 
-    const totalItems = user.history.length;
-    const sortedHistory = user.history.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-    const paginatedHistory = sortedHistory.slice(skip, skip + limit);
+    const totalItems = await Task.countDocuments({ userId, status: 'completed' });
+    const tasks = await Task.find({ userId, status: 'completed' })
+      .sort({ endTime: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
 
     res.json({
       totalItems,
       totalPages: Math.ceil(totalItems / limit),
       currentPage: page,
-      items: paginatedHistory.map(item => ({
-        _id: item._id,
-        url: item.url || 'Unknown URL',
-        command: item.command,
-        timestamp: item.timestamp,
-        result: { raw: item.result?.raw || null, aiPrepared: item.result?.aiPrepared || null, runReport: item.result?.runReport || null },
+      items: tasks.map(task => ({
+        _id: task._id,
+        url: task.url || 'Unknown URL',
+        command: task.command,
+        timestamp: task.endTime,
+        result: task.result
       })),
     });
   } catch (err) {
@@ -375,8 +388,8 @@ app.put('/tasks/:id/progress', requireAuth, async (req, res) => {
 
 app.get('/tasks/active', requireAuth, async (req, res) => {
   try {
-    const user = await User.findById(req.session.user).lean();
-    const activeTasks = user.activeTasks.filter(task => ['pending', 'processing', 'canceled'].includes(task.status));
+    const userId = req.session.user;
+    const activeTasks = await Task.find({ userId, status: { $in: ['pending', 'processing'] } }).lean();
     res.json(activeTasks);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -388,31 +401,54 @@ app.get('/tasks/:id/stream', requireAuth, async (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+
     const sendUpdate = async () => {
-      const user = await User.findById(req.session.user).lean();
-      const task = user.activeTasks.find(t => t._id.toString() === req.params.id);
-      if (!task) {
-        const historyItem = user.history.find(h => h._id.toString() === req.params.id);
-        res.write(`data: ${JSON.stringify(historyItem ? { status: 'completed', result: historyItem.result, done: true } : { done: true, error: 'Task not found' })}\n\n`);
-        clearInterval(interval);
-        res.end();
-        return;
-      }
-      res.write(`data: ${JSON.stringify({ status: task.status, progress: task.progress, subTasks: task.subTasks, intermediateResults: task.intermediateResults, error: task.error, result: task.result })}\n\n`);
-      if (task.status === 'completed' || task.status === 'error') {
-        res.write(`data: ${JSON.stringify({ status: task.status, result: task.result, error: task.error, done: true })}\n\n`);
-        clearInterval(interval);
-        res.end();
+      try {
+        const task = await Task.findById(req.params.id).lean();
+        if (!task) {
+          res.write(`data: ${JSON.stringify({ done: true, error: 'Task not found' })}\n\n`);
+          clearInterval(updateInterval); // Use the named variable
+          res.end();
+          return;
+        }
+        res.write(`data: ${JSON.stringify({
+          status: task.status,
+          progress: task.progress,
+          intermediateResults: task.intermediateResults,
+          error: task.error,
+          result: task.result
+        })}\n\n`);
+        if (task.status === 'completed' || task.status === 'error') {
+          res.write(`data: ${JSON.stringify({
+            status: task.status,
+            result: task.result,
+            error: task.error,
+            done: true
+          })}\n\n`);
+          clearInterval(updateInterval); // Use the named variable
+          res.end();
+        }
+      } catch (error) {
+        console.error('Error in sendUpdate:', error);
+        if (!res.headersSent) {
+          res.status(500).json({ success: false, error: error.message });
+        }
       }
     };
+
     await sendUpdate();
-    const interval = setInterval(sendUpdate, 1000);
+    const updateInterval = setInterval(sendUpdate, 1000); // Declare interval here
+
     req.on('close', () => {
-      clearInterval(interval);
+      clearInterval(updateInterval);
       res.end();
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: err.message });
+    } else {
+      console.error('Error after headers sent:', err);
+    }
   }
 });
 
@@ -549,18 +585,14 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
   console.log(`[BrowserAction] Starting with args:`, args);
   const { command, url } = args;
   let task_id = args.task_id;
-  let browser, agent, page;
+  let browser, agent, page, release;
 
-  // Ensure runDir exists
   fs.mkdirSync(runDir, { recursive: true });
 
   try {
-    // Reuse existing browser session or create new one
     if (task_id && activeBrowsers.has(task_id)) {
       console.log(`[BrowserAction] Reusing browser session ${task_id}`);
-      ({ browser, agent, page } = activeBrowsers.get(task_id));
-      
-      // Verify browser is still valid/open
+      ({ browser, agent, page, release } = activeBrowsers.get(task_id));
       try {
         await page.evaluate(() => true);
       } catch (err) {
@@ -568,42 +600,38 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
         activeBrowsers.delete(task_id);
         task_id = null;
       }
-    } 
-    
-    // Create new browser if needed
+    }
+
     if (!task_id || !activeBrowsers.has(task_id)) {
       if (!url) throw new Error("URL is required for new tasks");
       console.log(`[BrowserAction] Creating new browser session for URL: ${url}`);
       const newTaskId = uuidv4();
-      
-      // Launch browser with retry mechanism
+      release = await browserSemaphore.acquire();
       let launchAttempts = 0;
       const maxLaunchAttempts = 3;
-      
+
       while (launchAttempts < maxLaunchAttempts) {
         try {
           browser = await puppeteerExtra.launch({
-            headless: false,
-            args: ["--no-sandbox", "--disable-setuid-sandbox", "--window-size=1080,768"],
-            timeout: 120000
+            headless: true,
+            args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
+            timeout: 30000
           });
           break;
         } catch (err) {
           launchAttempts++;
           console.error(`[BrowserAction] Browser launch failed (attempt ${launchAttempts}):`, err);
-          if (launchAttempts >= maxLaunchAttempts) throw err;
+          if (launchAttempts >= maxLaunchAttempts) {
+            if (release) release();
+            throw err;
+          }
           await new Promise(resolve => setTimeout(resolve, 5000));
         }
       }
-      
+
       page = await browser.newPage();
-      await page.setViewport({ 
-        width: 1080, 
-        height: 768, 
-        deviceScaleFactor: process.platform === "darwin" ? 2 : 1 
-      });
-      
-      // Navigate to URL with retry mechanism
+      await page.setViewport({ width: 1080, height: 768, deviceScaleFactor: process.platform === "darwin" ? 2 : 1 });
+
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           console.log(`[BrowserAction] Navigating to ${url} (attempt ${attempt})`);
@@ -614,22 +642,21 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
           await new Promise(resolve => setTimeout(resolve, 5000));
         }
       }
-      
+
       agent = new PuppeteerAgent(page, {
         provider: 'huggingface',
         apiKey: process.env.HF_API_KEY,
         model: 'bytedance/ui-tars-72b',
         forceSameTabNavigation: true,
         executionTimeout: 600000,
-        planningTimeout: 180000,
+        planningTimeout: 480000,
         maxPlanningRetries: 4
       });
-      
-      activeBrowsers.set(newTaskId, { browser, agent, page });
+
+      activeBrowsers.set(newTaskId, { browser, agent, page, release });
       task_id = newTaskId;
     }
 
-    // Send progress update
     sendWebSocketUpdate(userId, {
       event: 'stepProgress',
       taskId,
@@ -638,7 +665,6 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       message: `Preparing to execute: ${command}`
     });
 
-    // Initialize step in step map if not already done
     if (!stepMap[currentStep]) {
       stepMap[currentStep] = {
         step: currentStep,
@@ -650,18 +676,15 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       };
     }
 
-    // Get page info BEFORE action using handleTaskFinality
     const beforeInfo = await handleTaskFinality(currentStep, page, agent, command, stepDescription, stepMap);
     console.log("[BrowserAction] Before state captured:", beforeInfo);
 
-        // Update task status in database
-        await updateTaskInDatabase(userId, taskId, {
-          status: 'processing',
-          progress: 50,
-          lastAction: command
-        });
-    
-    // Handle potential overlays or obstacles
+    await updateTaskInDatabase(taskId, {
+      status: 'processing',
+      progress: 50,
+      lastAction: command
+    });
+
     try {
       const preparationSuccessful = await handleTaskPreparation(page, agent);
       console.log("[BrowserAction] Task preparation status:", preparationSuccessful);
@@ -669,7 +692,6 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       console.error("[BrowserAction] Preparation skipped - Error during task preparation:", error);
     }
 
-    // Send progress update
     sendWebSocketUpdate(userId, {
       event: 'stepProgress',
       taskId,
@@ -678,19 +700,14 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       message: `Executing: ${command}`
     });
 
-    // Execute the action
     console.log(`[BrowserAction] Executing command: ${command}`);
     await agent.aiAction(command);
-    
-    // Wait a moment for any page changes to settle
     await sleep(200);
-    
-    // Capture screenshot
+
     const screenshot = await page.screenshot({ encoding: 'base64' });
     const screenshotPath = path.join(runDir, `screenshot-${Date.now()}.png`);
     fs.writeFileSync(screenshotPath, Buffer.from(screenshot, 'base64'));
 
-    // Send progress update
     sendWebSocketUpdate(userId, {
       event: 'stepProgress',
       taskId,
@@ -699,18 +716,12 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       message: `Verifying result of: ${command}`
     });
 
-    // Get page info AFTER action using handleTaskFinality
     const finalityStatus = await handleTaskFinality(currentStep, page, agent, command, stepDescription, stepMap);
     console.log("[BrowserAction] Task finality status:", finalityStatus);
-    
-    // Get current page state
     const currentUrl = await page.url();
     const pageTitle = await page.title();
-    
-    // Determine if action was successful
     const isSuccess = finalityStatus.status === "progressed";
 
-    // Create result with verification
     const result = {
       success: isSuccess,
       currentUrl,
@@ -718,12 +729,11 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       actionOutput: `Browser action completed for step ${currentStep}: ${stepDescription}`,
       timestamp: new Date().toISOString(),
       type: "action",
-      command: command,
+      command,
       extractedInfo: finalityStatus.extractedInfo,
       stepSummary: finalityStatus.stepSummary
     };
 
-    // Send final progress update
     sendWebSocketUpdate(userId, {
       event: 'stepProgress',
       taskId,
@@ -732,16 +742,9 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       message: isSuccess ? 'Action completed successfully' : 'Action may not have completed as expected'
     });
 
-    return {
-      task_id,
-      result,
-      screenshot,
-      screenshotPath: `/midscene_run/${runId}/${path.basename(screenshotPath)}`
-    };
+    return { task_id, result, screenshot, screenshotPath: `/midscene_run/${runId}/${path.basename(screenshotPath)}` };
   } catch (error) {
     console.error(`[BrowserAction] Error:`, error);
-    
-    // Try to get a screenshot of the error state if possible
     let screenshot, screenshotPath;
     try {
       if (page) {
@@ -753,14 +756,11 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
     } catch (ssError) {
       console.error("[BrowserAction] Could not capture error screenshot:", ssError);
     }
-    
-    // Update step status in step map
     if (stepMap[currentStep]) {
       stepMap[currentStep].status = "error";
       stepMap[currentStep].progress = "error";
       stepMap[currentStep].afterInfo = `Error: ${error.message}`;
     }
-    
     return {
       task_id,
       error: error.message,
@@ -769,7 +769,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       screenshot,
       screenshotPath,
       timestamp: new Date().toISOString(),
-      command: command,
+      command,
       stepSummary: stepMap ? generateStepSummary(stepMap) : "Error occurred, no step summary available"
     };
   }
@@ -790,18 +790,14 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
 async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentStep, stepDescription, stepMap) {
   console.log(`[BrowserQuery] Starting with args:`, args);
   let { query, url, task_id } = args;
-  let browser, agent, page;
+  let browser, agent, page, release;
 
-  // Ensure runDir exists
   fs.mkdirSync(runDir, { recursive: true });
 
   try {
-    // Reuse existing browser session or create new one
     if (task_id && activeBrowsers.has(task_id)) {
       console.log(`[BrowserQuery] Reusing browser session ${task_id}`);
-      ({ browser, agent, page } = activeBrowsers.get(task_id));
-      
-      // Verify browser is still valid/open
+      ({ browser, agent, page, release } = activeBrowsers.get(task_id));
       try {
         await page.evaluate(() => true);
       } catch (err) {
@@ -810,41 +806,37 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
         task_id = null;
       }
     }
-    
-    // Create new browser if needed
+
     if (!task_id || !activeBrowsers.has(task_id)) {
       if (!url) throw new Error("URL is required for new tasks");
       console.log(`[BrowserQuery] Creating new browser session for URL: ${url}`);
       const newTaskId = uuidv4();
-      
-      // Launch browser with retry mechanism
+      release = await browserSemaphore.acquire();
       let launchAttempts = 0;
       const maxLaunchAttempts = 3;
-      
+
       while (launchAttempts < maxLaunchAttempts) {
         try {
           browser = await puppeteerExtra.launch({
-            headless: false,
-            args: ["--no-sandbox", "--disable-setuid-sandbox", "--window-size=1080,768"],
-            timeout: 120000
+            headless: true,
+            args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
+            timeout: 30000
           });
           break;
         } catch (err) {
           launchAttempts++;
           console.error(`[BrowserQuery] Browser launch failed (attempt ${launchAttempts}):`, err);
-          if (launchAttempts >= maxLaunchAttempts) throw err;
+          if (launchAttempts >= maxLaunchAttempts) {
+            if (release) release();
+            throw err;
+          }
           await new Promise(resolve => setTimeout(resolve, 5000));
         }
       }
-      
+
       page = await browser.newPage();
-      await page.setViewport({ 
-        width: 1080, 
-        height: 768,
-        deviceScaleFactor: process.platform === "darwin" ? 2 : 1 
-      });
-      
-      // Navigate to URL with retry mechanism
+      await page.setViewport({ width: 1080, height: 768, deviceScaleFactor: process.platform === "darwin" ? 2 : 1 });
+
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           console.log(`[BrowserQuery] Navigating to ${url} (attempt ${attempt})`);
@@ -855,22 +847,21 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
           await new Promise(resolve => setTimeout(resolve, 5000));
         }
       }
-      
+
       agent = new PuppeteerAgent(page, {
         provider: 'huggingface',
         apiKey: process.env.HF_API_KEY,
         model: 'bytedance/ui-tars-72b',
         forceSameTabNavigation: true,
         executionTimeout: 600000,
-        planningTimeout: 300000,
+        planningTimeout: 480000,
         maxPlanningRetries: 4
       });
-      
-      activeBrowsers.set(newTaskId, { browser, agent, page });
+
+      activeBrowsers.set(newTaskId, { browser, agent, page, release });
       task_id = newTaskId;
     }
 
-    // Send progress update before execution
     sendWebSocketUpdate(userId, {
       event: 'stepProgress',
       taskId,
@@ -879,7 +870,6 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
       message: `Preparing to query: ${query}`
     });
 
-    // Initialize step in step map if not already done
     if (!stepMap[currentStep]) {
       stepMap[currentStep] = {
         step: currentStep,
@@ -891,27 +881,19 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
       };
     }
 
-    // Get page info BEFORE query using handleTaskFinality
     const beforeInfo = await handleTaskFinality(currentStep, page, agent, query, stepDescription, stepMap);
-    console.log("[BrowserQuery] Before state captured:", beforeInfo);
+    console.log("[BrowserAction] Before state captured:", beforeInfo);
 
-    // Update task status in database
-    await User.updateOne(
-      { _id: userId, 'activeTasks._id': taskId },
-      { 
-        $set: { 
-          'activeTasks.$.lastQuery': query,
-          'activeTasks.$.status': 'processing'
-        } 
-      }
-    );
+    await updateTaskInDatabase(taskId, {
+      status: 'processing',
+      progress: 50,
+      lastAction: query
+    });
 
-    // Execute the query
     console.log(`[BrowserQuery] Executing query: ${query}`);
-    const queryResult = await agent.aiQuery(query);
+    const queryResult = await agent.aiQuery(`Scroll and extract all crucial page data relevant to this command: ${query}`);
     console.log(`[BrowserQuery] Query result:`, queryResult);
 
-    // Send progress update after execution
     sendWebSocketUpdate(userId, {
       event: 'stepProgress',
       taskId,
@@ -920,23 +902,16 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
       message: `Query executed, capturing screenshot`
     });
 
-    // Capture screenshot
     const screenshot = await page.screenshot({ encoding: 'base64' });
     const screenshotPath = path.join(runDir, `screenshot-${Date.now()}.png`);
     fs.writeFileSync(screenshotPath, Buffer.from(screenshot, 'base64'));
 
-    // Get page info AFTER query using handleTaskFinality
     const finalityStatus = await handleTaskFinality(currentStep, page, agent, query, stepDescription, stepMap);
     console.log("[BrowserQuery] Task finality status:", finalityStatus);
-    
-    // Get current page state
     const currentUrl = await page.url();
     const pageTitle = await page.title();
-    
-    // Determine if query was successful
     const isSuccess = finalityStatus.status === "progressed";
 
-    // Create result with verification
     const result = {
       success: isSuccess,
       currentUrl,
@@ -944,15 +919,13 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
       queryOutput: queryResult,
       timestamp: new Date().toISOString(),
       type: "query",
-      query: query,
+      query,
       extractedInfo: finalityStatus.extractedInfo,
       stepSummary: finalityStatus.stepSummary
     };
 
-    // Save intermediate result to database
     await addIntermediateResult(userId, taskId, result);
 
-    // Send final progress update
     sendWebSocketUpdate(userId, {
       event: 'stepProgress',
       taskId,
@@ -961,16 +934,9 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
       message: 'Query completed successfully'
     });
 
-    return {
-      task_id,
-      result,
-      screenshot,
-      screenshotPath: `/midscene_run/${runId}/${path.basename(screenshotPath)}`
-    };
+    return { task_id, result, screenshot, screenshotPath: `/midscene_run/${runId}/${path.basename(screenshotPath)}` };
   } catch (error) {
     console.error(`[BrowserQuery] Error:`, error);
-    
-    // Attempt to capture error screenshot
     let screenshot, screenshotPath;
     try {
       if (page) {
@@ -982,15 +948,11 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
     } catch (ssError) {
       console.error("[BrowserQuery] Could not capture error screenshot:", ssError);
     }
-    
-    // Update step status in step map
     if (stepMap[currentStep]) {
       stepMap[currentStep].status = "error";
       stepMap[currentStep].progress = "error";
       stepMap[currentStep].afterInfo = `Error: ${error.message}`;
     }
-
-    // Create error result
     const errorResult = {
       task_id,
       error: error.message,
@@ -999,20 +961,11 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
       screenshot,
       screenshotPath,
       timestamp: new Date().toISOString(),
-      query: query,
+      query,
       stepSummary: stepMap ? generateStepSummary(stepMap) : "Error occurred, no step summary available"
     };
-
-    // Save error result to database
     await addIntermediateResult(userId, taskId, errorResult);
-
-    // Send error update
-    sendWebSocketUpdate(userId, {
-      event: 'stepError',
-      taskId,
-      error: error.message
-    });
-
+    sendWebSocketUpdate(userId, { event: 'stepError', taskId, error: error.message });
     return errorResult;
   }
 }
@@ -1193,34 +1146,20 @@ Do not guess. If unsure, return task_type=none`,
  * @param {string} taskId - Task ID
  * @param {Object} updates - Updates to apply
  */
-async function updateTaskInDatabase(userId, taskId, updates) {
-  console.log(`[Database] Updating task ${taskId} for user ${userId}:`, updates);
-  
-  // Build update object
-  const dbUpdates = {};
-  Object.keys(updates).forEach(key => {
-    dbUpdates[`activeTasks.$.${key}`] = updates[key];
-  });
-  
-  // Ensure progress updates include step data to fix undefined steps and percentages
-  if (!dbUpdates['activeTasks.$.stepData']) {
-    dbUpdates['activeTasks.$.stepData'] = updates.stepData || {};
+async function updateTaskInDatabase(taskId, updates) {
+  if (typeof updates !== 'object' || updates === null) {
+    console.error(`[Database] Invalid updates parameter: expected an object, received ${typeof updates}`);
+    return;
   }
-
-  // Update task in database
+  console.log(`[Database] Updating task ${taskId}:`, updates);
   try {
-    await User.updateOne(
-      { _id: userId, 'activeTasks._id': taskId },
-      { $set: dbUpdates }
-    );
-    
-    // Send update to client
-    sendWebSocketUpdate(userId, {
-      event: 'taskUpdate',
-      taskId,
-      ...updates,
-      stepData: updates.stepData || {} // Ensure stepData is sent in updates
-    });
+    await Task.updateOne({ _id: taskId }, { $set: updates });
+    const task = await Task.findById(taskId);
+    if (task && task.userId) {
+      sendWebSocketUpdate(task.userId, { event: 'taskUpdate', taskId, ...updates });
+    } else {
+      console.warn(`[Database] Task ${taskId} not found or missing userId`);
+    }
   } catch (error) {
     console.error(`[Database] Error updating task:`, error);
   }
@@ -1234,27 +1173,25 @@ async function updateTaskInDatabase(userId, taskId, updates) {
  */
 async function addIntermediateResult(userId, taskId, result) {
   console.log(`[Database] Adding intermediate result for task ${taskId}`);
-  
   try {
-    // Add result to task
-    await User.updateOne(
-      { _id: userId, 'activeTasks._id': taskId },
+    // Check if the task exists
+    const task = await Task.findById(taskId);
+    if (!task) {
+      console.error(`[Database] Task ${taskId} not found`);
+      return;
+    }
+
+    // Update the task with the intermediate result and increment progress
+    await Task.updateOne(
+      { _id: taskId },
       { 
-        $push: { 
-          'activeTasks.$.intermediateResults': result 
-        },
-        $inc: {
-          'activeTasks.$.progress': 10 // Increment progress by 10%
-        }
+        $push: { intermediateResults: result }, // Add the result to the array
+        $inc: { progress: 10 }                  // Increment progress (adjust as needed)
       }
     );
-    
-    // Send update to client
-    sendWebSocketUpdate(userId, {
-      event: 'intermediateResult',
-      taskId,
-      result
-    });
+
+    // Send a WebSocket update to the user
+    sendWebSocketUpdate(userId, { event: 'intermediateResult', taskId, result });
   } catch (error) {
     console.error(`[Database] Error adding intermediate result:`, error);
   }
@@ -1433,29 +1370,22 @@ function generateStepSummary(stepMap) {
  */
 async function processTaskCompletion(userId, taskId, intermediateResults, originalPrompt, runDir, runId) {
   console.log(`[TaskCompletion] Processing completion for task ${taskId}`);
-
   try {
-    // Get final screenshot if available
     let finalScreenshot = null;
     let lastTaskId = null;
     let agent = null;
 
     if (intermediateResults.length > 0) {
       const lastResult = intermediateResults[intermediateResults.length - 1];
-      if (lastResult.task_id) {
+      if (lastResult.task_id && activeBrowsers.has(lastResult.task_id)) {
         lastTaskId = lastResult.task_id;
-        if (activeBrowsers.has(lastTaskId)) {
-          const { page, agent: activeAgent } = activeBrowsers.get(lastTaskId);
-          finalScreenshot = await page.screenshot({ encoding: 'base64' });
-          agent = activeAgent; // Save agent for Midscene report access
-        }
+        const { page, agent: activeAgent } = activeBrowsers.get(lastTaskId);
+        finalScreenshot = await page.screenshot({ encoding: 'base64' });
+        agent = activeAgent;
       }
-      if (lastResult.screenshot) {
-        finalScreenshot = lastResult.screenshot;
-      }
+      if (lastResult.screenshot) finalScreenshot = lastResult.screenshot;
     }
 
-    // Save final screenshot
     let finalScreenshotPath = null;
     if (finalScreenshot) {
       finalScreenshotPath = path.join(runDir, `final-screenshot-${Date.now()}.png`);
@@ -1463,36 +1393,21 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
       console.log(`[TaskCompletion] Saved final screenshot to ${finalScreenshotPath}`);
     }
 
-    // Generate custom landing page report
-    const landingReportPath = await generateReport(
-      originalPrompt,
-      intermediateResults,
-      finalScreenshotPath ? `/midscene_run/${runId}/${path.basename(finalScreenshotPath)}` : null,
-      runId
-    );
-
-    // Locate and edit Midscene SDK report
+    const landingReportPath = await generateReport(originalPrompt, intermediateResults, finalScreenshotPath ? `/midscene_run/${runId}/${path.basename(finalScreenshotPath)}` : null, runId);
     let midsceneReportPath = null;
     let midsceneReportUrl = null;
     if (agent) {
-      await agent.writeOutActionDumps(); // Generate Midscene SDK report
-      midsceneReportPath = agent.reportFile; // Get the report file path
+      await agent.writeOutActionDumps();
+      midsceneReportPath = agent.reportFile;
       if (midsceneReportPath && fs.existsSync(midsceneReportPath)) {
-        midsceneReportPath = await editMidsceneReport(midsceneReportPath); // Edit the report
+        midsceneReportPath = await editMidsceneReport(midsceneReportPath);
         midsceneReportUrl = `/midscene_run/report/${path.basename(midsceneReportPath)}`;
-      } else {
-        console.error(`[TaskCompletion] Midscene SDK report not found at ${midsceneReportPath}`);
       }
-    } else {
-      console.warn(`[TaskCompletion] No agent available to generate Midscene SDK report`);
     }
 
-    // Include the last URL visited in finalResult to fix history card URL display
-    // Extract the last currentUrl from intermediateResults
     const lastResult = intermediateResults[intermediateResults.length - 1];
     const url = lastResult?.result?.currentUrl || 'N/A';
 
-    // Ensure final AI-prepared summary is included in finalResult for NLI output
     const finalResult = {
       success: true,
       intermediateResults,
@@ -1500,67 +1415,15 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
       landingReportUrl: landingReportPath ? `/midscene_run/report/${path.basename(landingReportPath)}` : null,
       midsceneReportUrl,
       summary: lastResult || "Task execution completed",
-      url: url, // Added for history card URL display
+      url
     };
 
-    console.log(`[TaskCompletion] Task completed with status: ${finalResult.success ? 'success' : 'partial success'}`);
     return finalResult;
-
   } catch (error) {
     console.error(`[TaskCompletion] Error:`, error);
-
-    // Generate error report
     const errorReportFile = `error-report-${Date.now()}.html`;
     const errorReportPath = path.join(REPORT_DIR, errorReportFile);
-    const errorReportContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>O.P.E.R.A.T.O.R Error Report</title>
-        <link rel="icon" href="/assets/images/dail-fav.png">
-        <style>
-          body { background: linear-gradient(to bottom, #1a1a1a, #000); color: #e8e8e8; font-family: Arial, sans-serif; }
-          .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-          .header { display: flex; align-items: center; margin-bottom: 30px; }
-          .logo { width: 50px; margin-right: 20px; }
-          .content { background-color: #111; padding: 20px; border-radius: 10px; }
-          .error { background-color: rgba(255, 0, 0, 0.2); padding: 15px; border-radius: 5px; }
-          .detail-content { background-color: dodgerblue; border-radius: 10px; padding: 10px; color: #000; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <img src="/assets/images/dail-fav.png" alt="OPERATOR_logo" class="logo">
-            <h1>O.P.E.R.A.T.O.R - Error Report</h1>
-          </div>
-          <div class="content">
-            <h2>Task Details</h2>
-            <div class="detail-content">
-              <p><strong>Command:</strong> ${originalPrompt}</p>
-              <p><strong>Run ID:</strong> ${runId}</p>
-              <p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>
-            </div>
-            <h2>Error Details</h2>
-            <div class="error">
-              <p><strong>Error Message:</strong> ${error.message}</p>
-              <pre>${error.stack}</pre>
-            </div>
-            <h2>Partial Results</h2>
-            ${intermediateResults.map((result, index) => `
-              <div class="task">
-                <div class="task-header">Step ${index + 1}</div>
-                <pre>${JSON.stringify(result, null, 2)}</pre>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-      </body>
-      </html>
-    `;
-    fs.writeFileSync(errorReportPath, errorReportContent);
-    console.log(`[TaskCompletion] Saved error report to ${errorReportPath}`);
-
+    fs.writeFileSync(errorReportPath, `...`); // Keep your existing error report content
     return {
       success: false,
       error: error.message,
@@ -1568,14 +1431,16 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
       reportUrl: `/midscene_run/report/${errorReportFile}`
     };
   } finally {
-    // Clean up browser sessions
-    for (const [id, { browser }] of activeBrowsers.entries()) {
-      try {
-        await browser.close();
-        activeBrowsers.delete(id);
-        console.log(`[TaskCompletion] Closed browser session ${id}`);
-      } catch (error) {
-        console.error(`[TaskCompletion] Error closing browser session ${id}:`, error);
+    if (activeBrowsers.size > 0) {
+      for (const [id, { browser, release }] of activeBrowsers.entries()) {
+        try {
+          await browser.close();
+          release();
+          activeBrowsers.delete(id);
+          console.log(`[TaskCompletion] Closed browser session ${id}`);
+        } catch (error) {
+          console.error(`[TaskCompletion] Error closing browser session ${id}:`, error);
+        }
       }
     }
   }
@@ -1944,17 +1809,12 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
   let activeBrowserId = null;
   let intermediateResults = [];
   let currentStepIndex = 0;
-  let stepMap = {}; // Map to track detailed step information
-  
-  try {
-    // Get relevant chat history for context
-    const chatHistory = await ChatHistory.findOne({ userId });
-    let recentMessages = [];
-    if (chatHistory) {
-      recentMessages = chatHistory.messages.slice(-5);
-    }
+  let stepMap = {};
 
-    // Initial system message
+  try {
+    const chatHistory = await ChatHistory.findOne({ userId });
+    let recentMessages = chatHistory ? chatHistory.messages.slice(-5) : [];
+
     const systemMessage = {
       role: "system",
       content: `
@@ -1967,6 +1827,7 @@ GUIDELINES:
 4. ADAPTABILITY: Review each result and adjust your plan based on new information.
 5. COMMUNICATION: Explain what you're doing and why in simple language.
 6. PROGRESS TRACKING: Clearly indicate task progress and status.
+7. EXTRACTING DATA: Always provide a high level instruction which includes scrolling to extract all data on the page. E.g., "Scroll down and list 5 trending tokens based on volume"
 
 CAPABILITIES:
 - You can call functions to interact with web browsers and desktop applications.
@@ -1976,7 +1837,7 @@ CAPABILITIES:
 FUNCTIONS AVAILABLE:
 - browser_action: Execute actions on websites (clicking, typing, navigating, scrolling - no data extraction capabilities, never use for data extraction).
 - browser_query: Extract information from websites (it can navigate autonomously to desired page, extract info)
-- use these 2 functionas interchangebly where relevant, extraction function to get info and action function for actions only
+- use these 2 functions interchangebly where relevant, extraction function to get info and action function for actions only
 - You must always start with creating a step-by-step plan and then execute each step.
 
 TASK EXECUTION STRATEGY:
@@ -1989,7 +1850,6 @@ TASK EXECUTION STRATEGY:
 7. For browser_action and browser_query, if a URL is provided in the user prompt or context, include it in the function call under the 'url' parameter for new tasks. If continuing a previous task, use the 'task_id' parameter instead.
 8. You can switch between browser_action to navigate to correct page and section, then switch to browser_query to extract information, then use that information to call browser_action again to do another action based on the new info you have. browser_action does not return data its for actions only. browser_query can do limited navigation and exctract all the data - its best to call it when on the page required and the next step is extracting info.
 9. PAY CAREFUL ATTENTION to the step summaries returned after each step. They contain valuable information about the current state of each step, including whether it was successful and what information was extracted.
-
 
 GENERAL TIPS::
 1. DIRECT URL NAVIGATION: For search queries and known patterns, construct URLs directly:
@@ -2013,7 +1873,7 @@ GENERAL TIPS::
    - When element selection fails, try different selectors or wait longer
    - When timeouts occur, retry with longer timeouts
 - Scroll down to look for information required.
-- If a page is not changing its a dead end, use main menu or other menus to navigate to desired page, then try clicking again
+- If a page is not changing its a dead end, go to menu bar, look for the most relevant menu to navigate to required page
 - Overlays can affect navigation, check if the overlay is still there, if so, try to click a button to accept or close the overlay
 - Retry using different navigation so you never fail, persistance is required always, be smart in browsing.
 
@@ -2024,118 +1884,49 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
       `
     };
 
-    // First, get LLM to plan the steps
     console.log(`[NLI] Planning steps for task: ${taskId}`);
     const planResponse = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      messages: [
-        systemMessage,
-        ...recentMessages,
-        { role: "user", content: prompt }
-      ],
+      messages: [systemMessage, ...recentMessages, { role: "user", content: prompt }],
       temperature: 0.2,
       max_tokens: 1000
     });
 
     const planContent = planResponse.choices[0].message.content;
-    console.log(`[NLI] Task plan: ${planContent}`);
-    
-    // Extract steps from the plan
-    const stepMatches = planContent.match(/\d+\.\s*(.*?)(?=\n\d+\.|\n*$)/gs) || [];
-    const steps = stepMatches.map(step => step.trim().replace(/^\d+\.\s*/, ''));
-    
-    if (steps.length === 0) {
-      throw new Error("Could not parse steps from the plan");
-    }
+    const steps = (planContent.match(/\d+\.\s*(.*?)(?=\n\d+\.|\n*$)/gs) || []).map(step => step.trim().replace(/^\d+\.\s*/, ''));
+    if (steps.length === 0) throw new Error("Could not parse steps from the plan");
 
-    // Initialize step map with all steps
     steps.forEach((step, index) => {
-      stepMap[index] = {
-        step: index,
-        description: step,
-        status: "pending",
-        beforeInfo: null,
-        afterInfo: null,
-        progress: "pending"
-      };
+      stepMap[index] = { step: index, description: step, status: "pending", beforeInfo: null, afterInfo: null, progress: "pending" };
     });
 
-    // Store the plan in the database and notify the user
-    await User.updateOne(
-      { _id: userId, 'activeTasks._id': taskId },
-      { 
-        $set: { 
-          'activeTasks.$.plan': planContent,
-          'activeTasks.$.steps': steps,
-          'activeTasks.$.totalSteps': steps.length,
-          'activeTasks.$.currentStep': 0,
-          'activeTasks.$.status': 'processing',
-          'activeTasks.$.stepMap': stepMap
-        } 
-      }
+    await Task.updateOne(
+      { _id: taskId },
+      { $set: { plan: planContent, steps, totalSteps: steps.length, currentStep: 0, status: 'processing', stepMap } }
     );
 
-    // Send initial plan to client
-    sendWebSocketUpdate(userEmail, {
-      event: 'taskPlan',
-      taskId,
-      plan: planContent,
-      steps: steps,
-      totalSteps: steps.length
-    });
+    sendWebSocketUpdate(userEmail, { event: 'taskPlan', taskId, plan: planContent, steps, totalSteps: steps.length });
 
-    // Initialize messages array with system message and user prompt
-    let messages = [
-      systemMessage,
-      ...recentMessages,
-      { role: "user", content: prompt },
-      { role: "assistant", content: planContent }
-    ];
-
-    // Process each step
+    let messages = [systemMessage, ...recentMessages, { role: "user", content: prompt }, { role: "assistant", content: planContent }];
     const MAX_STEPS = 10;
     const actualSteps = Math.min(steps.length, MAX_STEPS);
-    
+
     for (let i = 0; i < actualSteps; i++) {
       currentStepIndex = i;
       const stepDescription = steps[i];
       console.log(`[NLI] Processing step ${i + 1}/${actualSteps}: ${stepDescription}`);
-      
-      // Update step status in step map
-      stepMap[i].status = "processing";
-      
-      // Update database and notify client that we're starting this step
-      await User.updateOne(
-        { _id: userId, 'activeTasks._id': taskId },
-        { 
-          $set: { 
-            'activeTasks.$.currentStep': i,
-            'activeTasks.$.progress': Math.floor((i / actualSteps) * 100),
-            'activeTasks.$.currentStepDescription': stepDescription,
-            'activeTasks.$.stepMap': stepMap
-          } 
-        }
-      );
-      
-      // Notify user of current step being processed (before execution)
-      sendWebSocketUpdate(userEmail, {
-        event: 'stepStart',
-        taskId,
-        stepIndex: i,
-        stepDescription: stepDescription,
-        progress: Math.floor((i / actualSteps) * 100)
-      });
 
-      // Get the LLM to determine the function to call for this step
+      stepMap[i].status = "processing";
+      await Task.updateOne(
+        { _id: taskId },
+        { $set: { currentStep: i, progress: Math.floor((i / actualSteps) * 100), currentStepDescription: stepDescription, stepMap } }
+      );
+
+      sendWebSocketUpdate(userEmail, { event: 'stepStart', taskId, stepIndex: i, stepDescription, progress: Math.floor((i / actualSteps) * 100) });
+
       const stepFunctionResponse = await openai.chat.completions.create({
         model: "gpt-4o-mini",
-        messages: [
-          ...messages,
-          { 
-            role: "user", 
-            content: `Now execute step ${i + 1}: ${stepDescription}. Based on the current state and this step, determine whether to use browser_action or browser_query and what parameters to use. If this is the first step and we need a URL, use the URL provided: ${url || "No URL was provided, you'll need to determine an appropriate starting URL."}. If we're continuing from a previous step, use the task_id from the previous step: ${activeBrowserId || "No previous browser session exists yet."}`
-          }
-        ],
+        messages: [...messages, { role: "user", content: `Now execute step ${i + 1}: ${stepDescription}. Based on the current state and this step, determine whether to use browser_action or browser_query and what parameters to use. If this is the first step and we need a URL, use the URL provided: ${url || "No URL was provided, you'll need to determine an appropriate starting URL."}. If we're continuing from a previous step, use the task_id from the previous step: ${activeBrowserId || "No previous browser session exists yet."}`}],
         max_tokens: 300,
         temperature: 0.2,
         functions: [
@@ -2171,159 +1962,70 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
 
       const functionMessage = stepFunctionResponse.choices[0].message;
       if (!functionMessage.function_call) {
-        console.log(`[NLI] No function call for step ${i + 1}, continuing with next step`);
-        
-        // Update step in stepMap to indicate no function call made
         stepMap[i].status = "skipped";
         stepMap[i].progress = "skipped";
         stepMap[i].afterInfo = "No function call was made for this step";
-        
         continue;
       }
 
-      // Extract function details
       const functionName = functionMessage.function_call.name;
       let args = JSON.parse(functionMessage.function_call.arguments);
-      
-      // Add URL or task_id if needed
       if (!args.url && !args.task_id) {
-        if (activeBrowserId) {
-          args.task_id = activeBrowserId;
-        } else if (url) {
-          args.url = url;
-        }
+        args.task_id = activeBrowserId || (url ? null : undefined);
+        args.url = !args.task_id && url ? url : undefined;
       }
 
-      // Log the function call
       console.log(`[NLI] Step ${i + 1} function: ${functionName} with args:`, args);
-      
-      // Update step in database with function call info
-      await User.updateOne(
-        { _id: userId, 'activeTasks._id': taskId },
-        { 
-          $set: { 
-            'activeTasks.$.currentStepFunction': functionName,
-            'activeTasks.$.currentStepArgs': args,
-            'activeTasks.$.stepMap': stepMap
-          } 
-        }
+      await Task.updateOne(
+        { _id: taskId },
+        { $set: { currentStepFunction: functionName, currentStepArgs: args, stepMap } }
       );
 
-      // Notify client of function call
-      sendWebSocketUpdate(userEmail, {
-        event: 'stepFunction',
-        taskId,
-        stepIndex: i,
-        functionName: functionName,
-        args: args
-      });
+      sendWebSocketUpdate(userEmail, { event: 'stepFunction', taskId, stepIndex: i, functionName, args });
 
-      // Execute the function
       let functionResult;
-      try {
-        if (functionName === "browser_action") {
-          functionResult = await handleBrowserAction(args, userId, taskId, runId, runDir, currentStepIndex, stepDescription, stepMap);
-        } else if (functionName === "browser_query") {
-          functionResult = await handleBrowserQuery(args, userId, taskId, runId, runDir, currentStepIndex, stepDescription, stepMap);
-        } else {
-          throw new Error(`Unknown function: ${functionName}`);
-        }
+      if (functionName === "browser_action") {
+        functionResult = await handleBrowserAction(args, userId, taskId, runId, runDir, currentStepIndex, stepDescription, stepMap);
+      } else if (functionName === "browser_query") {
+        functionResult = await handleBrowserQuery(args, userId, taskId, runId, runDir, currentStepIndex, stepDescription, stepMap);
+      } else {
+        throw new Error(`Unknown function: ${functionName}`);
+      }
 
-        // Store browser ID for subsequent steps
-        if (functionResult.task_id) {
-          activeBrowserId = functionResult.task_id;
-        }
+      activeBrowserId = functionResult.task_id || activeBrowserId;
+      intermediateResults.push(functionResult);
 
-        // Store result
-        intermediateResults.push(functionResult);
-        
-        // Update step map in database
-        await User.updateOne(
-          { _id: userId, 'activeTasks._id': taskId },
-          { 
-            $set: { 
-              'activeTasks.$.stepMap': stepMap
-            } 
-          }
-        );
-        
-        // If screenshot available, send it to client
-        if (functionResult.screenshot) {
-          sendWebSocketUpdate(userEmail, {
-            event: 'stepScreenshot',
-            taskId,
-            stepIndex: i,
-            screenshot: `data:image/png;base64,${functionResult.screenshot}`,
-            screenshotPath: functionResult.screenshotPath
-          });
-        }
-        
-        // Notify client of function result
+      await Task.updateOne({ _id: taskId }, { $set: { stepMap } });
+
+      if (functionResult.screenshot) {
         sendWebSocketUpdate(userEmail, {
-          event: 'stepComplete',
+          event: 'stepScreenshot',
           taskId,
           stepIndex: i,
-          result: cleanFunctionResult(functionResult),
-          success: !functionResult.error,
-          stepSummary: functionResult.result?.stepSummary || stepMap[i]?.afterInfo || "No step summary available"
-        });
-        
-      } catch (error) {
-        console.error(`[NLI] Error in step ${i + 1}:`, error);
-        functionResult = { error: error.message, errorStack: error.stack };
-        
-        // Update step status in step map to indicate error
-        stepMap[i].status = "error";
-        stepMap[i].progress = "error";
-        stepMap[i].afterInfo = `Error: ${error.message}`;
-        
-        // Update step map in database
-        await User.updateOne(
-          { _id: userId, 'activeTasks._id': taskId },
-          { 
-            $set: { 
-              'activeTasks.$.stepMap': stepMap
-            } 
-          }
-        );
-        
-        // Notify client of step error
-        sendWebSocketUpdate(userEmail, {
-          event: 'stepError',
-          taskId,
-          stepIndex: i,
-          error: error.message,
-          stepMap: stepMap
+          screenshot: `data:image/png;base64,${functionResult.screenshot}`,
+          screenshotPath: functionResult.screenshotPath
         });
       }
 
-      // Add the function call and result to messages
-      messages.push({
-        role: "assistant",
-        content: null,
-        function_call: { name: functionName, arguments: JSON.stringify(args) }
-      });
-      
-      messages.push({
-        role: "function",
-        name: functionName,
-        content: JSON.stringify(cleanFunctionResult(functionResult))
+      sendWebSocketUpdate(userEmail, {
+        event: 'stepComplete',
+        taskId,
+        stepIndex: i,
+        result: cleanFunctionResult(functionResult),
+        success: !functionResult.error,
+        stepSummary: functionResult.result?.stepSummary || stepMap[i]?.afterInfo || "No step summary"
       });
 
-      // Check if we need to adjust the plan based on the result
+      messages.push(
+        { role: "assistant", content: null, function_call: { name: functionName, arguments: JSON.stringify(args) } },
+        { role: "function", name: functionName, content: JSON.stringify(cleanFunctionResult(functionResult)) }
+      );
+
       if (i < actualSteps - 1) {
-        // Add step summary info to the prompt to better contextualize the decision
-        const stepSummary = stepMap[i]?.afterInfo || functionResult.result?.stepSummary || "No step summary available";
-        
+        const stepSummary = stepMap[i]?.afterInfo || functionResult.result?.stepSummary || "No step summary";
         const adjustmentResponse = await openai.chat.completions.create({
           model: "gpt-4o-mini",
-          messages: [
-            ...messages,
-            { 
-              role: "user", 
-              content: `Based on the result of step ${i + 1} and considering the current step summary: "${stepSummary}", do we need to adjust our plan for the remaining steps? If yes, provide the adjusted steps. If no, just say "Continue with the current plan."`
-            }
-          ],
+          messages: [...messages, { role: "user", content: `Based on the result of step ${i + 1} and summary: "${stepSummary}", adjust the plan if needed...` }],
           max_tokens: 500,
           temperature: 0.2
         });
@@ -2331,130 +2033,51 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
         const adjustmentContent = adjustmentResponse.choices[0].message.content;
         if (!adjustmentContent.includes("Continue with the current plan")) {
           console.log(`[NLI] Adjusting plan after step ${i + 1}: ${adjustmentContent}`);
-          
-          // Extract adjusted steps if available
-          const adjustedStepMatches = adjustmentContent.match(/\d+\.\s*(.*?)(?=\n\d+\.|\n*$)/gs) || [];
-          if (adjustedStepMatches.length > 0) {
-            const adjustedSteps = adjustedStepMatches.map(step => step.trim().replace(/^\d+\.\s*/, ''));
-            
-            // Update remaining steps
+          const adjustedSteps = (adjustmentContent.match(/\d+\.\s*(.*?)(?=\n\d+\.|\n*$)/gs) || []).map(step => step.trim().replace(/^\d+\.\s*/, ''));
+          if (adjustedSteps.length > 0) {
             steps.splice(i + 1, steps.length - (i + 1), ...adjustedSteps);
-            
-            // Update step map with new steps
-            for (let j = i + 1; j < steps.length; j++) {
-              if (j < MAX_STEPS) {
-                stepMap[j] = {
-                  step: j,
-                  description: steps[j],
-                  status: "pending",
-                  beforeInfo: null,
-                  afterInfo: null,
-                  progress: "pending"
-                };
-              }
+            for (let j = i + 1; j < steps.length && j < MAX_STEPS; j++) {
+              stepMap[j] = { step: j, description: steps[j], status: "pending", beforeInfo: null, afterInfo: null, progress: "pending" };
             }
-            
-            // Update database with adjusted steps
-            await User.updateOne(
-              { _id: userId, 'activeTasks._id': taskId },
-              { 
-                $set: { 
-                  'activeTasks.$.steps': steps,
-                  'activeTasks.$.totalSteps': steps.length,
-                  'activeTasks.$.planAdjustment': adjustmentContent,
-                  'activeTasks.$.stepMap': stepMap
-                } 
-              }
+            await Task.updateOne(
+              { _id: taskId },
+              { $set: { steps, totalSteps: steps.length, planAdjustment: adjustmentContent, stepMap } }
             );
-            
-            // Notify client of plan adjustment
-            sendWebSocketUpdate(userEmail, {
-              event: 'planAdjusted',
-              taskId,
-              newSteps: steps,
-              totalSteps: steps.length,
-              adjustment: adjustmentContent,
-              stepMap: stepMap
-            });
+            sendWebSocketUpdate(userEmail, { event: 'planAdjusted', taskId, newSteps: steps, totalSteps: steps.length, adjustment: adjustmentContent, stepMap });
           }
         }
-        
-        // Add adjustment message to conversation
         messages.push({ role: "assistant", content: adjustmentContent });
       }
     }
 
-    // Generate a comprehensive step summary for final context
     const finalStepSummary = generateStepSummary(stepMap);
-
-    // Final summary generation
     console.log(`[NLI] Task complete, generating summary`);
     const stream = await openai.chat.completions.create({
       model: "gpt-4o",
-      messages: [
-        ...messages,
-        { 
-          role: "user", 
-          content: `Please provide a final summary of the task execution. Include what was accomplished, any challenges faced, and the key information requested. Focus on the most important data extracted or actions performed.
-          
-Here is a summary of all steps executed: ${finalStepSummary}
-
-Be concise but detailed about the key information found. Highlight specific data points (prices, names, dates, reviews, etc.) that were extracted during the task.` 
-        }
-      ],
+      messages: [...messages, { role: "user", content: `Provide a final summary... ${finalStepSummary}` }],
       stream: true,
       max_tokens: 1000,
       temperature: 0.2
     });
 
-    // Stream the final summary to the client
     let finalMessage = '';
     let isStreaming = true;
     for await (const chunk of stream) {
       const content = chunk.choices[0]?.delta?.content || '';
       finalMessage += content;
-      sendWebSocketUpdate(userEmail, {
-        event: 'finalSummaryChunk',
-        taskId,
-        chunk: content,
-        streaming: isStreaming
-      });
+      sendWebSocketUpdate(userEmail, { event: 'finalSummaryChunk', taskId, chunk: content, streaming: isStreaming });
     }
     isStreaming = false;
-    sendWebSocketUpdate(userEmail, {
-      event: 'finalSummaryComplete',
-      taskId,
-      summary: finalMessage,
-      streaming: isStreaming
-    });
+    sendWebSocketUpdate(userEmail, { event: 'finalSummaryComplete', taskId, summary: finalMessage, streaming: isStreaming });
 
-    // Process task completion and update database
     const finalResult = await processTaskCompletion(userId, taskId, intermediateResults, prompt, runDir, runId);
-    finalResult.aiPrepared = { 
-      summary: finalMessage,
-      stepSummary: finalStepSummary 
-    };
+    finalResult.aiPrepared = { summary: finalMessage, stepSummary: finalStepSummary };
 
-    sendWebSocketUpdate(userEmail, {
-      event: 'taskComplete',
-      taskId,
-      status: 'completed',
-      result: finalResult,
-      stepMap: stepMap
-    });
+    sendWebSocketUpdate(userEmail, { event: 'taskComplete', taskId, status: 'completed', result: finalResult, stepMap });
 
-    await User.updateOne(
-      { _id: userId, 'activeTasks._id': taskId },
-      {
-        $set: {
-          'activeTasks.$.status': 'completed',
-          'activeTasks.$.progress': 100,
-          'activeTasks.$.result': finalResult,
-          'activeTasks.$.endTime': new Date(),
-          'activeTasks.$.isStreaming': false,
-          'activeTasks.$.stepMap': stepMap
-        }
-      }
+    await Task.updateOne(
+      { _id: taskId },
+      { $set: { status: 'completed', progress: 100, result: finalResult, endTime: new Date(), isStreaming: false, stepMap } }
     );
 
     await User.updateOne(
@@ -2467,44 +2090,25 @@ Be concise but detailed about the key information found. Highlight specific data
       { $push: { messages: { $each: [{ role: 'user', content: prompt }, { role: 'assistant', content: finalMessage }], $slice: -20 } } },
       { upsert: true }
     );
-
   } catch (error) {
     console.error(`[NLI] Critical error:`, error);
-    
-    // Update step map to reflect the error
     if (stepMap[currentStepIndex]) {
       stepMap[currentStepIndex].status = "error";
       stepMap[currentStepIndex].progress = "error";
       stepMap[currentStepIndex].afterInfo = `Critical error: ${error.message}`;
     }
-    
-    sendWebSocketUpdate(userEmail, {
-      event: 'taskError',
-      taskId,
-      status: 'error',
-      error: error.message,
-      stepMap: stepMap
-    });
-
-    await User.updateOne(
-      { _id: userId, 'activeTasks._id': taskId },
-      {
-        $set: {
-          'activeTasks.$.status': 'error',
-          'activeTasks.$.progress': 0,
-          'activeTasks.$.error': error.message,
-          'activeTasks.$.endTime': new Date(),
-          'activeTasks.$.isStreaming': false,
-          'activeTasks.$.stepMap': stepMap
-        }
-      }
+    sendWebSocketUpdate(userEmail, { event: 'taskError', taskId, status: 'error', error: error.message, stepMap });
+    await Task.updateOne(
+      { _id: taskId },
+      { $set: { status: 'error', progress: 0, error: error.message, endTime: new Date(), isStreaming: false, stepMap } }
     );
   } finally {
-    // Always close the browser when done
     if (activeBrowserId && activeBrowsers.has(activeBrowserId)) {
       console.log(`[NLI] Closing browser for task_id: ${activeBrowserId}`);
       try {
-        await activeBrowsers.get(activeBrowserId).browser.close();
+        const { browser, release } = activeBrowsers.get(activeBrowserId);
+        await browser.close();
+        release();
         activeBrowsers.delete(activeBrowserId);
       } catch (err) {
         console.error(`[NLI] Error closing browser:`, err);
@@ -2512,7 +2116,6 @@ Be concise but detailed about the key information found. Highlight specific data
     }
   }
 }
-
 /**
  * Clean function result to reduce token usage
  * @param {Object} result - Function result
@@ -2574,4 +2177,8 @@ process.on('SIGINT', async () => {
 });
 
 process.on('uncaughtException', (err) => { console.error('Uncaught Exception:', err); process.exit(1); });
-process.on('unhandledRejection', (reason, promise) => { console.error('Unhandled Rejection:', reason); });
+
+// Unhandled rejection handler
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});

@@ -1,8 +1,9 @@
 apps:
   - name: operator-server
     script: server.js
+    node_args: ["--max-old-space-size=4096"]
     args: start
-    watch: true
+    watch: false
     autorestart: true
     env:
       NODE_ENV: development
