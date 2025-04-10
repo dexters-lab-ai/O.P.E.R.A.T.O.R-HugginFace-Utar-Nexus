@@ -728,15 +728,10 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
     if (refreshRegex.test(command)) {
       console.log(`[BrowserAction] Refreshing the page`);
       await page.reload({ waitUntil: 'networkidle2', timeout: 180000 });
-    } else if (navigateRegex.test(command)) {
-      const match = navigateRegex.exec(command);
-      let targetUrl = match && match[2] ? match[2] : null;
-      if (!targetUrl && providedUrl) {
-        targetUrl = providedUrl; // Fallback to provided URL if no URL in command
-      }
-      if (!targetUrl) throw new Error("No valid URL found in navigation command or provided args");
-      console.log(`[BrowserAction] Directly Navigating to ${targetUrl}`);
-      await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 180000 });
+    } else if (navigateRegex.test(command) && currentStep > 0) {
+      if (!providedUrl) throw new Error("No valid URL found in navigation command or provided args");
+      console.log(`[BrowserAction] Directly Navigating to ${providedUrl}`);
+      await page.goto(providedUrl, { waitUntil: 'networkidle2', timeout: 180000 });
     } else {
       console.log(`[BrowserAction] Executing command: ${command}`);
       await agent.aiAction(`Execute this command: ${command}. Look for most relevant elements to action and accomplish command directly or indirectly, if not visible scroll to page top, look then gradually scroll down in search of a logical action. When at bottom of page scroll back to top. If adverts exist on top of page scroll down a bit to remove header adverts. Unresponsive clicks may mean you are clicking an image, find elements only or use main menu if clicking on images fails to navigate further`);
@@ -938,7 +933,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
 
     console.log(`[BrowserQuery] Executing query: ${query}`);
     await autoScroll(page); // Scroll before querying
-    const queryResult = await agent.aiQuery(`Scroll into main view to remove adverts, then extract all crucial page data relevant to this command: ${query}`);
+    const queryResult = await agent.aiQuery(`Extract all crucial page data relevant to this command from the whole page (start at page top and gradually towards bottom in phases): ${query}`);
     console.log(`[BrowserQuery] Query result:`, queryResult);
 
     sendWebSocketUpdate(userId, {
@@ -955,6 +950,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
 
     const finalityStatus = await handleTaskFinality(currentStep, page, agent, query, stepDescription, stepMap);
     console.log("[BrowserQuery] Task finality status:", finalityStatus);
+    console.log("[BrowserQuery] Task finality extracted info & options:", finalityStatus.extractedInfo);
     const currentUrl = await page.url();
     const pageTitle = await page.title();
     const isSuccess = finalityStatus.status === "progressed";
@@ -1302,8 +1298,7 @@ async function handleTaskFinality(currentStep, page, agent, commandOrQuery, step
       Step ${currentStep}: ${stepDescription}
       Command/Query to execute: ${commandOrQuery}
       
-      Extract only key main content that is relevant to the command/query. Ignore navigation elements, 
-      ads, and other unrelated content. Focus on headings, titles, descriptions, prices, product details, main text content, or other 
+      Extract only key main content on the page. Ignore ads, and other unrelated content. Focus on links, buttons, cards, lists, headings, titles, descriptions, prices, product details, main text content, or other 
       data that will help determine if the action succeeds. Be specific and concise describing whats visible.
     `;
     
@@ -1328,15 +1323,13 @@ async function handleTaskFinality(currentStep, page, agent, commandOrQuery, step
     What I saw before the action: ${stepMap[currentStep].beforeInfo || "No before information"}
     Previous step info: ${lastStepData}
     
-    Extract only key main content that is relevant to the command/query. Ignore navigation elements, 
-    ads, and other unrelated content. Focus on headings, titles, descriptions, prices, product details, main text content, or other 
-    data that will help determine if the command execution changed what was on the page and achieved the action desired. 
-    Pay attention to the page before & after changes in relation to the command executed and state if the command action suceeded or not.
+    1. Pay attention to the page before & after changes in relation to the command executed and state if the command action suceeded or not.
+    2. Extract only key main content displayed on the page after the action. Ignore ads, and other unuseful content. Focus on main menu, main content data, and siebar if available. Summarize in list format.
     
     Start your response with either "PROGRESSED: " or "UNPROGRESSED: " based on whether the page 
-    content shows the action was successful.
+    content shows the action was successful and required information is displayed.
     If UNPROGRESSED make sure to suggestion a different navigation action. Menus, different search query in url
-    Then provide the extracted information currently visible. Be specific and consise.
+    Then provide the visible page information, e.g., main content area information: products, items, lists, etc. Then include actionable elements and navigation product available to click/item available to click/products/lists/options/results available to click for further navigation. Be specific and consise.
   `;
   
   try {
@@ -1411,8 +1404,8 @@ function generateStepSummary(stepMap) {
     summary += `${statusEmoji} Step ${step.step}: ${step.description}\n`;
     
     if (step.status === "completed" || step.status === "error") {
-      summary += `   Result: ${step.afterInfo ? step.afterInfo.substring(0, 150) : "No result data"}\n`;
-      if (step.afterInfo && step.afterInfo.length > 150) {
+      summary += `   Result: ${step.afterInfo ? step.afterInfo.substring(0, 1000) : "No result data"}\n`;
+      if (step.afterInfo && step.afterInfo.length > 1000) {
         summary += "   ...(truncated)\n";
       }
     }
@@ -1968,6 +1961,7 @@ GUIDELINES:
 5. COMMUNICATION: Explain what you're doing and why in simple language.
 6. PROGRESS TRACKING: Clearly indicate task progress and status.
 7. EXTRACTING DATA: Always provide a high level instruction which includes scrolling to extract all data on the page. E.g., "Scroll down and list 5 trending tokens based on volume"
+8. NAVIGATION EFFICIENCY: Before deciding to navigate, check if the current page is already the required one for the step. Only navigate if the step requires a different page or if the current page cannot fulfill the step’s goal.
 
 CAPABILITIES:
 - You can call functions to interact with web browsers and desktop applications.
@@ -2055,18 +2049,42 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
       currentStepIndex = i;
       const stepDescription = steps[i];
       console.log(`[NLI] Processing step ${i + 1}/${actualSteps}: ${stepDescription}`);
-
+    
       stepMap[i].status = "processing";
       await Task.updateOne(
         { _id: taskId },
         { $set: { currentStep: i, progress: Math.floor((i / actualSteps) * 100), currentStepDescription: stepDescription, stepMap } }
       );
-
+    
       sendWebSocketUpdate(userEmail, { event: 'stepStart', taskId, stepIndex: i, stepDescription, progress: Math.floor((i / actualSteps) * 100) });
-
+    
+      // Generate a summary of completed steps
+      let completedStepsSummary = "";
+      if (i > 0) {
+        completedStepsSummary = "Completed steps so far: " + Object.values(stepMap)
+          .slice(0, i)
+          .map(step => `Step ${step.step + 1}: ${step.description} - Status: ${step.status} (${step.afterInfo || "No summary"})`)
+          .join("; ");
+      }
+    
+      // Get the current URL for context
+      const currentUrl = intermediateResults[i - 1]?.result?.currentUrl || url || "unknown";
+    
+      // Construct the prompt for the executor LLM
+      const stepFunctionPrompt = `
+${completedStepsSummary ? completedStepsSummary + "\n" : ""}
+Current state: You are already on the page: ${currentUrl}. Determine if navigation is necessary for this step or if you can perform the action directly on the current page.
+You are executing step ${i + 1} of ${actualSteps}: ${stepDescription}.
+Refer to the conversation history for the original user prompt, the overall plan, the detailed system instructions, and the results of previous steps to understand the current state and task requirements.
+Based on this context and the current step, determine whether to use browser_action (for actions like clicking, typing, navigating, or scrolling) or browser_query (for extracting information) and specify the parameters.
+If this is the first step and a URL is needed, use: ${url || "No URL provided, determine an appropriate starting URL."}.
+If continuing from a previous step, use the task_id: ${activeBrowserId || "No previous browser session exists yet."}.
+Review the completed steps summary to see what actions have already been performed. Do not repeat actions such as navigation unless the current step requires a different URL or a specific navigation action.
+`;
+    
       const stepFunctionResponse = await openai.chat.completions.create({
         model: "gpt-4o-mini",
-        messages: [...messages, { role: "user", content: `Now execute step ${i + 1}: ${stepDescription}. Based on the current state and this step, determine whether to use browser_action or browser_query and what parameters to use. If this is the first step and we need a URL, use the URL provided: ${url || "No URL was provided, you'll need to determine an appropriate starting URL."}. If we're continuing from a previous step, use the task_id from the previous step: ${activeBrowserId || "No previous browser session exists yet."}`}],
+        messages: [...messages, { role: "user", content: stepFunctionPrompt }],
         max_tokens: 300,
         temperature: 0.2,
         functions: [
@@ -2099,7 +2117,7 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
         ],
         function_call: "auto"
       });
-
+    
       const functionMessage = stepFunctionResponse.choices[0].message;
       if (!functionMessage.function_call) {
         stepMap[i].status = "skipped";
@@ -2107,30 +2125,51 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
         stepMap[i].afterInfo = "No function call was made for this step";
         continue;
       }
-
+    
       const functionName = functionMessage.function_call.name;
-      let args = JSON.parse(functionMessage.function_call.arguments);
-
+      let args;
+      try {
+        args = JSON.parse(functionMessage.function_call.arguments);
+      } catch (parseError) {
+        console.error(`[NLI] Error parsing function arguments:`, parseError);
+        console.error(`[NLI] Invalid arguments string:`, functionMessage.function_call.arguments);
+        stepMap[i].status = "error";
+        stepMap[i].progress = "error";
+        stepMap[i].afterInfo = `Error parsing function arguments: ${parseError.message}`;
+        sendWebSocketUpdate(userEmail, {
+          event: 'stepError',
+          taskId,
+          stepIndex: i,
+          error: `Invalid JSON in function arguments: ${parseError.message}`,
+          stepMap
+        });
+        await Task.updateOne(
+          { _id: taskId },
+          { $set: { stepMap } }
+        );
+        continue; // Skip to the next step
+      }
+    
       // Fallback for task_id if not provided or empty
       if (!args.task_id || args.task_id === '') {
         console.log(`[NLI] Warning: task_id missing or empty in args. Setting to current taskId: ${taskId}`);
         args.task_id = taskId; // Use the current taskId as fallback
       }
-
+    
       // Handle cases where neither url nor task_id is provided
       if (!args.url && !args.task_id) {
         args.task_id = activeBrowserId || (url ? null : undefined);
         args.url = !args.task_id && url ? url : undefined;
       }
-
+    
       console.log(`[NLI] Step ${i + 1} function: ${functionName} with args:`, args);
       await Task.updateOne(
         { _id: taskId },
         { $set: { currentStepFunction: functionName, currentStepArgs: args, stepMap } }
       );
-
+    
       sendWebSocketUpdate(userEmail, { event: 'stepFunction', taskId, stepIndex: i, functionName, args });
-
+    
       let functionResult;
       if (functionName === "browser_action") {
         functionResult = await handleBrowserAction(args, userId, taskId, runId, runDir, currentStepIndex, stepDescription, stepMap);
@@ -2144,9 +2183,9 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
       }
       activeBrowserId = functionResult.task_id || activeBrowserId;
       intermediateResults.push(functionResult);
-
+    
       await Task.updateOne({ _id: taskId }, { $set: { stepMap } });
-
+    
       if (functionResult.screenshot) {
         sendWebSocketUpdate(userEmail, {
           event: 'stepScreenshot',
@@ -2156,7 +2195,7 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
           screenshotPath: functionResult.screenshotPath
         });
       }
-
+    
       sendWebSocketUpdate(userEmail, {
         event: 'stepComplete',
         taskId,
@@ -2165,21 +2204,31 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
         success: !functionResult.error,
         stepSummary: functionResult.result?.stepSummary || stepMap[i]?.afterInfo || "No step summary"
       });
-
+    
       messages.push(
         { role: "assistant", content: null, function_call: { name: functionName, arguments: JSON.stringify(args) } },
         { role: "function", name: functionName, content: JSON.stringify(cleanFunctionResult(functionResult)) }
       );
-
+    
       if (i < actualSteps - 1) {
         const stepSummary = stepMap[i]?.afterInfo || functionResult.result?.stepSummary || "No step summary";
+        const currentUrl = functionResult.result?.currentUrl || "unknown";
+        const extractedInfo = functionResult.result?.extractedInfo || "No extracted info";
+        const adjustmentPrompt = `
+    ${completedStepsSummary ? completedStepsSummary + "\n" : ""}
+    Current state: You are already on the required page: ${currentUrl}. No navigation required, only actions on page required.
+    Based on the result of step ${i + 1}: ${stepDescription}, with summary: "${stepSummary}", and extracted information: "${extractedInfo}".
+    Refer to the conversation history for the original user prompt, the overall plan, and detailed system instructions.
+    What is the next logical step to move towards completing the user prompt: "${prompt}"? Adjust the plan to reflect relevant high level next steps if needed, for example "now look for Bitcoin and open it", dont use "search for bitcoin" without an action to execute on it.
+    `;
+    
         const adjustmentResponse = await openai.chat.completions.create({
           model: "gpt-4o-mini",
-          messages: [...messages, { role: "user", content: `Based on the result of step ${i + 1} and summary: "${stepSummary}" and whats displayed on the page currently: "${extractedInfo}". You are on this page as required: ${functionResult.result?.currentUrl}, what's the next logical step and action to perform to move towards completing this user prompt: "${prompt}"?, adjust the plan and refine next logical steps if needed...` }],
+          messages: [...messages, { role: "user", content: adjustmentPrompt }],
           max_tokens: 300,
           temperature: 0.2
         });
-
+    
         const adjustmentContent = adjustmentResponse.choices[0].message.content;
         if (!adjustmentContent.includes("Continue with the current plan")) {
           console.log(`[NLI] Adjusting plan after step ${i + 1}: ${adjustmentContent}`);
