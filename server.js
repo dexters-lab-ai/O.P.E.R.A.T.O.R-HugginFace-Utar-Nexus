@@ -593,18 +593,23 @@ function sendWebSocketUpdate(userId, data) {
  */
 async function handleBrowserAction(args, userId, taskId, runId, runDir, currentStep, stepDescription, stepMap) {
   console.log(`[BrowserAction] Starting with args:`, args);
-  const { command, url } = args;
+  const { command, url: providedUrl } = args;
   let task_id = args.task_id;
   let browser, agent, page, release;
 
   fs.mkdirSync(runDir, { recursive: true });
 
+  // Define regex patterns for refresh and navigation
+  const refreshRegex = /\b(refresh|reload)\s+(page|the\s+page|the\s+coinbase\s+homepage)\b/i;
+  const navigateRegex = /\b(navigate|go|visit|open|access)\s+(to|on|at)?\s*(https?:\/\/[^\s]+|the\s+(?:website|site|page)|this\s+(?:website|site|page)|(?:[\w-]+(?:\s+(?:website|homepage|site|page))?))\b/i;
+
   try {
+    // **Step 1: Handle session management with retries**
     if (task_id && activeBrowsers.has(task_id)) {
       console.log(`[BrowserAction] Reusing browser session ${task_id}`);
       ({ browser, agent, page, release } = activeBrowsers.get(task_id));
       try {
-        await page.evaluate(() => true);
+        await page.evaluate(() => true); // Validate session
       } catch (err) {
         console.log(`[BrowserAction] Browser session invalid, creating new one`);
         activeBrowsers.delete(task_id);
@@ -612,14 +617,16 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       }
     }
 
+    // If no valid session exists, create a new one with retry logic
     if (!task_id || !activeBrowsers.has(task_id)) {
-      if (!url) throw new Error("URL is required for new tasks");
-      console.log(`[BrowserAction] Creating new browser session for URL: ${url}`);
+      if (!providedUrl) throw new Error("URL is required for new tasks");
+      console.log(`[BrowserAction] Creating new browser session for URL: ${providedUrl}`);
       const newTaskId = uuidv4();
       release = await browserSemaphore.acquire();
       let launchAttempts = 0;
       const maxLaunchAttempts = 3;
 
+      // Retry loop for browser launch
       while (launchAttempts < maxLaunchAttempts) {
         try {
           browser = await puppeteerExtra.launch({
@@ -642,10 +649,11 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       page = await browser.newPage();
       await page.setViewport({ width: 1080, height: 768, deviceScaleFactor: process.platform === "darwin" ? 2 : 1 });
 
+      // Retry loop for initial navigation
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          console.log(`[BrowserAction] Navigating to ${url} (attempt ${attempt})`);
-          await page.goto(url, { waitUntil: 'networkidle2', timeout: 180000 });
+          console.log(`[BrowserAction] Navigating to ${providedUrl} (attempt ${attempt})`);
+          await page.goto(providedUrl, { waitUntil: 'networkidle2', timeout: 180000 });
           break;
         } catch (error) {
           if (attempt === 3) throw error;
@@ -667,6 +675,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       task_id = newTaskId;
     }
 
+    // **Step 2: Send initial progress update (30%)**
     sendWebSocketUpdate(userId, {
       event: 'stepProgress',
       taskId,
@@ -675,6 +684,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       message: `Preparing to execute: ${command}`
     });
 
+    // **Step 3: Initialize stepMap if needed**
     if (!stepMap[currentStep]) {
       stepMap[currentStep] = {
         step: currentStep,
@@ -686,15 +696,18 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       };
     }
 
+    // **Step 4: Capture before state**
     const beforeInfo = await handleTaskFinality(currentStep, page, agent, command, stepDescription, stepMap);
     console.log("[BrowserAction] Before state captured:", beforeInfo);
 
+    // **Step 5: Update task in database**
     await updateTaskInDatabase(taskId, {
       status: 'processing',
       progress: 50,
       lastAction: command
     });
 
+    // **Step 6: Prepare the task**
     try {
       const preparationSuccessful = await handleTaskPreparation(page, agent);
       console.log("[BrowserAction] Task preparation status:", preparationSuccessful);
@@ -702,6 +715,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       console.error("[BrowserAction] Preparation skipped - Error during task preparation:", error);
     }
 
+    // **Step 7: Send 50% progress update**
     sendWebSocketUpdate(userId, {
       event: 'stepProgress',
       taskId,
@@ -710,15 +724,31 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       message: `Executing: ${command}`
     });
 
-    //await autoScroll(page); // Scroll before querying
-    console.log(`[BrowserAction] Executing command: ${command}`);
-    await agent.aiAction(`Scroll into main view to remove header adverts, then execute this command: ${command}. Unresponsive clicks may mean you are clicking an image, find elements only or use main menu if clicking on images fails to navigate further`);
-    await sleep(200);
+    // **Step 8: Execute the command based on type**
+    if (refreshRegex.test(command)) {
+      console.log(`[BrowserAction] Refreshing the page`);
+      await page.reload({ waitUntil: 'networkidle2', timeout: 180000 });
+    } else if (navigateRegex.test(command)) {
+      const match = navigateRegex.exec(command);
+      let targetUrl = match && match[2] ? match[2] : null;
+      if (!targetUrl && providedUrl) {
+        targetUrl = providedUrl; // Fallback to provided URL if no URL in command
+      }
+      if (!targetUrl) throw new Error("No valid URL found in navigation command or provided args");
+      console.log(`[BrowserAction] Directly Navigating to ${targetUrl}`);
+      await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 180000 });
+    } else {
+      console.log(`[BrowserAction] Executing command: ${command}`);
+      await agent.aiAction(`Execute this command: ${command}. Look for most relevant elements to action and accomplish command directly or indirectly, if not visible scroll to page top, look then gradually scroll down in search of a logical action. When at bottom of page scroll back to top. If adverts exist on top of page scroll down a bit to remove header adverts. Unresponsive clicks may mean you are clicking an image, find elements only or use main menu if clicking on images fails to navigate further`);
+      await sleep(200);
+    }
 
+    // **Step 9: Capture screenshot**
     const screenshot = await page.screenshot({ encoding: 'base64' });
     const screenshotPath = path.join(runDir, `screenshot-${Date.now()}.png`);
     fs.writeFileSync(screenshotPath, Buffer.from(screenshot, 'base64'));
 
+    // **Step 10: Send 80% progress update**
     sendWebSocketUpdate(userId, {
       event: 'stepProgress',
       taskId,
@@ -727,12 +757,14 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       message: `Verifying result of: ${command}`
     });
 
+    // **Step 11: Capture after state**
     const finalityStatus = await handleTaskFinality(currentStep, page, agent, command, stepDescription, stepMap);
     console.log("[BrowserAction] Task finality status:", finalityStatus);
     const currentUrl = await page.url();
     const pageTitle = await page.title();
     const isSuccess = finalityStatus.status === "progressed";
 
+    // **Step 12: Prepare result**
     const result = {
       success: isSuccess,
       currentUrl,
@@ -745,6 +777,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       stepSummary: finalityStatus.stepSummary
     };
 
+    // **Step 13: Send 100% progress update**
     sendWebSocketUpdate(userId, {
       event: 'stepProgress',
       taskId,
@@ -753,8 +786,10 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       message: isSuccess ? 'Action completed successfully' : 'Action may not have completed as expected'
     });
 
+    // **Step 14: Return result**
     return { task_id, result, screenshot, screenshotPath: `/midscene_run/${runId}/${path.basename(screenshotPath)}` };
   } catch (error) {
+    // **Error Handling**
     console.error(`[BrowserAction] Error:`, error);
     let screenshot, screenshotPath;
     try {
@@ -1940,7 +1975,7 @@ CAPABILITIES:
 - You make decisions based on function results to determine next steps.
 
 FUNCTIONS AVAILABLE:
-- browser_action: Execute actions on websites (clicking, typing, navigating, scrolling - no data extraction capabilities, never use for data extraction).
+- browser_action: Execute actions on websites or navigate to URL (clicking, typing, navigating, scrolling, navigate to URL directly using keyword 'navigate to' then url in full. browser_action has not data extraction capabilities, never use for data extraction).
 - browser_query: Extract information from websites (it can navigate autonomously to desired page, extract info)
 - use these 2 functions interchangebly where relevant, extraction function to get info and action function for actions only
 - You must always start with creating a step-by-step plan and then execute each step.
@@ -2041,7 +2076,7 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
             parameters: {
               type: "object",
               properties: {
-                command: { type: "string", description: "Action to perform (e.g., 'search for cats on Google' or 'Scroll down and look for Solana then click it' or 'press Esc key on page through browser_action')" },
+                command: { type: "string", description: "Action to perform (e.g., 'search for cats on Google' or 'Scroll up and down to look for Solana then click it' or 'press Esc key on page through browser_action')" },
                 url: { type: "string", description: "URL for new tasks" },
                 task_id: { type: "string", description: "ID of an existing task" }
               },
@@ -2075,6 +2110,14 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
 
       const functionName = functionMessage.function_call.name;
       let args = JSON.parse(functionMessage.function_call.arguments);
+
+      // Fallback for task_id if not provided or empty
+      if (!args.task_id || args.task_id === '') {
+        console.log(`[NLI] Warning: task_id missing or empty in args. Setting to current taskId: ${taskId}`);
+        args.task_id = taskId; // Use the current taskId as fallback
+      }
+
+      // Handle cases where neither url nor task_id is provided
       if (!args.url && !args.task_id) {
         args.task_id = activeBrowserId || (url ? null : undefined);
         args.url = !args.task_id && url ? url : undefined;
@@ -2132,8 +2175,8 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
         const stepSummary = stepMap[i]?.afterInfo || functionResult.result?.stepSummary || "No step summary";
         const adjustmentResponse = await openai.chat.completions.create({
           model: "gpt-4o-mini",
-          messages: [...messages, { role: "user", content: `Based on the result of step ${i + 1} and summary: "${stepSummary}", adjust the plan if needed...` }],
-          max_tokens: 500,
+          messages: [...messages, { role: "user", content: `Based on the result of step ${i + 1} and summary: "${stepSummary}" and whats displayed on the page currently: "${extractedInfo}". You are on this page as required: ${functionResult.result?.currentUrl}, what's the next logical step and action to perform to move towards completing this user prompt: "${prompt}"?, adjust the plan and refine next logical steps if needed...` }],
+          max_tokens: 300,
           temperature: 0.2
         });
 
@@ -2160,7 +2203,7 @@ ${url ? `The user has provided a starting URL: ${url}. Use this URL for browser_
     const finalStepSummary = generateStepSummary(stepMap);
     console.log(`[NLI] Task complete, generating summary`);
     const stream = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       messages: [...messages, { role: "user", content: `Provide a final summary... ${finalStepSummary}` }],
       stream: true,
       max_tokens: 1000,
