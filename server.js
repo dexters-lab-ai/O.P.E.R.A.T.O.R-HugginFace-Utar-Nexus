@@ -522,36 +522,6 @@ async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function ensureElementVisible(page, selector) {
-  const element = await page.$(selector);
-  if (!element) return false;
-  const isVisible = await element.isIntersectingViewport();
-  if (!isVisible) {
-    await element.evaluate(el => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
-    await sleep(100);
-  }
-  return true;
-}
-
-async function openApplication(appName) {
-  if (process.platform === 'win32') {
-    await keyboard.pressKey(Key.LeftSuper);
-    await sleep(500);
-    await keyboard.type(appName);
-    await sleep(500);
-    await keyboard.pressKey(Key.Enter);
-    await keyboard.releaseKey(Key.Enter);
-    return `Launched application "${appName}" via Start menu.`;
-  } else if (process.platform === 'darwin') {
-    require('child_process').exec(`open -a "${appName}"`);
-    return `Opened application "${appName}" on macOS.`;
-  } else if (process.platform === 'linux') {
-    require('child_process').exec(`${appName} &`);
-    return `Attempted to launch "${appName}" on Linux.`;
-  }
-  return `Platform not supported for openApplication.`;
-}
-
 // Import statements would remain the same
 // const puppeteerExtra = require('puppeteer-extra');
 // const path = require('path');
@@ -576,194 +546,6 @@ function sendWebSocketUpdate(userId, data) {
       }
     });
   }
-}
-
-async function handleDesktopAction(prompt, targetUrl, runDir, runId) {
-  try {
-    const browser = await puppeteer.launch({
-      headless: false,
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--window-size=1080,768"],
-      timeout: 120000
-    });
-    
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: process.platform === "darwin" ? 2 : 1 });
-    await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 180000 });
-    
-    const rawResult = await runAutomation(page, prompt);
-    const screenshot = await page.screenshot({ encoding: 'base64' });
-    const pageText = await page.evaluate(() => document.body.innerText);
-    
-    // Save screenshot
-    const screenshotPath = path.join(runDir, 'screenshot.png');
-    fs.writeFileSync(screenshotPath, Buffer.from(screenshot, 'base64'));
-    
-    // Generate Midscene report
-    const reportFile = `midscene-report-${Date.now()}.html`;
-    const reportPath = path.join(REPORT_DIR, reportFile);
-    const runReportUrl = `/midscene_run/report/${reportFile}`;
-    
-    fs.writeFileSync(reportPath, generateKomputerReport(prompt, rawResult, `/midscene_run/${runId}/screenshot.png`));
-    
-    const result = {
-      raw: { screenshotPath: `/midscene_run/${runId}/screenshot.png`, pageText },
-      aiPrepared: { summary: rawResult },
-      runReport: runReportUrl
-    };
-    
-    await browser.close();
-    return result;
-  } catch (error) {
-    console.error("[Komputer Task] Error:", error);
-    throw error;
-  }
-}
-
-// Generate Komputer task report
-function generateKomputerReport(prompt, result, screenshotPath) {
-  return `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>Komputer Task Report</title>
-      <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-        h1 { color: #2c3e50; }
-        .summary { background: #f1f8ff; padding: 15px; border-radius: 5px; margin: 15px 0; }
-        img { max-width: 100%; border: 1px solid #ddd; margin: 15px 0; }
-      </style>
-    </head>
-    <body>
-      <h1>Komputer Task Report</h1>
-      <h2>Original Command</h2>
-      <div class="command">${prompt}</div>
-      <h2>Execution Summary</h2>
-      <div class="summary">${result}</div>
-      <h2>Screenshot</h2>
-      <img src="${screenshotPath}" alt="Task Screenshot">
-    </body>
-    </html>
-  `;
-}
-
-/*
-async function handleTaskPreparation(page, agent) {
-  const screenshot = await page.screenshot({ encoding: 'base64' });
-
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o",
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: `You are a web agent analyzing a page screenshot for automation. 
-First, detect and classify the page intent using: task_type=login | captcha | popup | cookies | human_check | none.
-
-Then describe the steps in plain English using: steps=...
-
-Guidelines:
-- For login forms: Identify username/email and password fields, and describe how to log in with Google or credentials.
-- For captchas: Identify if it's a checkbox, image selection, or text input and describe how to solve it.
-- For popups: If there's a form, explain how to close it or submit it.
-- For cookies: Say how to accept all cookies.
-- For "I am human" checks: Describe checkbox behavior or visual test.
-
-Format your response as:
-task_type=<detected_type>
-steps=<step-by-step plan>
-
-Do not guess. If unsure, return task_type=none`,
-          },
-          {
-            type: "image_url",
-            image_url: { url: `data:image/png;base64,${screenshot}` },
-          },
-        ],
-      },
-    ],
-    max_tokens: 500,
-  });
-
-  const analysis = response.choices[0].message.content.toLowerCase();
-  const lines = analysis.split('\n');
-  const taskTypeLine = lines.find(line => line.startsWith('task_type='));
-  const stepsLine = lines.find(line => line.startsWith('steps='));
-  const taskType = taskTypeLine?.split('=')[1]?.trim();
-
-  if (stepsLine) console.log(`[AI PLAN] ${stepsLine}`);
-  console.log(' TaskTYPEline: ',taskTypeLine);
-  const steps = stepsLine?.replace(/^steps=/, '').trim();
-
-  switch (taskType) {
-    case 'login':
-      await agent.aiAction(`Login detected. ${steps || 'Fill out and submit the login form using the provided credentials.'}`);
-      console.log("Login form handled.");
-      break;
-    case 'captcha':
-      await agent.aiAction(`Captcha challenge detected. ${steps || 'Solve the captcha on the page.'}`);
-      console.log("Captcha handled.");
-      break;
-    case 'cookies':
-      await agent.aiAction(`Cookie prompt detected, click "Accept" or follow these steps: ${steps || 'Click the button to acccept cookies on the page and click it to accept cookies.'}`);
-      console.log("Cookies popup handled.");
-      break;
-    case 'popup':
-      await agent.aiAction(`Popup form detected. ${steps || 'Close or dismiss the popup shown.'}`);
-      console.log("Popup handled.");
-      break;
-    case 'human_check':
-      await agent.aiAction(`Human verification challenge detected. ${steps || 'Complete the checkbox or challenge labeled "I am human".'}`);
-      console.log("Human check handled.");
-      break;
-    default:
-      console.log("No actionable element detected.");
-  }
-
-  // Step 4: Verify success
-  const verificationScreenshot = await page.screenshot({ encoding: 'base64' });
-  const verificationResponse = await openai.chat.completions.create({
-    model: "gpt-4o",
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: "Verify if the login or captcha was successfully handled. Return 'yes' if the page shows the expected content, 'no' otherwise.",
-          },
-          {
-            type: "image_url",
-            image_url: { url: `data:image/png;base64,${verificationScreenshot}` },
-          },
-        ],
-      },
-    ],
-    max_tokens: 100,
-  });
-
-  const verification = verificationResponse.choices[0].message.content.toLowerCase();
-  return verification.includes("yes");
-}
-*/
-
-async function autoScroll(page) {
-  await page.evaluate(async () => {
-    await new Promise((resolve) => {
-      let totalHeight = 0;
-      const distance = 100;
-      const timer = setInterval(() => {
-        const scrollHeight = document.body.scrollHeight;
-        window.scrollBy(0, distance);
-        totalHeight += distance;
-        if (totalHeight >= scrollHeight) {
-          clearInterval(timer);
-          resolve();
-        }
-      }, 100);
-    });
-  });
 }
 
 /**
@@ -882,7 +664,12 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
       console.log(`[TaskCompletion] Saved final screenshot to ${finalScreenshotPath}`);
     }
 
-    const landingReportPath = await generateReport(originalPrompt, intermediateResults, finalScreenshotPath ? `/midscene_run/${runId}/${path.basename(finalScreenshotPath)}` : null, runId);
+    const landingReportPath = await generateReport(
+      originalPrompt,
+      intermediateResults,
+      finalScreenshotPath ? `/midscene_run/${runId}/${path.basename(finalScreenshotPath)}` : null,
+      runId
+    );
     let midsceneReportPath = null;
     let midsceneReportUrl = null;
     if (agent) {
@@ -895,16 +682,20 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
     }
 
     const lastResult = intermediateResults[intermediateResults.length - 1];
-    const url = lastResult?.result?.currentUrl || 'N/A';
+    const currentUrl = lastResult?.result?.currentUrl || 'N/A';
+    const summary = lastResult || "Task execution completed";
 
+    // Stick to the original task_complete finalResult structure
     const finalResult = {
       success: true,
-      intermediateResults,
-      finalScreenshotPath: finalScreenshotPath ? `/midscene_run/${runId}/${path.basename(finalScreenshotPath)}` : null,
+      taskId,
+      summary,
+      currentUrl,
+      screenshot: finalScreenshot || null, // Base64-encoded screenshot
+      steps: intermediateResults.map(step => step.getSummary ? step.getSummary() : step),
+      // Add report URLs as optional extras
       landingReportUrl: landingReportPath ? `/midscene_run/report/${path.basename(landingReportPath)}` : null,
-      midsceneReportUrl,
-      summary: lastResult || "Task execution completed",
-      url: lastResult?.result?.currentUrl || url || 'N/A' 
+      midsceneReportUrl: midsceneReportUrl || null
     };
 
     return finalResult;
@@ -912,11 +703,11 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
     console.error(`[TaskCompletion] Error:`, error);
     const errorReportFile = `error-report-${Date.now()}.html`;
     const errorReportPath = path.join(REPORT_DIR, errorReportFile);
-    fs.writeFileSync(errorReportPath, `...`); // Keep your existing error report content
+    fs.writeFileSync(errorReportPath, `Error Report: ${error.message}`);
     return {
       success: false,
+      taskId,
       error: error.message,
-      intermediateResults,
       reportUrl: `/midscene_run/report/${errorReportFile}`
     };
   } finally {
@@ -939,53 +730,6 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
           }
       }
     }
-  }
-}
-
-/**
- * Save and optimize screenshot
- * @param {string} screenshotBase64 - Base64-encoded screenshot
- * @param {string} directory - Directory to save to
- * @param {string} filename - Filename (without extension)
- * @returns {string} - Path to saved screenshot
- */
-async function saveOptimizedScreenshot(screenshotBase64, directory, filename) {
-  try {
-    // Import sharp for image optimization if available
-    let sharp;
-    try {
-      sharp = await import('sharp');
-    } catch (error) {
-      console.warn('[Screenshot] Sharp library not available, saving without optimization');
-    }
-    
-    const timestamp = Date.now();
-    const screenshotPath = path.join(directory, `${filename}-${timestamp}.png`);
-    
-    if (sharp) {
-      // Save optimized screenshot with sharp
-      const buffer = Buffer.from(screenshotBase64, 'base64');
-      await sharp(buffer)
-        .png({ quality: 85, compressionLevel: 8 })
-        .toFile(screenshotPath);
-        
-      console.log(`[Screenshot] Saved optimized screenshot to ${screenshotPath}`);
-    } else {
-      // Save without optimization
-      fs.writeFileSync(screenshotPath, Buffer.from(screenshotBase64, 'base64'));
-      console.log(`[Screenshot] Saved unoptimized screenshot to ${screenshotPath}`);
-    }
-    
-    return screenshotPath;
-  } catch (error) {
-    console.error(`[Screenshot] Error saving screenshot:`, error);
-    
-    // Fallback to basic save
-    const fallbackPath = path.join(directory, `${filename}-fallback-${Date.now()}.png`);
-    fs.writeFileSync(fallbackPath, Buffer.from(screenshotBase64, 'base64'));
-    console.log(`[Screenshot] Saved fallback screenshot to ${fallbackPath}`);
-    
-    return fallbackPath;
   }
 }
 
@@ -1725,7 +1469,14 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
     if (!existingSession && !effectiveUrl) {
       throw new Error("URL required for new tasks");
     }
-
+    
+    // Update task status in database
+    await updateTaskInDatabase(userId, taskId, {
+      status: 'processing',
+      progress: 50,
+      lastAction: command
+    });
+    
     // Browser session management
     if (existingSession) {
       logAction("Using existing browser session");
@@ -1871,13 +1622,15 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
     
     // Capture screenshot
     const screenshot = await page.screenshot({ encoding: 'base64' });
-    const screenshotPath = path.join(runDir, `screenshot-${Date.now()}.png`);
+    const screenshotFilename = `screenshot-${Date.now()}.png`;
+    const screenshotPath = path.join(runDir, screenshotFilename);
     fs.writeFileSync(screenshotPath, Buffer.from(screenshot, 'base64'));
+    const screenshotUrl = `/midscene_run/${runId}/${screenshotFilename}`;
     logAction("Screenshot captured and saved", { path: screenshotPath });
 
     const currentUrl = await page.url();
     logAction(`Current URL: ${currentUrl}`);
-    
+
     // Prepare result
     const result = {
       success: true,
@@ -1887,7 +1640,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       extractedInfo,
       navigableElements,
       actionLog,
-      stepIndex: currentStep // Add this to ensure step index is returned
+      stepIndex: currentStep
     };
 
     // Final progress update
@@ -1899,7 +1652,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       message: 'Action completed',
       log: actionLog
     });
-    
+
     return { 
       task_id, 
       browser, 
@@ -1910,7 +1663,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       currentUrl,
       ...result, 
       screenshot, 
-      screenshotPath 
+      screenshotPath: screenshotUrl // Set to URL instead of file path
     };
   } catch (error) {
     logAction(`Error in browser action: ${error.message}`, { stack: error.stack });
@@ -2099,13 +1852,15 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
     
     // Capture screenshot
     const screenshot = await page.screenshot({ encoding: 'base64' });
-    const screenshotPath = path.join(runDir, `screenshot-${Date.now()}.png`);
+    const screenshotFilename = `screenshot-${Date.now()}.png`;
+    const screenshotPath = path.join(runDir, screenshotFilename);
     fs.writeFileSync(screenshotPath, Buffer.from(screenshot, 'base64'));
+    const screenshotUrl = `/midscene_run/${runId}/${screenshotFilename}`;
     logQuery("Screenshot captured and saved", { path: screenshotPath });
 
     const currentUrl = await page.url();
     logQuery(`Current URL: ${currentUrl}`);
-    
+
     const result = {
       success: true,
       currentUrl,
@@ -2114,7 +1869,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
       extractedInfo,
       navigableElements,
       actionLog,
-      stepIndex: currentStep // Add this to ensure step index is returned
+      stepIndex: currentStep
     };
 
     sendWebSocketUpdate(userId, { 
@@ -2125,7 +1880,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
       message: 'Query completed',
       log: actionLog
     });
-    
+
     return { 
       task_id, 
       browser, 
@@ -2136,7 +1891,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
       currentUrl,
       ...result, 
       screenshot, 
-      screenshotPath 
+      screenshotPath: screenshotUrl // Set to URL instead of file path
     };
   } catch (error) {
     logQuery(`Error in browser query: ${error.message}`, { stack: error.stack });
@@ -2238,7 +1993,7 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
     });
     
     let taskCompleted = false;
-    let consecutiveFailures = 0; // Added to track consecutive failures for dynamic adjustments
+    let consecutiveFailures = 0; // Track consecutive failures for dynamic adjustments
     
     while (!taskCompleted && plan.currentStepIndex < plan.maxSteps - 1) {
       // Generate system prompt based on current plan state
@@ -2349,12 +2104,31 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
       let currentFunctionCall = null;
       let accumulatedArgs = '';
       let functionCallReceived = false;
+      let thoughtBuffer = '';
       
       for await (const chunk of stream) {
         const delta = chunk.choices[0]?.delta;
         
+        // Handle text content (thoughts)
+        if (delta?.content) {
+          thoughtBuffer += delta.content;
+          sendWebSocketUpdate(userId, {
+            event: 'thoughtUpdate',
+            taskId,
+            thought: delta.content
+          });
+        }
+
         // Handle function call start
         if (delta?.function_call?.name) {
+          if (thoughtBuffer) {
+            sendWebSocketUpdate(userId, {
+              event: 'thoughtComplete',
+              taskId,
+              thought: thoughtBuffer
+            });
+            thoughtBuffer = '';
+          }
           plan.log(`New function call started: ${delta.function_call.name}`);
           currentFunctionCall = { name: delta.function_call.name };
           accumulatedArgs = '';
@@ -2423,17 +2197,17 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
               const summary = parsedArgs.summary || `Task completed: ${prompt}`;
               plan.markCompleted(summary);
               
-              // Final result with summary and screenshots
-              const finalResult = {
-                success: true,
+              // Call processTaskCompletion to generate reports and get finalResult
+              const finalResult = await processTaskCompletion(
+                userId,
                 taskId,
-                summary,
-                currentUrl: plan.currentUrl,
-                screenshot: plan.browserSession?.screenshot,
-                steps: plan.steps.map(step => step.getSummary())
-              };
+                plan.steps.map(step => step.result || { success: false }),
+                prompt,
+                runDir,
+                runId
+              );
               
-              // Update task as completed
+              // Update task as completed in the database
               await Task.updateOne(
                 { _id: taskId },
                 { 
@@ -2500,7 +2274,7 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
       const summary = `Task reached maximum steps (${plan.maxSteps}) without explicit completion. Current URL: ${plan.currentUrl}`;
       plan.markCompleted(summary);
       
-      // Final result with steps summary
+      // Call processTaskCompletion to generate reports and get finalResult
       const finalResult = await processTaskCompletion(
         userId,
         taskId,
@@ -2510,7 +2284,7 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
         runId
       );
       
-      // Update task as completed
+      // Update task as completed in the database
       await Task.updateOne(
         { _id: taskId },
         { 
@@ -2932,43 +2706,6 @@ async function handlePageObstacles(page, agent) {
     console.error(`[Obstacles] Error during obstacle handling:`, error);
     results.obstacles.push(`Error: ${error.message}`);
     return results;
-  }
-}
-
-/**
- * Helper function for handling task preparation tasks like closing modals or accepting cookies
- * @param {Page} page - Puppeteer page object
- * @param {PuppeteerAgent} agent - Browser agent
- * @returns {boolean} - Whether preparation was successful
- */
-async function handleTaskPreparation(page, agent) {
-  try {
-    // Try to detect and close common overlays (cookie notices, modals, etc.)
-    const preparationQuery = `
-      Look at the current page and determine if there are any obstacles like cookie notices, 
-      modals, or popups. If you find any, tell me what to click to dismiss them (like 'Accept All', 
-      'Continue', 'Close', etc.). If there are none, say 'No obstacles detected'.
-    `;
-    
-    const obstacles = await agent.aiQuery(preparationQuery);
-    
-    if (obstacles.toLowerCase().includes('no obstacles detected')) {
-      return true;
-    }
-    
-    // If obstacles were detected, try to dismiss them
-    const dismissAction = `
-      Look for and dismiss any modals, cookie notices, or popups by clicking 'Accept', 'Close', 
-      'Continue', 'I Agree', 'X', or similar buttons. If you see multiple, handle the most prominent one first.
-    `;
-    
-    await agent.aiAction(dismissAction);
-    await sleep(500); // Brief pause to let the page update
-    
-    return true;
-  } catch (error) {
-    console.error(`[TaskPreparation] Error during preparation:`, error);
-    return false;
   }
 }
 
