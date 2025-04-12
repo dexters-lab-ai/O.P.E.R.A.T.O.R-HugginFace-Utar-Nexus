@@ -31,13 +31,32 @@ function initWebSocket(userId) {
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
     console.log('WebSocket message received:', data);
-
-    if (data.event === 'taskUpdate') {
+  
+    if (data.event === 'stepProgress') {
+      updateStepProgress(data.taskId, data.stepIndex, data.progress, data.message, data.log);
+    } else if (data.event === 'taskStart') {
+      handleTaskStart(data.taskId, data.prompt, data.url);
+    } else if (data.event === 'taskUpdate') {
       updateTaskProgress(data.taskId, data.progress, data.status, data.error, data.milestone, data.subTask);
     } else if (data.event === 'intermediateResult') {
       handleIntermediateResult(data.taskId, data.result, data.subTask, data.streaming);
     } else if (data.event === 'taskComplete') {
       handleTaskCompletion(data.taskId, data.status, data.result);
+    } else if (data.event === 'thoughtUpdate') {
+      appendThought(data.taskId, data.thought);
+    } else if (data.event === 'thoughtComplete') {
+      finalizeThought(data.taskId, data.thought);
+    } else if (data.event === 'functionCallPartial') {
+      // Create or update the partial function call container.
+      let partialElement = document.getElementById(`functionCall-${data.taskId}`);
+      if (!partialElement) {
+        partialElement = document.createElement('div');
+        partialElement.id = `functionCall-${data.taskId}`;
+        partialElement.className = 'function-call-partial';
+        document.getElementById('nli-results').prepend(partialElement);
+      }
+      // Replace the content with the full accumulated text.
+      partialElement.textContent = data.partialArgs;
     } else if (data.event === 'taskError') {
       handleTaskError(data.taskId, data.error);
     }
@@ -75,12 +94,13 @@ function isWebGLAvailable() {
 }
 
 function handleTaskError(taskId, error) {
+  const convertedHtml = marked.parse(error);
   const nliResults = document.getElementById('nli-results');
   const errorMessage = document.createElement('div');
   errorMessage.className = 'chat-message ai-message animate-in';
   errorMessage.innerHTML = `
     <div class="message-content">
-      <p class="summary-text error">Error: ${error}</p>
+      <p class="summary-text error">Error: ${convertedHtml}</p>
       <span class="timestamp">${new Date().toLocaleTimeString()}</span>
     </div>
   `;
@@ -88,6 +108,7 @@ function handleTaskError(taskId, error) {
   nliResults.scrollTop = 0;
 
   updateTaskProgress(taskId, 0, 'error', error);
+  loadActiveTasks(); // Refresh immediately
 }
 
 function initializeResultCard(taskId, command) {
@@ -119,6 +140,66 @@ function initializeResultCard(taskId, command) {
     outputContainer.style.display = 'block';
   }
   return resultCard;
+}
+
+function handleTaskStart(taskId, prompt, url) {
+  // Ensure the task appears in the active tasks list
+  loadActiveTasks();
+  initializeResultCard(taskId, prompt); // Optional: Show in results area
+}
+
+function updateStepProgress(taskId, stepIndex, progress, message, log) {
+  const taskElement = document.querySelector(`.active-task[data-task-id="${taskId}"]`);
+  if (taskElement) {
+    // Update progress bar
+    const progressBar = taskElement.querySelector('.task-progress');
+    if (progressBar) progressBar.style.width = `${progress}%`;
+
+    // Append logs to the task card
+    let logContainer = taskElement.querySelector('.task-log');
+    if (!logContainer) {
+      logContainer = document.createElement('div');
+      logContainer.className = 'task-log';
+      taskElement.prepend(logContainer);
+    }
+    log.forEach(entry => {
+      const logEntry = document.createElement('p');
+      logEntry.textContent = `[${entry.timestamp}] ${entry.message}`;
+      logEntry.style.fontSize = '0.9em';
+      logEntry.style.color = '#ccc';
+      logContainer.prepend(logEntry);
+    });
+    taskElement.scrollTop = taskElement.scrollHeight; // Auto-scroll to latest log
+  }
+}
+
+function appendThought(taskId, thoughtChunk) {
+  let thoughtCard = document.querySelector(`.thought-card[data-task-id="${taskId}"]`);
+  const nliResults = document.getElementById('nli-results');
+  if (!thoughtCard) {
+    thoughtCard = document.createElement('div');
+    thoughtCard.className = 'thought-card chat-message ai-message animate-in';
+    thoughtCard.dataset.taskId = taskId;
+    thoughtCard.innerHTML = `
+      <div class="message-content">
+        <p class="thought-text"></p>
+        <span class="timestamp">${new Date().toLocaleTimeString()}</span>
+      </div>
+    `;
+    nliResults.prepend(thoughtCard);
+  }
+  const thoughtText = thoughtCard.querySelector('.thought-text');
+  thoughtText.textContent += thoughtChunk;
+  nliResults.scrollTop = 0;
+}
+
+function finalizeThought(taskId, finalThought) {
+  const thoughtCard = document.querySelector(`.thought-card[data-task-id="${taskId}"]`);
+  if (thoughtCard) {
+    const thoughtText = thoughtCard.querySelector('.thought-text');
+    thoughtText.textContent = finalThought; // Ensure the final thought is complete
+    thoughtCard.classList.remove('thought-card'); // Optional: Style as a completed thought
+  }
 }
 
 /**************************** Initialization ****************************/
@@ -184,22 +265,29 @@ async function loadChatHistory() {
     const nliResults = document.getElementById('nli-results');
     nliResults.innerHTML = ''; // Clear any existing messages
 
-    // Reverse the messages array to show newest first
-    const reversedMessages = data.messages.reverse();
+    // Use data.messages if available; otherwise try data.items; otherwise []
+    const messages = data.messages || data.items || [];
+    if (messages.length === 0) {
+      nliResults.innerHTML = '<p id="no-history" class="text-muted">No chat history available.</p>';
+      return;
+    }
+
+    const reversedMessages = messages.reverse();
 
     // Add each message to the chat container
     reversedMessages.forEach(message => {
+      const convertedHtml = marked.parse(message.content);
       const messageDiv = document.createElement('div');
       messageDiv.className = `chat-message ${message.role}-message animate-in`;
       messageDiv.innerHTML = `
         <div class="message-content">
-          <p class="summary-text ${message.role === 'assistant' && message.content.startsWith('Error:') ? 'error' : ''}">
-            ${message.content}
+          <p class="summary-text ${message.role === 'assistant' && convertedHtml.startsWith('Error:') ? 'error' : ''}">
+            ${convertedHtml}
           </p>
           <span class="timestamp">${new Date(message.timestamp).toLocaleTimeString()}</span>
         </div>
       `;
-      nliResults.appendChild(messageDiv);
+      nliResults.prepend(messageDiv);
     });
 
     // Scroll to the top to show the newest messages
@@ -211,22 +299,21 @@ async function loadChatHistory() {
     const nliResults = document.getElementById('nli-results');
     nliResults.innerHTML = '';
 
-    // Reverse the saved messages too
     const reversedSavedMessages = savedMessages.reverse();
-    reversedSavedMessages.forEach(message => {
+    reversedSavedMessages.forEach(message => {      
+      const convertedHtml = marked.parse(message.content);
       const messageDiv = document.createElement('div');
       messageDiv.className = `chat-message ${message.role}-message animate-in`;
       messageDiv.innerHTML = `
         <div class="message-content">
-          <p class="summary-text ${message.role === 'assistant' && message.content.startsWith('Error:') ? 'error' : ''}">
-            ${message.content}
+          <p style="white-space: pre-wrap;" class="summary-text ${message.role === 'assistant' && convertedHtml.startsWith('Error:') ? 'error' : ''}">
+            ${convertedHtml}
           </p>
           <span class="timestamp">${new Date(message.timestamp).toLocaleTimeString()}</span>
         </div>
       `;
       nliResults.appendChild(messageDiv);
     });
-    // Scroll to the top
     nliResults.scrollTop = 0;
   }
 }
@@ -362,8 +449,6 @@ document.addEventListener('DOMContentLoaded', () => {
               saveChatMessage('assistant', summary);
 
               resultCard.querySelector('.result-header h4').innerHTML = `<i class="fas fa-globe"></i> ${result?.raw?.url || 'N/A'}`;
-
-              // Update only the outputs div, preserving screenshots
               const outputsDiv = resultCard.querySelector('.outputs');
               outputsDiv.innerHTML = `
                 <div class="toggle-buttons">
@@ -387,7 +472,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 img.style.display = 'block';
                 img.onerror = () => console.error('Final image load failed:', result.screenshotPath);
                 img.onload = () => console.log('Final image loaded:', result.screenshotPath);
-                screenshotsContainer.appendChild(img);
+                screenshotsContainer.prepend(img);
               }
 
               const toggleButtons = resultCard.querySelectorAll('.toggle-btn');
@@ -923,7 +1008,7 @@ function updateTaskProgress(taskId, progress, status, error, milestone, subTask)
       const milestoneDisplay = taskElement.querySelector('.task-milestone') || document.createElement('div');
       milestoneDisplay.className = 'task-milestone';
       milestoneDisplay.textContent = milestone;
-      if (!taskElement.querySelector('.task-milestone')) taskElement.appendChild(milestoneDisplay);
+      if (!taskElement.querySelector('.task-milestone')) taskElement.prepend(milestoneDisplay);
     }
 
     if (status === 'completed' || status === 'error') {
@@ -933,13 +1018,14 @@ function updateTaskProgress(taskId, progress, status, error, milestone, subTask)
   }
 
   // Display subtask updates in chatbox
-  if (subTask && milestone) {
+  if (subTask && milestone) {    
+    const convertedHtml = marked.parse(milestone);
     const nliResults = document.getElementById('nli-results');
     const subTaskMessage = document.createElement('div');
     subTaskMessage.className = 'chat-message subtask-message animate-in';
     subTaskMessage.innerHTML = `
       <div class="message-content">
-        <p class="summary-text">${milestone}</p>
+        <p class="summary-text">${convertedHtml}</p>
         <span class="timestamp">${new Date().toLocaleTimeString()}</span>
       </div>
     `;
@@ -977,22 +1063,22 @@ function handleIntermediateResult(taskId, result, subTask, streaming) {
               const errorText = document.createElement('p');
               errorText.textContent = 'Failed to load screenshot.';
               errorText.style.color = 'red';
-              screenshotsContainer.appendChild(errorText);
+              screenshotsContainer.prepend(errorText);
           };
           img.onload = () => {
               console.log('Image loaded:', result.screenshotPath);
               // Force DOM update
-              screenshotsContainer.appendChild(img);
+              screenshotsContainer.prepend(img);
               // Ensure the container is visible
               screenshotsContainer.style.display = 'block';
           };
-          screenshotsContainer.appendChild(img);
+          screenshotsContainer.prepend(img);
       }
       if (result.summary) {
           const summaryDiv = document.createElement('div');
           summaryDiv.className = 'subtask-summary';
           summaryDiv.textContent = result.summary;
-          outputsDiv.appendChild(summaryDiv);
+          outputsDiv.prepend(summaryDiv);
       }
 
       // Update chatbox for subtask results
@@ -1046,22 +1132,23 @@ function handleIntermediateResult(taskId, result, subTask, streaming) {
 }
 
 function handleTaskCompletion(taskId, status, result) {
+  console.log('Task completed:', taskId, status, result);
+  
+  // Get or initialize the result card.
   let resultCard = document.querySelector(`.result-card[data-task-id="${taskId}"]`);
-  const nliResults = document.getElementById('nli-results');
-  const outputContainer = document.getElementById('output-container');
-  if (document.getElementById('no-results')) document.getElementById('no-results').remove();
-
-  // If resultCard doesn’t exist (unlikely), create it
   if (!resultCard) {
     resultCard = initializeResultCard(taskId, result.command || 'Unknown');
   }
-
+  
+  // Format the timestamp.
   const timestamp = new Date();
   const formattedTime = timestamp.toLocaleTimeString() + ' ' + timestamp.toLocaleDateString();
-  const summary = result?.aiPrepared?.summary || result?.summary || 'No summary available';
-  const url = result?.raw?.url || result?.url || 'N/A';
-
-  // Update header and keep existing screenshots
+  
+  // Use the unified keys from the server result.
+  const summary = (result.aiPrepared && result.aiPrepared.summary) || 'No summary available';
+  const url = (result.raw && result.raw.url) || 'N/A';
+  
+  // Update the header with URL, command, and timestamp.
   resultCard.querySelector('.result-header').innerHTML = `
     <h4><i class="fas fa-globe"></i> ${url}</h4>
     <p><strong>Command:</strong> ${result.command || 'Unknown'}</p>
@@ -1069,31 +1156,34 @@ function handleTaskCompletion(taskId, status, result) {
       <span>${formattedTime}</span>
     </div>
   `;
-
-  const outputsDiv = resultCard.querySelector('.outputs');
+  
+  // Update outputs: The AI-prepared summary and the raw output.
+  const outputsDiv = resultCard.querySelector('.outputs');  
   const screenshotsContainer = resultCard.querySelector('.screenshots');
+  
   outputsDiv.innerHTML = `
     <div class="toggle-buttons">
       <button class="toggle-btn active" data-view="ai">AI Prepared</button>
       <button class="toggle-btn" data-view="raw">Raw Output</button>
     </div>
     <div class="ai-output active">${summary}</div>
-    <div class="raw-output">${result.raw?.pageText || 'No raw output'}</div>
-    ${result.runReport ? `<a href="${result.runReport}" target="_blank" class="btn btn-primary btn-sm mt-2">View Report</a>` : ''}
+    <div class="raw-output">${(result.raw && result.raw.pageText) || 'No raw output available.'}</div>
+    ${result.landingReportUrl ? `<a href="${result.landingReportUrl}" target="_blank" class="btn btn-primary btn-sm mt-2">View Landing Report</a>` : ''}
+    ${result.midsceneReportUrl ? `<a href="${result.midsceneReportUrl}" target="_blank" class="btn btn-primary btn-sm mt-2">View Midscene Report</a>` : ''}
   `;
-
-  // Append final screenshot if present
-  if (result?.screenshotPath) {
+  
+  // If a final screenshot URL is present, append the image.
+  if (result.screenshot) {
     const img = document.createElement('img');
-    img.src = result.screenshotPath;
+    img.src = result.screenshot;
     img.alt = 'Final Screenshot';
     img.style.maxWidth = '100%';
     img.style.marginTop = '10px';
     img.style.display = 'block';
-    screenshotsContainer.appendChild(img);
+    screenshotsContainer.prepend(img);
   }
-
-  // Add toggle functionality
+  
+  // Set up toggle functionality for AI vs Raw output.
   const toggleButtons = resultCard.querySelectorAll('.toggle-btn');
   const aiOutput = resultCard.querySelector('.ai-output');
   const rawOutput = resultCard.querySelector('.raw-output');
@@ -1103,12 +1193,16 @@ function handleTaskCompletion(taskId, status, result) {
       aiOutput.classList.remove('active');
       rawOutput.classList.remove('active');
       btn.classList.add('active');
-      if (btn.dataset.view === 'ai') aiOutput.classList.add('active');
-      else rawOutput.classList.add('active');
+      if (btn.dataset.view === 'ai') {
+        aiOutput.classList.add('active');
+      } else {
+        rawOutput.classList.add('active');
+      }
     });
   });
-
-  // Append final message to chatbox
+  
+  // Append a final chat message to the chat window.
+  const nliResults = document.getElementById('nli-results');
   const aiMessage = document.createElement('div');
   aiMessage.className = 'chat-message ai-message animate-in';
   aiMessage.innerHTML = `
@@ -1119,7 +1213,8 @@ function handleTaskCompletion(taskId, status, result) {
   `;
   nliResults.prepend(aiMessage);
   nliResults.scrollTop = 0;
-
+  
+  // Update the list of active tasks and history.
   loadActiveTasks();
   loadHistory();
 }
@@ -1212,7 +1307,7 @@ async function loadActiveTasks() {
     } else {
       activeTasks.forEach(task => {
         const taskElement = createTaskElement(task);
-        tasksContainer.appendChild(taskElement);
+        tasksContainer.prepend(taskElement);
       });
     }
     updateActiveTasksTab();
@@ -1304,20 +1399,28 @@ function createTaskElement(task) {
       ` : ''}
       ${task.error ? `<div class="task-error"><i class="fas fa-exclamation-circle"></i> ${task.error}</div>` : ''}
   `;
-  element.querySelector('.cancel-task-btn').addEventListener('click', async () => {
+  if (task.status === 'error') {
+    element.querySelector('.remove-task-btn').addEventListener('click', () => {
+      element.remove(); // Remove from UI
+      loadActiveTasks(); // Refresh to sync with server
+    });
+  } else {
+    element.querySelector('.cancel-task-btn').addEventListener('click', async () => {
       try {
-          const response = await fetch(`/tasks/${task._id}/cancel`, { method: 'POST', credentials: 'same-origin' });
-          const result = await response.json();
-          if (result.success) {
-              showNotification('Task canceled successfully!');
-              element.remove();
-          } else {
-              showNotification(result.error, 'error');
-          }
+        const response = await fetch(`/tasks/${task._id}/cancel`, { method: 'POST', credentials: 'same-origin' });
+        const result = await response.json();
+        if (result.success) {
+          showNotification('Task canceled successfully!');
+          element.remove();
+          loadActiveTasks();
+        } else {
+          showNotification(result.error, 'error');
+        }
       } catch (err) {
-          showNotification('Error canceling task: ' + err.message, 'error');
+        showNotification('Error canceling task: ' + err.message, 'error');
       }
-  });
+    });
+  }
   return element;
 }
 
@@ -1648,146 +1751,160 @@ function handleHistoryCardClick(e) {
   const details = document.getElementById('history-details-content');
 
   fetch(`/history/${taskId}`, { credentials: 'include' })
-      .then(res => {
-          if (!res.ok) {
-              if (res.status === 401) {
-                  window.location.href = '/login.html';
-                  return;
-              }
-              throw new Error('Failed to fetch history item');
-          }
-          return res.json();
-      })
-      .then(item => {
-          if (item) {
-              const result = item.result || {};
-              const aiPrepared = result.aiPrepared || {};
-              const raw = result.raw || {};
+  .then(res => {
+    if (!res.ok) {
+      if (res.status === 401) {
+        window.location.href = '/login.html';
+        return;
+      }
+      throw new Error('Failed to fetch history item');
+    }
+    return res.json();
+  })
+  .then(item => {
+    if (!item) {
+      showNotification('History item not found', 'error');
+      return;
+    }
+    
+    // Pull out top-level info
+    const { command, url, timestamp, result = {} } = item;
+    // result may contain nested fields
+    const {
+      aiPrepared = {},
+      raw = {},
+      runReport,              // some code calls this 'landingReportUrl'
+      landingReportUrl,
+      midsceneReportUrl,
+      screenshot,            // might exist if you stored a final screenshot
+      finalScreenshotPath,
+      screenshotPath,        // sometimes used if a single screenshot was saved
+      intermediateResults,
+    } = result;
 
-              // Prepare AI Summary
-              let aiSummary = 'No summary available';
-              if (typeof aiPrepared.summary === 'string') {
-                  aiSummary = aiPrepared.summary;
-              } else if (aiPrepared.summary && typeof aiPrepared.summary === 'object') {
-                  if (aiPrepared.summary.summary && typeof aiPrepared.summary.summary === 'string') {
-                      aiSummary = aiPrepared.summary.summary;
-                  } else {
-                      aiSummary = JSON.stringify(aiPrepared.summary, null, 2);
-                  }
-              } else if (aiPrepared.subtasks && aiPrepared.subtasks.length > 0) {
-                  const subtaskSummaries = aiPrepared.subtasks
-                      .map((subtask, i) => subtask.summary ? `Subtask ${i + 1}: ${subtask.summary}` : null)
-                      .filter(Boolean);
-                  if (subtaskSummaries.length > 0) {
-                      aiSummary = subtaskSummaries.join('\n');
-                  }
-              } else if (aiPrepared && Object.keys(aiPrepared).length > 0) {
-                  aiSummary = JSON.stringify(aiPrepared, null, 2);
-              }
+    // --- Prepare data for display ---
+    // 1. Basic fallback strings
+    const summary = aiPrepared.summary || 'No summary available';
+    const rawOutput = raw.pageText || 'No raw output available.';
+    
+    // 2. Build a list of screenshots if intermediateResults or final screenshot exist
+    //    Each intermediate result might have a screenshotPath field
+    let screenshotsHtml = '';
+    if (Array.isArray(intermediateResults)) {
+      const screenshotResults = intermediateResults.filter(r => r.screenshotPath);
+      if (screenshotResults.length > 0) {
+        screenshotsHtml = screenshotResults
+          .map(r => `<img src="${r.screenshotPath}" alt="Screenshot" style="max-width: 100%; border-radius: 5px; margin: 10px 0;">`)
+          .join('');
+      }
+    }
+    // fallback if no intermediate screenshots but final screenshot is available
+    if (!screenshotsHtml) {
+      const finalShot = finalScreenshotPath || screenshot || screenshotPath;
+      if (finalShot) {
+        screenshotsHtml = `<img src="${finalShot}" alt="Screenshot" style="max-width: 100%; border-radius: 5px; margin: 10px 0;">`;
+      }
+    }
+    if (!screenshotsHtml) {
+      screenshotsHtml = '<p>No screenshots available.</p>';
+    }
 
-              // Prepare Screenshots
-              let screenshotsHtml = '';
-              if (raw && raw.screenshotPath) {
-                  screenshotsHtml = `<img src="${raw.screenshotPath}" alt="Screenshot" style="max-width: 100%; border-radius: 5px; margin: 10px 0;">`;
-              } else if (result.finalScreenshotPath) {
-                  screenshotsHtml = `<img src="${result.finalScreenshotPath}" alt="Final Screenshot" style="max-width: 100%; border-radius: 5px; margin: 10px 0;">`;
-              }
+    // 3. Build report link(s)
+    let reportLinksHtml = '';
+    if (landingReportUrl) {
+      reportLinksHtml += `
+        <a href="${landingReportUrl}" target="_blank" 
+           class="btn btn-primary btn-sm" 
+           style="display: inline-block; margin-top: 10px; padding: 8px 16px; background: #007bff; color: #fff; text-decoration: none; border-radius: 5px;">
+          View Landing Report
+        </a>
+      `;
+    }
+    if (midsceneReportUrl) {
+      reportLinksHtml += `
+        <a href="${midsceneReportUrl}" target="_blank"
+           class="btn btn-primary btn-sm"
+           style="display: inline-block; margin-top: 10px; margin-left: 10px; padding: 8px 16px; background: #007bff; color: #fff; text-decoration: none; border-radius: 5px;">
+          View Midscene Report
+        </a>
+      `;
+    }
+    if (runReport) {
+      // Some code uses 'runReport' for a final HTML file. If so:
+      reportLinksHtml += `
+        <a href="${runReport}" target="_blank"
+           class="btn btn-primary btn-sm"
+           style="display: inline-block; margin-top: 10px; margin-left: 10px; padding: 8px 16px; background: #007bff; color: #fff; text-decoration: none; border-radius: 5px;">
+          View Run Report
+        </a>
+      `;
+    }
+    if (!reportLinksHtml) {
+      reportLinksHtml = '<p>No report available.</p>';
+    }
 
-              // Prepare Report Link
-              let reportLinkHtml = '';
-              if (result.landingReportUrl) {
-                  reportLinkHtml = `
-                      <a href="${result.landingReportUrl}" target="_blank" class="btn btn-primary btn-sm" style="display: inline-block; margin-top: 10px; padding: 8px 16px; background: #007bff; color: #fff; text-decoration: none; border-radius: 5px;">
-                          View Landing Report
-                      </a>
-                  `;
-              }
-              if (result.midsceneReportUrl) {
-                  reportLinkHtml += `
-                      <a href="${result.midsceneReportUrl}" target="_blank" class="btn btn-primary btn-sm" style="display: inline-block; margin-top: 10px; margin-left: 10px; padding: 8px 16px; background: #007bff; color: #fff; text-decoration: none; border-radius: 5px;">
-                          View Midscene Report
-                      </a>
-                  `;
-              }
+    // Insert into the popup
+    details.innerHTML = `
+      <h4 style="color: #e8e8e8; margin-bottom: 15px;">Task Details</h4>
+      <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0;">
+        <strong>Command:</strong> ${command}
+      </p>
+      <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0;">
+        <strong>URL:</strong> ${url || 'Unknown URL'}
+      </p>
+      <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0;">
+        <strong>Timestamp:</strong> ${new Date(timestamp).toLocaleString()}
+      </p>
 
-              details.innerHTML = `
-                  <h4 style="color: #e8e8e8; margin-bottom: 15px;">Task Details</h4>
-                  <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0;">
-                      <strong>Command:</strong> ${item.command}
-                  </p>
-                  <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0;">
-                      <strong>URL:</strong> ${item.url || 'N/A'}
-                  </p>
-                  <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0;">
-                      <strong>Timestamp:</strong> ${new Date(item.timestamp).toLocaleString()}
-                  </p>
-                  <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">AI Summary</h4>
-                  <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0; white-space: pre-wrap; max-height: 200px; overflow-y: auto;">
-                      ${aiSummary}
-                  </p>
-                  ${aiPrepared.subtasks && Array.isArray(aiPrepared.subtasks) ? `
-                      <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">Subtasks</h4>
-                      ${aiPrepared.subtasks.map((subtask, i) => `
-                          <div class="ai-result" style="margin-bottom: 15px;">
-                              <h5 style="color: #e8e8e8; margin-bottom: 10px;">Subtask ${i + 1}</h5>
-                              <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0; white-space: pre-wrap;">
-                                  ${subtask.summary || 'No summary'}
-                              </p>
-                              ${subtask.data ? `
-                                  <pre style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0; max-height: 200px; overflow-y: auto; white-space: pre-wrap;">
-                                      ${typeof subtask.data === 'object' ? JSON.stringify(subtask.data, null, 2) : subtask.data}
-                                  </pre>
-                              ` : ''}
-                          </div>
-                      `).join('')}
-                  ` : ''}
-                  <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">Screenshots</h4>
-                  ${screenshotsHtml || '<p>No screenshots available.</p>'}
-                  <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">Raw Output</h4>
-                  ${Array.isArray(raw) ? raw.map(r => `
-                      ${r.screenshotPath ? `<img src="${r.screenshotPath}" alt="Screenshot" style="max-width: 100%; border-radius: 5px; margin: 10px 0;">` : ''}
-                      <pre style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0; max-height: 200px; overflow-y: auto; white-space: pre-wrap;">
-                          ${r.pageText || 'No text'}
-                      </pre>
-                  `).join('') : `
-                      ${raw.screenshotPath ? `<img src="${raw.screenshotPath}" alt="Screenshot" style="max-width: 100%; border-radius: 5px; margin: 10px 0;">` : ''}
-                      <pre style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0; max-height: 200px; overflow-y: auto; white-space: pre-wrap;">
-                          ${raw.pageText || 'No text'}
-                      </pre>
-                  `}
-                  ${reportLinkHtml || '<p>No report available.</p>'}
-              `;
+      <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">AI Summary</h4>
+      <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0; 
+                white-space: pre-wrap; max-height: 200px; overflow-y: auto;">
+        ${summary}
+      </p>
 
-              popup.classList.add('active');
+      <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">Screenshots</h4>
+      <div style="background: #222; padding: 10px; border-radius: 5px;">
+        ${screenshotsHtml}
+      </div>
 
-              // Add close button event listener
-              document.getElementById('close-history-popup').onclick = () => {
-                  popup.classList.remove('active');
-              };
+      <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">Raw Output</h4>
+      <div style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; max-height: 200px; overflow-y: auto; white-space: pre-wrap;">
+        ${rawOutput}
+      </div>
 
-              // Close on background click
-              popup.onclick = (e) => {
-                  if (e.target === popup) {
-                      popup.classList.remove('active');
-                  }
-              };
+      <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">Reports</h4>
+      <div>
+        ${reportLinksHtml}
+      </div>
+    `;
 
-              // Close on escape key
-              const escapeHandler = (e) => {
-                  if (e.key === 'Escape') {
-                      popup.classList.remove('active');
-                      document.removeEventListener('keydown', escapeHandler);
-                  }
-              };
-              document.addEventListener('keydown', escapeHandler);
-          } else {
-              showNotification('History item not found', 'error');
-          }
-      })
-      .catch(err => {
-          console.error('Error fetching history details:', err);
-          showNotification('Error loading task details', 'error');
-      });
+    popup.classList.add('active');
+
+    // Hook up close button
+    document.getElementById('close-history-popup').onclick = () => {
+      popup.classList.remove('active');
+    };
+
+    // Close on background click
+    popup.onclick = (e) => {
+      if (e.target === popup) {
+        popup.classList.remove('active');
+      }
+    };
+
+    // Close on Escape
+    const escapeHandler = (e) => {
+      if (e.key === 'Escape') {
+        popup.classList.remove('active');
+        document.removeEventListener('keydown', escapeHandler);
+      }
+    };
+    document.addEventListener('keydown', escapeHandler);
+  })
+  .catch(err => {
+    console.error('Error fetching history details:', err);
+    showNotification('Error loading task details', 'error');
+  });
 }
 
 function addToHistory(url, command, result) {
