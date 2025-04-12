@@ -57,27 +57,74 @@ const server = createServer(app);
 const userConnections = new Map();
 const wss = new WebSocketServer({ server });
 
+// Global cache for unsent messages (server-side)
+const unsentMessages = new Map();
+
+function sendWebSocketUpdate(userId, data) {
+  console.log(`[WebSocket] Sending to userId=${userId}:`, JSON.stringify(data, null, 2));
+  const connections = userConnections.get(userId);
+  if (connections && connections.size > 0) {
+    connections.forEach(ws => {
+      if (ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify(data));
+        } catch (error) {
+          console.error(`[WebSocket] Failed to send to userId=${userId}:`, error);
+        }
+      } else {
+        console.warn(`[WebSocket] Skipping closed connection for userId=${userId}`);
+      }
+    });
+  } else {
+    console.warn(`[WebSocket] No active connections for userId=${userId}. Queuing message.`);
+    if (!unsentMessages.has(userId)) {
+      unsentMessages.set(userId, []);
+    }
+    unsentMessages.get(userId).push(data);
+  }
+}
+
+// In your WebSocket connection handler (server-side), add code to flush queued messages:
 wss.on('connection', (ws, req) => {
   const userId = req.url.split('userId=')[1]?.split('&')[0];
-
   if (!userId) {
-    console.log('[WebSocket] Connection rejected: Missing userId');
+    console.error('[WebSocket] Connection rejected: Missing userId');
+    ws.send(JSON.stringify({ event: 'error', message: 'Missing userId' }));
     ws.close();
     return;
   }
-
   ws.userId = userId;
+  const userWsSet = userConnections.get(userId) || new Set();
+  userWsSet.add(ws);
+  userConnections.set(userId, userWsSet);
+  console.log(`[WebSocket] Connected: userId=${userId}, total connections=${userWsSet.size}`);
 
-  if (!userConnections.has(userId)) userConnections.set(userId, new Set());
-  userConnections.get(userId).add(ws);
-  console.log(`[WebSocket] Client connected: userId=${userId}`);
+  // Flush queued messages for this user if any
+  if (unsentMessages.has(userId)) {
+    const queuedMessages = unsentMessages.get(userId);
+    queuedMessages.forEach(message => {
+      try {
+        ws.send(JSON.stringify(message));
+      } catch (error) {
+        console.error(`[WebSocket] Failed to send queued message to userId=${userId}:`, error);
+      }
+    });
+    unsentMessages.delete(userId);
+  }
 
   ws.on('close', () => {
-    if (userConnections.has(userId)) {
-      userConnections.get(userId).delete(ws);
-      if (userConnections.get(userId).size === 0) userConnections.delete(userId);
+    const userWsSet = userConnections.get(userId);
+    if (userWsSet) {
+      userWsSet.delete(ws);
+      if (userWsSet.size === 0) {
+        userConnections.delete(userId);
+      }
+      console.log(`[WebSocket] Disconnected: userId=${userId}, remaining connections=${userWsSet.size}`);
     }
-    console.log(`[WebSocket] Client disconnected: userId=${userId}`);
+  });
+
+  ws.on('error', (error) => {
+    console.error(`[WebSocket] Error for userId=${userId}:`, error);
   });
 });
 
@@ -407,60 +454,48 @@ app.get('/tasks/active', requireAuth, async (req, res) => {
 });
 
 app.get('/tasks/:id/stream', requireAuth, async (req, res) => {
-  try {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
 
-    const updateInterval = setInterval(sendUpdate, 1000);
-
-    const sendUpdate = async () => {
-      try {
-        const task = await Task.findById(req.params.id).lean();
-        if (!task) {
-          res.write(`data: ${JSON.stringify({ done: true, error: 'Task not found' })}\n\n`);
-          clearInterval(updateInterval);
-          res.end();
-          return;
-        }
-        res.write(`data: ${JSON.stringify({
-          status: task.status,
-          progress: task.progress,
-          intermediateResults: task.intermediateResults,
-          error: task.error,
-          result: task.result
-        })}\n\n`);
-        if (task.status === 'completed' || task.status === 'error') {
-          res.write(`data: ${JSON.stringify({
-            status: task.status,
-            result: task.result,
-            error: task.error,
-            done: true
-          })}\n\n`);
-          clearInterval(updateInterval);
-          res.end();
-        }
-      } catch (error) {
-        console.error('Error in sendUpdate:', error);
-        if (!res.headersSent) {
-          res.status(500).json({ success: false, error: error.message });
-        }
+  const sendUpdate = async () => {
+    try {
+      const task = await Task.findById(req.params.id).lean();
+      if (!task) {
+        res.write(`data: ${JSON.stringify({ done: true, error: 'Task not found' })}\n\n`);
+        res.end();
+        return;
       }
-    };
-
-    await sendUpdate();
-
-    req.on('close', () => {
-      clearInterval(updateInterval);
+      const update = {
+        status: task.status || 'unknown',
+        progress: task.progress || 0,
+        intermediateResults: task.intermediateResults || [],
+        steps: task.steps || [],
+        error: task.error || null,
+        result: task.result || null,
+        done: task.status === 'completed' || task.status === 'error'
+      };
+      console.log(`[Stream] Sending update for task ${req.params.id}:`, JSON.stringify(update, null, 2));
+      res.write(`data: ${JSON.stringify(update)}\n\n`);
+      if (update.done) {
+        res.end();
+      }
+    } catch (error) {
+      console.error('[Stream] Error:', error);
+      res.write(`data: ${JSON.stringify({ error: error.message, done: true })}\n\n`);
       res.end();
-    });
-  } catch (err) {
-    if (!res.headersSent) {
-      res.status(500).json({ success: false, error: err.message });
-    } else {
-      console.error('Error after headers sent:', err);
     }
-  }
+  };
+
+  const interval = setInterval(sendUpdate, 1000);
+  await sendUpdate();
+
+  req.on('close', () => {
+    clearInterval(interval);
+    res.end();
+    console.log(`[Stream] Client disconnected for task ${req.params.id}`);
+  });
 });
 
 app.get('/custom-urls', requireAuth, async (req, res) => {
@@ -533,22 +568,6 @@ async function sleep(ms) {
 
 
 /**
- * Send updates to the client via WebSocket
- * @param {string} userId - User ID to send updates to
- * @param {Object} data - Data to send
- */
-function sendWebSocketUpdate(userId, data) {
-//console.log(`[WebSocket] Sending update to userId=${userId}:`, JSON.stringify(data).substring(0, 200) + '...');
-  if (userConnections.has(userId)) {
-    userConnections.get(userId).forEach(ws => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(data));
-      }
-    });
-  }
-}
-
-/**
  * Update task in database and notify clients
  * @param {string} userId - User ID
  * @param {string} taskId - Task ID
@@ -574,62 +593,6 @@ async function updateTaskInDatabase(taskId, updates) {
 }
 
 /**
- * Analyzes the current page state and compares it to previous state to determine step progress
- * @param {number} currentStep - The current step number
- * @param {Page} page - Puppeteer page object
- * @param {PuppeteerAgent} agent - Browser agent for AI operations
- * @param {string} commandOrQuery - The command or query that was executed
- * @param {string} stepDescription - Description of the current step
- * @param {Object} stepMap - Map of all steps with their status and results
- * @returns {Object} - The finality status object
- */
-async function handleTaskFinality(currentStep, functionName, args, functionResult) {
-  const { success, error, currentUrl, pageTitle, actionOutput, queryOutput } = functionResult.result || {};
-
-  const stepStatus = success ? "progressed" : "unprogressed";
-  const extractedInfo = actionOutput || queryOutput || "No additional info";
-  const summary = `Step ${currentStep}: ${functionName} with args ${JSON.stringify(args)} - Status: ${stepStatus}. ${extractedInfo}`;
-
-  // Simple heuristic: task might be done after 5 steps or if explicitly completed
-  const taskComplete = currentStep >= 5 || (stepStatus === "progressed" && extractedInfo.includes("task complete"));
-
-  return {
-    status: taskComplete ? "completed" : "in_progress",
-    summary,
-    extractedInfo
-  };
-}
-/**
- * Generates a summary of all steps for LLM context
- * @param {Object} stepMap - Map of all steps with their status and results
- * @returns {string} - Summary of all steps
- */
-function generateStepSummary(stepMap) {
-  let summary = "STEP PROGRESS SUMMARY:\n\n";
-  
-  const steps = Object.values(stepMap).sort((a, b) => a.step - b.step);
-  
-  for (const step of steps) {
-    const statusEmoji = step.progress === "progressed" ? "✅" : 
-                        step.progress === "unprogressed" ? "⚠️" : 
-                        step.progress === "error" ? "❌" : "⏳";
-    
-    summary += `${statusEmoji} Step ${step.step}: ${step.description}\n`;
-    
-    if (step.status === "completed" || step.status === "error") {
-      summary += `   Result: ${step.afterInfo ? step.afterInfo.substring(0, 1000) : "No result data"}\n`;
-      if (step.afterInfo && step.afterInfo.length > 1000) {
-        summary += "   ...(truncated)\n";
-      }
-    }
-    
-    summary += "\n";
-  }
-  
-  return summary;
-}
-
-/**
  * Process task completion and generate reports
  * @param {string} userId - User ID
  * @param {string} taskId - Task ID
@@ -645,7 +608,6 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
     let finalScreenshot = null;
     let lastTaskId = null;
     let agent = null;
-
     if (intermediateResults.length > 0) {
       const lastResult = intermediateResults[intermediateResults.length - 1];
       if (lastResult.task_id && activeBrowsers.has(lastResult.task_id)) {
@@ -656,18 +618,18 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
       }
       if (lastResult.screenshot) finalScreenshot = lastResult.screenshot;
     }
-
-    let finalScreenshotPath = null;
+    let finalScreenshotUrl = null;
     if (finalScreenshot) {
-      finalScreenshotPath = path.join(runDir, `final-screenshot-${Date.now()}.png`);
+      const finalScreenshotPath = path.join(runDir, `final-screenshot-${Date.now()}.png`);
       fs.writeFileSync(finalScreenshotPath, Buffer.from(finalScreenshot, 'base64'));
       console.log(`[TaskCompletion] Saved final screenshot to ${finalScreenshotPath}`);
+      finalScreenshotUrl = `/midscene_run/${runId}/${path.basename(finalScreenshotPath)}`;
     }
 
     const landingReportPath = await generateReport(
       originalPrompt,
       intermediateResults,
-      finalScreenshotPath ? `/midscene_run/${runId}/${path.basename(finalScreenshotPath)}` : null,
+      finalScreenshotUrl,
       runId
     );
     let midsceneReportPath = null;
@@ -681,19 +643,29 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
       }
     }
 
-    const lastResult = intermediateResults[intermediateResults.length - 1];
-    const currentUrl = lastResult?.result?.currentUrl || 'N/A';
-    const summary = lastResult || "Task execution completed";
+    // Compile all intermediate extracted info into one raw page text.
+    const rawPageText = intermediateResults
+      .map(step => (step && step.result && step.result.extractedInfo) || '')
+      .join('\n');
 
-    // Stick to the original task_complete finalResult structure
+    // Use the last intermediate result for the final URL and summary.
+    const currentUrl = (intermediateResults[intermediateResults.length - 1]?.result?.currentUrl) || 'N/A';
+    const summary = intermediateResults[intermediateResults.length - 1]?.result?.actionOutput ||
+      `Task execution completed for: ${originalPrompt}`;
+
+    // Unified final result object.
     const finalResult = {
       success: true,
       taskId,
-      summary,
-      currentUrl,
-      screenshot: finalScreenshot || null, // Base64-encoded screenshot
+      raw: { 
+        pageText: rawPageText, 
+        url: currentUrl 
+      },
+      aiPrepared: { 
+        summary: summary 
+      },
+      screenshot: finalScreenshotUrl,
       steps: intermediateResults.map(step => step.getSummary ? step.getSummary() : step),
-      // Add report URLs as optional extras
       landingReportUrl: landingReportPath ? `/midscene_run/report/${path.basename(landingReportPath)}` : null,
       midsceneReportUrl: midsceneReportUrl || null
     };
@@ -711,23 +683,24 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
       reportUrl: `/midscene_run/report/${errorReportFile}`
     };
   } finally {
+    // Clean up active browser sessions.
     if (activeBrowsers.size > 0) {
       for (const [id, session] of activeBrowsers.entries()) {
-          if (!session.closed) {
-              try {
-                  await session.browser.close();
-                  if (typeof session.release === 'function') {
-                      session.release();
-                  } else {
-                      console.error(`[TaskCompletion] release is not a function for session ${id}, skipping release`);
-                  }
-                  session.closed = true;
-                  activeBrowsers.delete(id);
-                  console.log(`[TaskCompletion] Closed browser session ${id}`);
-              } catch (error) {
-                  console.error(`[TaskCompletion] Error closing browser session ${id}:`, error);
-              }
+        if (!session.closed) {
+          try {
+            await session.browser.close();
+            if (typeof session.release === 'function') {
+              session.release();
+            } else {
+              console.error(`[TaskCompletion] release is not a function for session ${id}, skipping release`);
+            }
+            session.closed = true;
+            activeBrowsers.delete(id);
+            console.log(`[TaskCompletion] Closed browser session ${id}`);
+          } catch (error) {
+            console.error(`[TaskCompletion] Error closing browser session ${id}:`, error);
           }
+        }
       }
     }
   }
@@ -1047,13 +1020,13 @@ const activeBrowsers = new Map();
  * TaskPlan - Class to manage the execution plan for a browser task
  */
 class TaskPlan {
-  constructor(userId, taskId, prompt, initialUrl, runDir, maxSteps = 20) {
+  constructor(userId, taskId, prompt, initialUrl, runDir, runId, maxSteps = 20) {
     this.userId = userId;
     this.taskId = taskId;
     this.prompt = prompt; // Original task description
     this.initialUrl = initialUrl;
-    this.currentUrl = initialUrl;
     this.runDir = runDir;
+    this.runId = runId; // **** NEW: Store runId for constructing file URLs ****
     this.steps = [];
     this.currentStepIndex = -1;
     this.maxSteps = maxSteps;
@@ -1490,7 +1463,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
           apiKey: process.env.HF_API_KEY, 
           model: 'bytedance/ui-tars-72b'
         });
-        activeBrowsers.set(task_id, { browser, agent, page, release, closed: false });
+        activeBrowsers.set(task_id, { browser, agent, page, release, closed: false, hasReleased: false });
       }
     } else if (task_id && activeBrowsers.has(task_id)) {
       logAction("Retrieving existing browser session from active browsers");
@@ -1504,7 +1477,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
           apiKey: process.env.HF_API_KEY, 
           model: 'bytedance/ui-tars-72b'
         });
-        activeBrowsers.set(task_id, { browser, agent, page, release, closed: false });
+        activeBrowsers.set(task_id, { browser, agent, page, release, closed: false, hasReleased: false });
       }
     } else {
       // Create new session with clear logging
@@ -1548,7 +1521,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       });
       logAction("PuppeteerAgent initialized");
       
-      activeBrowsers.set(task_id, { browser, agent, page, release, closed: false });
+      activeBrowsers.set(task_id, { browser, agent, page, release, closed: false, hasReleased: false });
       logAction("Browser session stored in active browsers");
     }
 
@@ -1728,7 +1701,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
           apiKey: process.env.HF_API_KEY, 
           model: 'bytedance/ui-tars-72b'
         });
-        activeBrowsers.set(task_id, { browser, agent, page, release, closed: false });
+        activeBrowsers.set(task_id, { browser, agent, page, release, closed: false, hasReleased: false });
       }
     } else if (task_id && activeBrowsers.has(task_id)) {
       logQuery("Retrieving existing browser session from active browsers");
@@ -1742,7 +1715,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
           apiKey: process.env.HF_API_KEY, 
           model: 'bytedance/ui-tars-72b'
         });
-        activeBrowsers.set(task_id, { browser, agent, page, release, closed: false });
+        activeBrowsers.set(task_id, { browser, agent, page, release, closed: false, hasReleased: false });
       }
     } else {
       // Create new session only if a URL is provided
@@ -1787,7 +1760,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
       });
       logQuery("PuppeteerAgent initialized");
       
-      activeBrowsers.set(task_id, { browser, agent, page, release, closed: false });
+      activeBrowsers.set(task_id, { browser, agent, page, release, closed: false, hasReleased: false });
       logQuery("Browser session stored in active browsers");
     }
 
@@ -1969,7 +1942,7 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
   console.log(`[ProcessTask] Starting task ${taskId} with prompt: "${prompt}"`);
   
   // Create a new task plan
-  const plan = new TaskPlan(userId, taskId, prompt, url, runDir);
+  const plan = new TaskPlan(userId, taskId, prompt, url, runDir, runId);
   
   try {
     // Initialize the task in the database
@@ -1977,9 +1950,8 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
       { _id: taskId },
       { 
         $set: { 
-          status: 'running', 
+          status: 'processing', 
           progress: 5,
-          planId: plan.planId
         }
       }
     );
@@ -2137,67 +2109,48 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
         // Accumulate function arguments
         if (delta?.function_call?.arguments) {
           accumulatedArgs += delta.function_call.arguments;
-          
+          // Send the entire accumulated string so far.
+          sendWebSocketUpdate(userId, {
+            event: 'functionCallPartial',
+            taskId,
+            functionName: currentFunctionCall?.name,
+            partialArgs: accumulatedArgs
+          });
           try {
             const parsedArgs = JSON.parse(accumulatedArgs);
             plan.log(`Complete function call:`, {
               name: currentFunctionCall.name,
               args: parsedArgs
             });
-            
-            const { name: functionName } = currentFunctionCall;
             parsedArgs.task_id = taskId;
             parsedArgs.url = parsedArgs.url || url || plan.currentUrl;
-            
-            // Process function call based on type
-            if (functionName === "browser_action") {
-              // Create a new action step in the plan
+            if (currentFunctionCall.name === "browser_action") {
               const step = plan.createStep('action', parsedArgs.command, parsedArgs);
               const result = await step.execute(plan);
-              
-              // Store intermediate results in the database
               await addIntermediateResult(userId, taskId, result);
-              
-              // Dynamic plan adjustment: handle consecutive failures
-              if (result.success) {
+              consecutiveFailures = result.success ? 0 : consecutiveFailures + 1;
+              if (consecutiveFailures >= 3) {
+                plan.log("Triggering recovery due to consecutive failures");
+                const recoveryStep = plan.createStep('query', 'Suggest a new approach to achieve the original task', {
+                  query: 'Suggest a new approach to achieve the original task',
+                  task_id: taskId,
+                  url: plan.currentUrl
+                });
+                await recoveryStep.execute(plan);
                 consecutiveFailures = 0;
-              } else {
-                consecutiveFailures++;
-                if (consecutiveFailures >= 3) {
-                  plan.log("Triggering recovery due to consecutive failures");
-                  const recoveryStep = plan.createStep('query', 'Suggest a new approach to achieve the original task', {
-                    query: 'Suggest a new approach to achieve the original task',
-                    task_id: taskId,
-                    url: plan.currentUrl
-                  });
-                  await recoveryStep.execute(plan);
-                  consecutiveFailures = 0;
-                }
               }
-              
               functionCallReceived = true;
               break;
-            } 
-            else if (functionName === "browser_query") {
-              // Create a new query step in the plan
+            } else if (currentFunctionCall.name === "browser_query") {
               const step = plan.createStep('query', parsedArgs.query, parsedArgs);
               const result = await step.execute(plan);
-              
-              // Store intermediate results in the database
               await addIntermediateResult(userId, taskId, result);
-              
-              // Reset consecutive failures for queries (since they gather info)
               consecutiveFailures = 0;
-              
               functionCallReceived = true;
               break;
-            } 
-            else if (functionName === "task_complete") {
-              // Mark the plan as completed
+            } else if (currentFunctionCall.name === "task_complete") {
               const summary = parsedArgs.summary || `Task completed: ${prompt}`;
               plan.markCompleted(summary);
-              
-              // Call processTaskCompletion to generate reports and get finalResult
               const finalResult = await processTaskCompletion(
                 userId,
                 taskId,
@@ -2206,35 +2159,34 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
                 runDir,
                 runId
               );
-              
-              // Update task as completed in the database
               await Task.updateOne(
                 { _id: taskId },
-                { 
-                  $set: { 
-                    status: 'completed', 
-                    progress: 100, 
-                    result: finalResult, 
-                    endTime: new Date() 
-                  } 
-                }
+                { $set: { status: 'completed', progress: 100, result: finalResult, endTime: new Date() } }
               );
-              
-              // Send completion update to client
               sendWebSocketUpdate(userId, {
                 event: 'taskComplete',
                 taskId,
                 status: 'completed',
                 result: finalResult
               });
-              
               taskCompleted = true;
               break;
             }
           } catch (e) {
-            // Continue accumulating arguments if JSON is incomplete
+            // Continue accumulating if JSON is incomplete.
           }
         }
+                
+      }
+
+      // NEW: After the stream finishes, send a final thoughtComplete if there is any remaining text.
+      if (thoughtBuffer) {
+        sendWebSocketUpdate(userId, {
+          event: 'thoughtComplete',
+          taskId,
+          thought: thoughtBuffer
+        });
+        thoughtBuffer = "";
       }
       
       if (taskCompleted) {
@@ -2325,20 +2277,25 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
     // Clean up browser resources
     if (plan.browserSession) {
       try {
-        const { browser, release } = plan.browserSession;
+        const { browser, release, hasReleased } = plan.browserSession;
         if (browser && !browser.process()?.killed) {
           await browser.close();
         }
-        if (typeof release === 'function') {
+        if (!hasReleased && typeof release === 'function') {
           release();
+          // Mark that we've already called release for this session.
+          plan.browserSession.hasReleased = true;
+        } else {
+          console.warn(`[TaskCompletion] release already called or not a function for session ${plan.taskId}, skipping release`);
         }
-        if (activeBrowsers.has(taskId)) {
-          activeBrowsers.delete(taskId);
-        }
-      } catch (closeError) {
-        console.error(`[ProcessTask] Error closing browser for task ${taskId}:`, closeError);
+        // Mark the session as closed and remove from activeBrowsers using the taskId
+        plan.browserSession.closed = true;
+        activeBrowsers.delete(plan.taskId);
+        console.log(`[TaskCompletion] Closed browser session ${plan.taskId}`);
+      } catch (error) {
+        console.error(`[TaskCompletion] Error closing browser session ${plan.taskId}:`, error);
       }
-    }
+    }    
     
     console.log(`[ProcessTask] Task ${taskId} finished with ${plan.steps.length} steps executed`);
     
