@@ -86,7 +86,8 @@ function sendWebSocketUpdate(userId, data) {
 
 // In your WebSocket connection handler (server-side), add code to flush queued messages:
 wss.on('connection', (ws, req) => {
-  const userId = req.url.split('userId=')[1]?.split('&')[0];
+  let userIdParam = req.url.split('userId=')[1]?.split('&')[0];
+  const userId = decodeURIComponent(userIdParam || '');
   if (!userId) {
     console.error('[WebSocket] Connection rejected: Missing userId');
     ws.send(JSON.stringify({ event: 'error', message: 'Missing userId' }));
@@ -798,31 +799,34 @@ async function generateReport(prompt, results, screenshotPath, runId) {
             <p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>
           </div>
           <h2>Execution Results</h2>
-          ${results.map((result, index) => {
-            let resultDisplay = '';
-            if (result.error) {
-              resultDisplay = `
-                <div class="task error">
-                  <div class="task-header">Step ${index + 1} - Error</div>
-                  <pre>${JSON.stringify(result, null, 2)}</pre>
-                </div>`;
-            } else if (result.screenshot) {
-              const screenshotUrl = result.screenshotPath || `/midscene_run/${runId}/${result.screenshot}`;
-              resultDisplay = `
-                <div class="task">
-                  <div class="task-header">Step ${index + 1} - Screenshot</div>
-                  <img src="${screenshotUrl}" class="screenshot" alt="Step ${index + 1} Screenshot">
-                  ${result.summary ? `<p>${result.summary}</p>` : ''}
-                </div>`;
-            } else {
-              resultDisplay = `
-                <div class="task">
-                  <div class="task-header">Step ${index + 1}</div>
-                  <pre>${JSON.stringify(result, null, 2)}</pre>
-                </div>`;
-            }
-            return resultDisplay;
-          }).join('')}
+          ${results
+            .slice(0, 10) // Only include up to 10 steps in the report
+            .map((result, index) => {
+              let resultDisplay = '';
+              if (result.error) {
+                resultDisplay = `
+                  <div class="task error">
+                    <div class="task-header">Step ${index + 1} - Error</div>
+                    <pre>${JSON.stringify(result, null, 2).substring(0, 500)}</pre>
+                  </div>`;
+              } else if (result.screenshot) {
+                const screenshotUrl = result.screenshotPath || `/midscene_run/${runId}/${result.screenshot}`;
+                resultDisplay = `
+                  <div class="task">
+                    <div class="task-header">Step ${index + 1} - Screenshot</div>
+                    <img src="${screenshotUrl}" class="screenshot" alt="Step ${index + 1} Screenshot">
+                    ${result.summary ? `<p>${result.summary.substring(0, 200)}...</p>` : ''}
+                  </div>`;
+              } else {
+                resultDisplay = `
+                  <div class="task">
+                    <div class="task-header">Step ${index + 1}</div>
+                    <pre>${JSON.stringify(result, null, 2).substring(0, 500)}</pre>
+                  </div>`;
+              }
+              return resultDisplay;
+            }).join('')
+          }         
           ${screenshotPath ? `<h2>Final State</h2><img src="${screenshotPath}" class="screenshot" alt="Final Screenshot">` : ''}
         </div>
       </div>
@@ -1158,7 +1162,39 @@ class TaskPlan {
       : '**Current Page State**: Not available';
 
     return `
-You are an AI assistant automating browser tasks with resilience and adaptability. You always instruct towards achieving the main original task.
+You are an AI assistant automating browser tasks with resilience and adaptability. 
+You never fail to accomplish the task and reason all steps until you accomplish it. 
+You always instruct towards achieving the main original task.
+
+GUIDELINES:
+1. PERSISTENCE: Never give up on a task. If one approach fails, try alternative methods.
+2. AUTONOMY: You must determine steps needed without user input after initial request.
+3. PLANNING: You can take in a plan and execute it, or you can create a plan based on the task description and the result of each step you take. You are smart and can figure out how to navigate towards the goal.
+4. ADAPTABILITY: Review each result and adjust your plan based on new information.
+5. COMMUNICATION: Explain what you're doing and why in simple language.
+6. PROGRESS TRACKING: Clearly indicate task progress and status.
+7. EXTRACTING DATA: Always provide a high level instruction which includes scrolling to extract all data on the page. E.g., "Scroll down and list 5 trending tokens based on volume"
+8. NAVIGATION EFFICIENCY: Before deciding to navigate, check if the current page is already the required one for the step. Only navigate if the step requires a different page or if the current page cannot fulfill the step’s goal.
+
+CAPABILITIES:
+- You can call functions to interact with web browsers.
+- You maintain context between function calls to track task progress.
+- You make decisions based on function results to determine next steps.
+
+FUNCTIONS AVAILABLE:
+- browser_action: Execute actions on websites or navigate to URL (clicking, typing, navigating, scrolling, etc. browser_action has not data extraction capabilities, never use for data extraction).
+- browser_query: Extract information from websites (it can navigate autonomously to desired page, click elements on page to navigate or filter products or charts, or select, extract info)
+- use these 2 functions interchangebly where relevant
+
+ERROR RECOVERY:
+- When stuck on a page, try URL construction with query parameters, or instruct browser_action to navigate through main menu or sidebar.
+- When element selection fails, treat them as placeholders and try different selectors
+- When timeouts occur, retry with longer timeouts
+- If clicking a image or element does not work use the top main menu options or sidebar menus interchachably to discover your way around the site and to navigate to required page
+- Overlays can affect navigation, check if the overlay is still there, if so, try to click a button to accept or close the overlay
+- Retry using different navigation so you never fail, persistance is required always, be smart in browsing.
+- Always pay attention to the URL in relation to the task, if you navigated beyond the relevant URL go back to desired last known URL.
+
 **Original Task**: "${this.prompt}"
 **Starting URL**: ${this.initialUrl || 'Not specified'}
 **Current Step**: ${this.currentStepIndex + 1} of ${this.maxSteps} max
@@ -1171,6 +1207,7 @@ ${stateSummary}
 **Instructions**:
 - Use 'browser_action' for navigation, clicks, or input (e.g., {"command": "navigate to https://example.com"}). This is a VLM able to accept high level command like "look for Bitcoin and click it. Click 3M chart view and candlestick view".
 - Use 'browser_query' to analyze the page or extract info (e.g., {"query": "What is on the page?"}). This is a high level VLM able to accept instructions like "scroll and find a product under $1000. Click to open when found. Extract all information on product page".
+- Break complex commands into simple steps only when necessary.
 - If the starting URL is 'Not specified', you must include the 'url' parameter in your first 'browser_action' or 'browser_query' call with the initial URL to navigate to.
 - Use 'task_complete' with a summary to finish (e.g., {"summary": "Task done"}).
 - After a failure, use 'browser_query' to assess the state before retrying.
@@ -1179,7 +1216,10 @@ ${stateSummary}
 - Always return a function call in JSON format.
 - Keep actions specific and goal-oriented toward "${this.prompt}".
 - Avoid repeating failed actions without new information.
-    `.trim();
+- Avoid going beyond the task goal, always check if you accomplished it based on whats visible, display what the user asked as final resut, dont scroll out of view, if out of view then scroll around to ensure the desired content is visible and focus on it. then conclude task.
+    
+
+`.trim();
   }
 
   /**
@@ -1322,6 +1362,12 @@ async execute(plan) {
     }
 
     // Make sure we include the step index in our WebSocket update
+    const trimmedLogs = this.logs.map(entry => {
+      return {
+        ...entry,
+        message: entry.message.length > 150 ? entry.message.substring(0, 150) + '...' : entry.message
+      };
+    });
     sendWebSocketUpdate(this.userId, { 
       event: 'stepProgress', 
       taskId: this.taskId, 
@@ -1635,7 +1681,6 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       closed: false,
       currentUrl,
       ...result, 
-      screenshot, 
       screenshotPath: screenshotUrl // Set to URL instead of file path
     };
   } catch (error) {
@@ -1863,7 +1908,6 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
       closed: false,
       currentUrl,
       ...result, 
-      screenshot, 
       screenshotPath: screenshotUrl // Set to URL instead of file path
     };
   } catch (error) {
@@ -2283,11 +2327,10 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
         }
         if (!hasReleased && typeof release === 'function') {
           release();
-          // Mark that we've already called release for this session.
           plan.browserSession.hasReleased = true;
         } else {
-          console.warn(`[TaskCompletion] release already called or not a function for session ${plan.taskId}, skipping release`);
-        }
+          console.warn(`[TaskCompletion] Expected release to be a function but got ${typeof release} for session ${plan.taskId}. Skipping release.`);
+        }        
         // Mark the session as closed and remove from activeBrowsers using the taskId
         plan.browserSession.closed = true;
         activeBrowsers.delete(plan.taskId);
@@ -2335,7 +2378,7 @@ async function addIntermediateResult(userId, taskId, result) {
         : [],
       screenshotPath: result.screenshotPath,
       timestamp: new Date()
-    };
+    };    
     
     await Task.updateOne(
       { _id: taskId },
@@ -2346,7 +2389,7 @@ async function addIntermediateResult(userId, taskId, result) {
           lastUpdate: new Date()
         }
       }
-    );
+    );    
   } catch (error) {
     console.error(`[addIntermediateResult] Error:`, error);
   }
@@ -2386,6 +2429,7 @@ After executing "${command}", thoroughly analyze the page and return a JSON obje
 ${domainSpecificPrompt}
 
 BE EXTREMELY THOROUGH. Missing elements is a critical error. If you see any filtering options, toggles, time range selectors, or small UI controls, be sure to include them. Pay special attention to small icons or buttons near charts or product displays.
+There is no need to  give exact shape dimensions, only describe the elements and location. Only stick to the locator, id, index, attributes and content and if its navigatable or for decoration for example placeholder background pirctures of interfaces  on coinbase home page.
 Ensure the response is a valid JSON object.
 [END OF INSTRUCTION]
 ${query}
@@ -2625,7 +2669,9 @@ async function handlePageObstacles(page, agent) {
         // Modal closing
         "Look for and click 'X', 'Close', 'Skip', 'No thanks', or 'Maybe later' buttons on any popups or modals",
         // Captcha handling (basic)
-        "If there's a CAPTCHA, look for a checkbox and click it"
+        "If there's a CAPTCHA, solve the challenge and continue",
+        // Popups General
+        "For overlays and popups attempt to click Esc or outside the form to dismiss it",
       ];
       
       // Try each dismissal strategy
@@ -2637,7 +2683,7 @@ async function handlePageObstacles(page, agent) {
           await new Promise(resolve => setTimeout(resolve, 1000));
           
           // Check if the obstacle is still present
-          const recheck = await agent.aiQuery("Are there still any popups, modals, or banners blocking the content?");
+          const recheck = await agent.aiQuery("Are there still any popups, captchas, overlays, modals, or banners blocking the content?");
           if (recheck.toLowerCase().includes('no') || 
               recheck.toLowerCase().includes('gone') || 
               recheck.toLowerCase().includes('removed') ||
