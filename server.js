@@ -131,7 +131,7 @@ wss.on('connection', (ws, req) => {
 
 // Middleware
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'dist')));
 app.use('/public', express.static(path.join(__dirname, 'public'), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.js')) {
@@ -141,6 +141,11 @@ app.use('/public', express.static(path.join(__dirname, 'public'), {
 }));
 app.use('/midscene_run', express.static(MIDSCENE_RUN_DIR));
 app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
+
+// Fallback route: send index.html for any unmatched routes (supports client‑side routing)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
 
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://dailAdmin:ua5^bRNFCkU*--c@operator.smeax.mongodb.net/dail?retryWrites=true&w=majority&appName=OPERATOR";
 
@@ -161,11 +166,6 @@ app.use(session({
 }));
 
 // Session logging middleware
-app.use((req, res, next) => {
-  console.log('Session ID:', req.sessionID);
-  console.log('Session Data:', req.session);
-  next();
-});
 
 // Logger setup
 const logger = winston.createLogger({
