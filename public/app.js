@@ -1,5 +1,9 @@
 // app.js
-import { init, startAnimations, updateTaskState, updateSentinelState, handleResize, cleanup } from './animations.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { FilmPass } from 'three/examples/jsm/postprocessing/FilmPass.js';
+import { init, disperseAndReset, setAlertMode} from './animations.js';
 
 // Global state
 let taskResults = [];
@@ -15,67 +19,79 @@ const RETRY_DELAY = 5000;
 
 // Function to initialize WebSocket connection
 function initWebSocket(userId) {
-  if (!userId) {
-    console.error('Cannot connect to WebSocket: userId is missing');
-    return;
-  }
+  // If a connection already exists and is open, do nothing.
+  if (ws && ws.readyState === WebSocket.OPEN) return;
 
-  const wsUrl = `ws://localhost:3400?userId=${userId}`;
+  // Use the proper protocol according to the current page.
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const wsUrl = `${protocol}://${window.location.host}?userId=${encodeURIComponent(userId)}`;
   ws = new WebSocket(wsUrl);
 
-  ws.onopen = () => {
+  ws.addEventListener('open', () => {
     console.log('WebSocket connected at', new Date().toISOString());
     reconnectAttempts = 0;
-  };
+  });
 
-  ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    console.log('WebSocket message received:', data);
-  
-    if (data.event === 'stepProgress') {
-      updateStepProgress(data.taskId, data.stepIndex, data.progress, data.message, data.log);
-    } else if (data.event === 'taskStart') {
-      handleTaskStart(data.taskId, data.prompt, data.url);
-    } else if (data.event === 'taskUpdate') {
-      updateTaskProgress(data.taskId, data.progress, data.status, data.error, data.milestone, data.subTask);
-    } else if (data.event === 'intermediateResult') {
-      handleIntermediateResult(data.taskId, data.result, data.subTask, data.streaming);
-    } else if (data.event === 'taskComplete') {
-      handleTaskCompletion(data.taskId, data.status, data.result);
-    } else if (data.event === 'thoughtUpdate') {
-      appendThought(data.taskId, data.thought);
-    } else if (data.event === 'thoughtComplete') {
-      finalizeThought(data.taskId, data.thought);
-    } else if (data.event === 'functionCallPartial') {
-      // Create or update the partial function call container.
-      let partialElement = document.getElementById(`functionCall-${data.taskId}`);
-      if (!partialElement) {
-        partialElement = document.createElement('div');
-        partialElement.id = `functionCall-${data.taskId}`;
-        partialElement.className = 'function-call-partial';
-        document.getElementById('nli-results').prepend(partialElement);
+  ws.addEventListener('message', (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      console.log('WebSocket message received:', data);
+
+      // Use a switch to handle all event types
+      switch (data.event) {
+        case 'taskStart':
+          handleTaskStart(data.taskId, data.prompt, data.url);
+          break;
+        case 'stepProgress':
+          updateStepProgress(data.taskId, data.stepIndex, data.progress, data.message, data.log);
+          break;
+        case 'taskUpdate':
+          updateTaskProgress(data.taskId, data.progress, data.status, data.error, data.milestone, data.subTask);
+          break;
+        case 'intermediateResult':
+          handleIntermediateResult(data.taskId, data.result, data.subTask, data.streaming);
+          break;
+        case 'taskComplete':
+          handleTaskCompletion(data.taskId, data.status, data.result);
+          break;
+        case 'thoughtUpdate':
+          appendThought(data.taskId, data.thought);
+          break;
+        case 'thoughtComplete':
+          finalizeThought(data.taskId, data.thought);
+          break;
+        case 'functionCallPartial':
+          updateFunctionCallPartial(data.taskId, data.partialArgs);
+          break;
+        case 'taskError':
+          handleTaskError(data.taskId, data.error);
+          break;
+        default:
+          console.warn('Unhandled WebSocket event:', data.event);
       }
-      // Replace the content with the full accumulated text.
-      partialElement.textContent = data.partialArgs;
-    } else if (data.event === 'taskError') {
-      handleTaskError(data.taskId, data.error);
+    } catch (e) {
+      console.error('Error processing WebSocket message:', e);
     }
-  };
+  });
 
-  ws.onclose = () => {
+  ws.addEventListener('close', () => {
     console.log('[WebSocket] Disconnected');
+    // Allow reconnection only if this connection is really closed.
+    ws = null;
     if (reconnectAttempts < MAX_RETRIES) {
-      console.log(`[WebSocket] Reconnecting... Attempt ${reconnectAttempts + 1}/${MAX_RETRIES}`);
+      reconnectAttempts++;
+      console.log(`[WebSocket] Reconnecting... Attempt ${reconnectAttempts}/${MAX_RETRIES}`);
       setTimeout(() => initWebSocket(userId), RETRY_DELAY * Math.pow(2, reconnectAttempts));
     } else {
       showNotification('Failed to reconnect to WebSocket.', 'error');
     }
-  };
+  });
 
-  ws.onerror = (error) => {
+  ws.addEventListener('error', (error) => {
     console.error('WebSocket error:', error);
-  };
+  });
 }
+
 
 // Initialize WebSocket connection on app load
 const userId = localStorage.getItem('userId'); // Replace with your method of getting userId
@@ -93,6 +109,17 @@ function isWebGLAvailable() {
   }
 }
 
+function updateFunctionCallPartial(taskId, partialArgs) {
+  let partialElement = document.getElementById(`functionCall-${taskId}`);
+  if (!partialElement) {
+    partialElement = document.createElement('div');
+    partialElement.id = `functionCall-${taskId}`;
+    partialElement.className = 'function-call-partial';
+    document.getElementById('nli-results').prepend(partialElement);
+  }
+  partialElement.textContent = partialArgs;
+}
+
 function handleTaskError(taskId, error) {
   const convertedHtml = marked.parse(error);
   const nliResults = document.getElementById('nli-results');
@@ -106,9 +133,8 @@ function handleTaskError(taskId, error) {
   `;
   nliResults.prepend(errorMessage);
   nliResults.scrollTop = 0;
-
   updateTaskProgress(taskId, 0, 'error', error);
-  loadActiveTasks(); // Refresh immediately
+  loadActiveTasks(); // Refresh active tasks list immediately.
 }
 
 function initializeResultCard(taskId, command) {
@@ -151,45 +177,43 @@ function handleTaskStart(taskId, prompt, url) {
 function updateStepProgress(taskId, stepIndex, progress, message, log) {
   const taskElement = document.querySelector(`.active-task[data-task-id="${taskId}"]`);
   if (taskElement) {
-    // Update progress bar
+    // Update the progress bar width.
     const progressBar = taskElement.querySelector('.task-progress');
     if (progressBar) progressBar.style.width = `${progress}%`;
 
-    // Append logs to the task card
+    // Create or update the log container.
     let logContainer = taskElement.querySelector('.task-log');
     if (!logContainer) {
       logContainer = document.createElement('div');
       logContainer.className = 'task-log';
       taskElement.prepend(logContainer);
     }
-    log.forEach(entry => {
+    // Ensure log is an array (or wrap single log).
+    const logEntries = Array.isArray(log) ? log : [log];
+    logEntries.forEach(entry => {
       const logEntry = document.createElement('p');
-      logEntry.textContent = `[${entry.timestamp}] ${entry.message}`;
+      logEntry.textContent = `[${entry.timestamp || new Date().toLocaleTimeString()}] ${entry.message || message}`;
       logEntry.style.fontSize = '0.9em';
       logEntry.style.color = '#ccc';
       logContainer.prepend(logEntry);
     });
-    taskElement.scrollTop = taskElement.scrollHeight; // Auto-scroll to latest log
+    taskElement.scrollTop = taskElement.scrollHeight; // Auto-scroll log container.
   }
 }
 
 function appendThought(taskId, thoughtChunk) {
-  let thoughtCard = document.querySelector(`.thought-card[data-task-id="${taskId}"]`);
   const nliResults = document.getElementById('nli-results');
-  if (!thoughtCard) {
-    thoughtCard = document.createElement('div');
-    thoughtCard.className = 'thought-card chat-message ai-message animate-in';
-    thoughtCard.dataset.taskId = taskId;
-    thoughtCard.innerHTML = `
-      <div class="message-content">
-        <p class="thought-text"></p>
-        <span class="timestamp">${new Date().toLocaleTimeString()}</span>
-      </div>
-    `;
-    nliResults.prepend(thoughtCard);
-  }
-  const thoughtText = thoughtCard.querySelector('.thought-text');
-  thoughtText.textContent += thoughtChunk;
+  // Create a new thought message for each chunk
+  const thoughtMessage = document.createElement('div');
+  thoughtMessage.className = 'chat-message ai-message animate-in thought-message';
+  thoughtMessage.dataset.taskId = taskId;
+  thoughtMessage.innerHTML = `
+    <div class="message-content">
+      <p class="thought-text">${thoughtChunk}</p>
+      <span class="timestamp">${new Date().toLocaleTimeString()}</span>
+    </div>
+  `;
+  nliResults.appendChild(thoughtMessage);
   nliResults.scrollTop = 0;
 }
 
@@ -197,49 +221,82 @@ function finalizeThought(taskId, finalThought) {
   const thoughtCard = document.querySelector(`.thought-card[data-task-id="${taskId}"]`);
   if (thoughtCard) {
     const thoughtText = thoughtCard.querySelector('.thought-text');
-    thoughtText.textContent = finalThought; // Ensure the final thought is complete
-    thoughtCard.classList.remove('thought-card'); // Optional: Style as a completed thought
+    // Append a final marker
+    thoughtText.textContent += "\n\n[Final]: " + finalThought;
+    thoughtCard.classList.add('final-thought');
   }
 }
 
 /**************************** Initialization ****************************/
 
+// --- Splash Screen Functions ---
+
+/**
+ * Starts the splash screen animation and returns a promise
+ * that resolves when the progress reaches 100%.
+ */
+function startSplashAnimation() {
+  return new Promise((resolve) => {
+    const loadingProgress = document.getElementById('loading-progress');
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += 5;
+      loadingProgress.style.width = `${progress}%`;
+      if (progress >= 100) {
+        clearInterval(interval);
+        // Wait an extra 500ms before resolving to simulate easing.
+        setTimeout(() => {
+          resolve();
+        }, 500);
+      }
+    }, 100);
+  });
+}
+
+/**
+ * Hides the splash screen with a fade–out effect and returns a promise.
+ */
+function hideSplashScreen() {
+  return new Promise((resolve) => {
+    const splashScreen = document.getElementById('splash-screen');
+    splashScreen.style.opacity = '0';
+    // Wait 500ms for the opacity transition to finish.
+    setTimeout(() => {
+      splashScreen.style.display = 'none';
+      // Optionally, show the intro overlay if needed.
+      if (!localStorage.getItem('operatorIntroShown')) {
+        document.getElementById('intro-overlay').style.display = 'flex';
+      }
+      resolve();
+    }, 500);
+  });
+}
+
+// --- DOMContentLoaded Handler ---
+
 document.addEventListener('DOMContentLoaded', async () => {
 
-  // Splash screen animation
-  const loadingProgress = document.getElementById('loading-progress');
-  let progress = 0;
-  const interval = setInterval(() => {
-    progress += 5;
-    loadingProgress.style.width = `${progress}%`;
-    if (progress >= 100) {
-      clearInterval(interval);
-      setTimeout(() => {
-        const splashScreen = document.getElementById('splash-screen');
-        splashScreen.style.opacity = '0';
-        setTimeout(() => {
-          splashScreen.style.display = 'none';
-          if (!localStorage.getItem('operatorIntroShown')) {
-            document.getElementById('intro-overlay').style.display = 'flex';
-          }
-        }, 500);
-      }, 500);
-    }
-  }, 100);
+  // Start splash animation concurrently.
+  const splashPromise = startSplashAnimation();
   
-  // Load initial data and set animation state
-  await loadActiveTasks();
-  await loadHistory();
+  // Start loading data concurrently. (These functions run in parallel.)
+  const dataPromise = Promise.all([loadActiveTasks(), loadHistory()]);
+  
+  // Wait until the data is loaded.
+  await dataPromise;
+  
+  // Wait until the splash animation is finished.
+  await splashPromise;
+  
+  // Now hide the splash screen.
+  await hideSplashScreen();
+  
+  // Initialize animations and UI after the splash is hidden.
+  init('sentinel-container');
 
-  // Refresh History
-  //setInterval(() => { loadActiveTasks(); loadHistory(); }, 120000);
-
-  // Initialize animations
-  init();
-  handleResize();
   const webGLSupported = isWebGLAvailable();
   if (webGLSupported) {
-    startAnimations();
+    disperseAndReset();
     document.getElementById('sentinel-canvas').style.display = 'block';
     document.getElementById('sentinel-fallback').style.display = 'none';
   } else {
@@ -247,13 +304,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('sentinel-canvas').style.display = 'none';
     document.getElementById('sentinel-fallback').style.display = 'block';
   }
-  
-
 });
+
+// Later, trigger different states
+document.getElementById('alert-button').addEventListener('click', setAlertMode);
+document.getElementById('fire-button').addEventListener('click', () => fireLaser(5000));
+document.getElementById('reset-button').addEventListener('click', disperseAndReset);
 
 // Cleanup on page unload
 window.addEventListener('beforeunload', () => {
-  cleanup();
+  // cleanup();
 });
 
 // Load chat history on page load
@@ -358,7 +418,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // New: Dispatch custom events
       document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: true } }));
-      document.dispatchEvent(new CustomEvent('sentinelStateChange', { detail: { state: 'tasking' } }));
 
       let url = null;
       let taskId; // Declare taskId in the outer scope
@@ -504,7 +563,6 @@ document.addEventListener('DOMContentLoaded', () => {
               
               // Dispatch Events
               document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: false } }));
-              document.dispatchEvent(new CustomEvent('sentinelStateChange', { detail: { state: 'normal' } }));
 
               // Refresh active tasks and history after completion
               loadActiveTasks();
@@ -550,7 +608,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
           // Dispatch Events
           document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: false } }));
-          document.dispatchEvent(new CustomEvent('sentinelStateChange', { detail: { state: 'normal' } }));
         }
       } catch (err) {
         showNotification(err.message, 'error');
@@ -594,7 +651,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Dispatch Events
         document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: false } }));
-        document.dispatchEvent(new CustomEvent('sentinelStateChange', { detail: { state: 'normal' } }));
       } finally {
         nliForm.querySelector('button[type="submit"]').disabled = false;
       }
@@ -606,11 +662,11 @@ document.addEventListener('DOMContentLoaded', () => {
 // ===============================================
 // Dispatch Events Listeners 
 document.addEventListener('taskStateChange', (event) => {
-  updateTaskState(event.detail.running);
-});
-
-document.addEventListener('taskStateChange', (event) => {
-  updateSentinelState('tasking');
+  if(event.detail.running){
+    setAlertMode();
+  } else {
+    setIdleMode();
+  }
 });
 
 // ===============================================
@@ -640,7 +696,6 @@ function clearTaskResults() {
       
       // Dispatch Events
       document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: false } }));
-      document.dispatchEvent(new CustomEvent('sentinelStateChange', { detail: { state: 'normal' } }));
     } else {
       //sentinelCanvas.style.display = 'none';
       //sentinelFallback.style.display = 'block';
@@ -843,7 +898,6 @@ async function executeTaskWithAnimation(url, command, taskType) {
     
     // Dispatch Events
     document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: true } }));
-    document.dispatchEvent(new CustomEvent('sentinelStateChange', { detail: { state: 'running' } }));
     
     const result = await executeTask(url, command);
     result.taskType = taskType;
@@ -868,7 +922,6 @@ async function executeTaskWithAnimation(url, command, taskType) {
     // Reset states
     // Dispatch Events
     document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: false } }));
-    document.dispatchEvent(new CustomEvent('sentinelStateChange', { detail: { state: 'normal' } }));
     
     await handleTaskResult(errorResult.taskId, errorResult);
     showNotification(`Task execution failed: ${error.message}`, "error");
@@ -890,36 +943,30 @@ async function executeTask(url, command) {
       if (!data.success) throw new Error(data.error || 'Task execution failed');
       
       const taskId = data.taskId;
-      // Initialize resultCard here
+      // Initialize the result card immediately.
       initializeResultCard(taskId, command);
 
+      // Establish SSE connection to receive task stream updates.
       const eventSource = new EventSource(`/tasks/${taskId}/stream`);
-      
+
       eventSource.onmessage = async (event) => {
         const update = JSON.parse(event.data);
-        
-        // Update progress
-        if (update.progress) {
-          updateTaskProgress(taskId, update.progress);
+        if (update.progress !== undefined) {
+          updateTaskProgress(taskId, update.progress, update.status, update.error);
         }
-      
         if (update.done) {
           eventSource.close();
-          await loadActiveTasks(); // Refresh UI
-          
+          await loadActiveTasks(); // Refresh active tasks UI.
           if (update.status === 'error') {
             reject(new Error(update.error || 'Task failed'));
             return;
           }
-      
-          // Fetch final result from history
+          // Attempt to fetch the final result from history.
           const historyItem = await fetchHistoryItem(taskId);
           if (!historyItem) {
             reject(new Error("Task result not found in history"));
             return;
           }
-      
-          // Structure the result
           const result = {
             taskId: historyItem._id,
             command,
@@ -933,14 +980,11 @@ async function executeTask(url, command) {
             report: historyItem.result.runReport,
             status: update.status
           };
-      
-          // Handle task completion
           const handled = await handleTaskResult(taskId, result);
           if (!handled) {
             reject(new Error("Failed to handle task result"));
             return;
           }
-      
           resolve(result);
         }
       };
@@ -954,6 +998,7 @@ async function executeTask(url, command) {
     }
   });
 }
+
 
 // Helper to fetch history item
 async function fetchHistoryItem(taskId) {
@@ -983,7 +1028,6 @@ async function handleTaskResult(taskId, result) {
     // Update UI state
     // Dispatch Events
     document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: false } }));
-    document.dispatchEvent(new CustomEvent('sentinelStateChange', { detail: { state: 'normal' } }));
     
     return true;
   } catch (err) {
@@ -1038,129 +1082,109 @@ function handleIntermediateResult(taskId, result, subTask, streaming) {
   let resultCard = document.querySelector(`.result-card[data-task-id="${taskId}"]`);
   const nliResults = document.getElementById('nli-results');
 
-  // If resultCard doesn’t exist, create it with a fallback command
+  // Create a new result card if none exists.
   if (!resultCard) {
-      const command = result.command || 'Unknown'; // Adjust based on server data
-      resultCard = initializeResultCard(taskId, command);
+    const command = result.command || 'Unknown';
+    resultCard = initializeResultCard(taskId, command);
   }
 
   if (subTask) {
-      // Update task results section
-      const outputsDiv = resultCard.querySelector('.outputs');
-      const screenshotsContainer = resultCard.querySelector('.screenshots');
+    const outputsDiv = resultCard.querySelector('.outputs');
+    const screenshotsContainer = resultCard.querySelector('.screenshots');
 
-      if (result.screenshotPath) {
-          console.log('Appending screenshot for taskId:', taskId, 'Path:', result.screenshotPath);
-          const img = document.createElement('img');
-          img.src = result.screenshotPath;
-          img.alt = 'Live Screenshot';
-          img.style.maxWidth = '100%';
-          img.style.marginTop = '10px';
-          img.style.display = 'block';
-          img.onerror = () => {
-              console.error('Image load failed:', result.screenshotPath);
-              // Optionally display a placeholder or error message
-              const errorText = document.createElement('p');
-              errorText.textContent = 'Failed to load screenshot.';
-              errorText.style.color = 'red';
-              screenshotsContainer.prepend(errorText);
-          };
-          img.onload = () => {
-              console.log('Image loaded:', result.screenshotPath);
-              // Force DOM update
-              screenshotsContainer.prepend(img);
-              // Ensure the container is visible
-              screenshotsContainer.style.display = 'block';
-          };
-          screenshotsContainer.prepend(img);
-      }
-      if (result.summary) {
-          const summaryDiv = document.createElement('div');
-          summaryDiv.className = 'subtask-summary';
-          summaryDiv.textContent = result.summary;
-          outputsDiv.prepend(summaryDiv);
-      }
-
-      // Update chatbox for subtask results
-      if (result.summary) {
-          const subTaskMessage = document.createElement('div');
-          subTaskMessage.className = 'chat-message subtask-message animate-in';
-          subTaskMessage.innerHTML = `
-              <div class="message-content">
-                  <p class="summary-text">${result.summary}</p>
-                  <span class="timestamp">${new Date().toLocaleTimeString()}</span>
-              </div>
-          `;
-          nliResults.prepend(subTaskMessage);
-          nliResults.scrollTop = 0;
-      }
+    if (result.screenshotPath) {
+      console.log('Appending screenshot for taskId:', taskId, 'Path:', result.screenshotPath);
+      const img = document.createElement('img');
+      img.src = result.screenshotPath;
+      img.alt = 'Live Screenshot';
+      img.style.maxWidth = '100%';
+      img.style.marginTop = '10px';
+      img.style.display = 'block';
+      img.onerror = () => {
+        console.error('Image load failed:', result.screenshotPath);
+        const errorText = document.createElement('p');
+        errorText.textContent = 'Failed to load screenshot.';
+        errorText.style.color = 'red';
+        screenshotsContainer.prepend(errorText);
+      };
+      img.onload = () => {
+        screenshotsContainer.prepend(img);
+        screenshotsContainer.style.display = 'block';
+      };
+      screenshotsContainer.prepend(img);
+    }
+    if (result.summary) {
+      const summaryDiv = document.createElement('div');
+      summaryDiv.className = 'subtask-summary';
+      summaryDiv.textContent = result.summary;
+      outputsDiv.prepend(summaryDiv);
+    }
+    if (result.summary) {
+      const subTaskMessage = document.createElement('div');
+      subTaskMessage.className = 'chat-message subtask-message animate-in';
+      subTaskMessage.innerHTML = `
+          <div class="message-content">
+              <p class="summary-text">${result.summary}</p>
+              <span class="timestamp">${new Date().toLocaleTimeString()}</span>
+          </div>
+      `;
+      nliResults.prepend(subTaskMessage);
+      nliResults.scrollTop = 0;
+    }
   } else {
-      // Handle streaming chunks (final message)
-      if (result.chunk) {
-          let streamMessage = document.querySelector(`.chat-message.stream-message[data-task-id="${taskId}"]`);
-          if (!streamMessage) {
-              streamMessage = document.createElement('div');
-              streamMessage.className = 'chat-message stream-message animate-in';
-              streamMessage.dataset.taskId = taskId;
-              streamMessage.innerHTML = `
-                  <div class="message-content">
-                      <p class="summary-text"></p>
-                      <span class="timestamp">${new Date().toLocaleTimeString()}</span>
-                  </div>
-              `;
-              nliResults.prepend(streamMessage);
-          }
-          const summaryText = streamMessage.querySelector('.summary-text');
-          summaryText.textContent += result.chunk;
-
-          if (!streaming && result.chunk === 'Stream ended') {
-              streamMessage.classList.remove('stream-message');
-              streamMessage.classList.add('ai-message');
-              const endMessage = document.createElement('div');
-              endMessage.className = 'chat-message subtask-end animate-in';
-              endMessage.innerHTML = `
-                  <div class="message-content">
-                      <p class="summary-text">--- End of Streaming Updates ---</p>
-                      <span class="timestamp">${new Date().toLocaleTimeString()}</span>
-                  </div>
-              `;
-              nliResults.insertBefore(endMessage, streamMessage.nextSibling);
-          }
-          nliResults.scrollTop = 0;
+    // Handle streaming chunks.
+    if (result.chunk) {
+      let streamMessage = document.querySelector(`.chat-message.stream-message[data-task-id="${taskId}"]`);
+      if (!streamMessage) {
+        streamMessage = document.createElement('div');
+        streamMessage.className = 'chat-message stream-message animate-in';
+        streamMessage.dataset.taskId = taskId;
+        streamMessage.innerHTML = `
+            <div class="message-content">
+                <p class="summary-text"></p>
+                <span class="timestamp">${new Date().toLocaleTimeString()}</span>
+            </div>
+        `;
+        nliResults.prepend(streamMessage);
       }
+      const summaryText = streamMessage.querySelector('.summary-text');
+      summaryText.textContent += result.chunk;
+      if (!streaming && result.chunk === 'Stream ended') {
+        streamMessage.classList.remove('stream-message');
+        streamMessage.classList.add('ai-message');
+        const endMessage = document.createElement('div');
+        endMessage.className = 'chat-message subtask-end animate-in';
+        endMessage.innerHTML = `
+            <div class="message-content">
+                <p class="summary-text">--- End of Streaming Updates ---</p>
+                <span class="timestamp">${new Date().toLocaleTimeString()}</span>
+            </div>
+        `;
+        nliResults.insertBefore(endMessage, streamMessage.nextSibling);
+      }
+      nliResults.scrollTop = 0;
+    }
   }
 }
 
 function handleTaskCompletion(taskId, status, result) {
   console.log('Task completed:', taskId, status, result);
-  
-  // Get or initialize the result card.
-  let resultCard = document.querySelector(`.result-card[data-task-id="${taskId}"]`);
-  if (!resultCard) {
-    resultCard = initializeResultCard(taskId, result.command || 'Unknown');
-  }
-  
-  // Format the timestamp.
+  let resultCard = document.querySelector(`.result-card[data-task-id="${taskId}"]`) || initializeResultCard(taskId, result.command || 'Unknown');
   const timestamp = new Date();
-  const formattedTime = timestamp.toLocaleTimeString() + ' ' + timestamp.toLocaleDateString();
-  
-  // Use the unified keys from the server result.
+  const formattedTime = `${timestamp.toLocaleTimeString()} ${timestamp.toLocaleDateString()}`;
   const summary = (result.aiPrepared && result.aiPrepared.summary) || 'No summary available';
-  const url = (result.raw && result.raw.url) || 'N/A';
-  
-  // Update the header with URL, command, and timestamp.
+  const urlValue = (result.raw && result.raw.url) || 'N/A';
+
   resultCard.querySelector('.result-header').innerHTML = `
-    <h4><i class="fas fa-globe"></i> ${url}</h4>
+    <h4><i class="fas fa-globe"></i> ${urlValue}</h4>
     <p><strong>Command:</strong> ${result.command || 'Unknown'}</p>
     <div class="meta">
       <span>${formattedTime}</span>
     </div>
   `;
-  
-  // Update outputs: The AI-prepared summary and the raw output.
-  const outputsDiv = resultCard.querySelector('.outputs');  
+
+  const outputsDiv = resultCard.querySelector('.outputs');
   const screenshotsContainer = resultCard.querySelector('.screenshots');
-  
   outputsDiv.innerHTML = `
     <div class="toggle-buttons">
       <button class="toggle-btn active" data-view="ai">AI Prepared</button>
@@ -1171,8 +1195,6 @@ function handleTaskCompletion(taskId, status, result) {
     ${result.landingReportUrl ? `<a href="${result.landingReportUrl}" target="_blank" class="btn btn-primary btn-sm mt-2">View Landing Report</a>` : ''}
     ${result.midsceneReportUrl ? `<a href="${result.midsceneReportUrl}" target="_blank" class="btn btn-primary btn-sm mt-2">View Midscene Report</a>` : ''}
   `;
-  
-  // If a final screenshot URL is present, append the image.
   if (result.screenshot) {
     const img = document.createElement('img');
     img.src = result.screenshot;
@@ -1182,8 +1204,6 @@ function handleTaskCompletion(taskId, status, result) {
     img.style.display = 'block';
     screenshotsContainer.prepend(img);
   }
-  
-  // Set up toggle functionality for AI vs Raw output.
   const toggleButtons = resultCard.querySelectorAll('.toggle-btn');
   const aiOutput = resultCard.querySelector('.ai-output');
   const rawOutput = resultCard.querySelector('.raw-output');
@@ -1193,15 +1213,10 @@ function handleTaskCompletion(taskId, status, result) {
       aiOutput.classList.remove('active');
       rawOutput.classList.remove('active');
       btn.classList.add('active');
-      if (btn.dataset.view === 'ai') {
-        aiOutput.classList.add('active');
-      } else {
-        rawOutput.classList.add('active');
-      }
+      if (btn.dataset.view === 'ai') aiOutput.classList.add('active');
+      else rawOutput.classList.add('active');
     });
   });
-  
-  // Append a final chat message to the chat window.
   const nliResults = document.getElementById('nli-results');
   const aiMessage = document.createElement('div');
   aiMessage.className = 'chat-message ai-message animate-in';
@@ -1213,11 +1228,10 @@ function handleTaskCompletion(taskId, status, result) {
   `;
   nliResults.prepend(aiMessage);
   nliResults.scrollTop = 0;
-  
-  // Update the list of active tasks and history.
   loadActiveTasks();
   loadHistory();
 }
+
 
 function addTaskResult(result) {
   const outputContainer = document.getElementById('output-container');
@@ -1290,18 +1304,19 @@ async function loadActiveTasks() {
   const tasksContainer = document.getElementById('active-tasks-container');
   try {
     const response = await fetch('/tasks/active', { credentials: 'same-origin' });
+    
     if (!response.ok) {
       if (response.status === 401) {
         window.location.href = '/login.html';
         return;
       }
-      throw new Error(`Failed to load active tasks: ${response.status} - ${response.statusText}`);
+      throw new Error(`Failed to load active tasks: ${response.status} ${response.statusText}`);
     }
-
+    
     const tasks = await response.json();
-    activeTasks = tasks || []; // Ensure activeTasks is always an array
+    activeTasks = tasks || [];
     tasksContainer.innerHTML = '';
-
+    
     if (activeTasks.length === 0) {
       tasksContainer.innerHTML = '<p id="no-active-tasks" class="text-muted">No active tasks. Run a task to see it here.</p>';
     } else {
@@ -1313,7 +1328,6 @@ async function loadActiveTasks() {
     updateActiveTasksTab();
   } catch (error) {
     console.error('Error loading active tasks:', error);
-    // Reflect error in UI
     tasksContainer.innerHTML = `
       <div class="active-task error">
         <div class="task-header">
@@ -1323,7 +1337,7 @@ async function loadActiveTasks() {
         <div class="task-error">${error.message}</div>
       </div>
     `;
-    activeTasks = []; // Clear activeTasks to prevent stale data
+    activeTasks = [];
     updateActiveTasksTab();
     showNotification('Failed to load active tasks. Please try again.', 'error');
   }
@@ -1638,7 +1652,7 @@ async function loadHistory(page = 1) {
 
   try {
     console.log(`Fetching history for page ${page}`); // Debug log
-    const response = await fetch(`/history?page=${page}&limit=${limit}`, { credentials: 'include' });
+    const response = await fetch(`/history?page=${page}&limit=${limit}`, { credentials: 'same-origin' });
 
     // Handle redirects (e.g., to login page)
     if (response.redirected || response.status === 401) {
