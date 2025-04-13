@@ -815,7 +815,7 @@ async function generateReport(prompt, results, screenshotPath, runId) {
                   <div class="task">
                     <div class="task-header">Step ${index + 1} - Screenshot</div>
                     <img src="${screenshotUrl}" class="screenshot" alt="Step ${index + 1} Screenshot">
-                    ${result.summary ? `<p>${result.summary.substring(0, 200)}...</p>` : ''}
+                    ${result.summary ? `<p>${result.summary.substring(0, 300)}...</p>` : ''}
                   </div>`;
               } else {
                 resultDisplay = `
@@ -2330,7 +2330,7 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
           plan.browserSession.hasReleased = true;
         } else {
           console.warn(`[TaskCompletion] Expected release to be a function but got ${typeof release} for session ${plan.taskId}. Skipping release.`);
-        }        
+        }              
         // Mark the session as closed and remove from activeBrowsers using the taskId
         plan.browserSession.closed = true;
         activeBrowsers.delete(plan.taskId);
