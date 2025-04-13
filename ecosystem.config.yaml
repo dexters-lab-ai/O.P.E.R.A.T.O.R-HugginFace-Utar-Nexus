@@ -6,7 +6,7 @@ apps:
     watch: false
     autorestart: true
     env:
-      NODE_ENV: development
+      NODE_ENV: production
   - name: midscene-playground
     script: cmd.exe
     args: /c npx midscene-playground

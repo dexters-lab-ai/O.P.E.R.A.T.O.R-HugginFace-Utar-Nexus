@@ -314,6 +314,15 @@ input[type="datetime-local"] {
   font-size: 14px;
 }
 
+.task-log {
+  max-height: 150px;
+  overflow-y: auto;
+  margin-top: 10px;
+  padding: 5px;
+  background: #1a1a1a;
+  border-radius: 5px;
+}
+
 #sentinel-canvas {
   position: absolute;
   top: 0;
@@ -1374,8 +1383,33 @@ textarea:focus, input:focus {
     box-shadow: 0 0 0 2px var(--primary-light);
   }
 
+  .thought-card .thought-text {
+    color: #aaa;
+    font-style: italic;
+  }
+
+  .function-call-partial {
+    background: #222;
+    color: #e8e8e8;
+    padding: 8px;
+    margin: 5px 0;
+    font-family: monospace;
+    border-radius: 4px;
+  }  
+
+  .thought-card {
+    background-color: rgba(0, 100, 200, 0.1); /* a subtle background color */
+    margin: 5px 0;
+    padding: 8px;
+    border-left: 4px solid #00ddeb;
+  }
+  .final-thought {
+    font-weight: bold;
+    color: #00ddeb;
+  }  
+
   /* Enhanced NLI Chat Interface */
-#nli-section {
+  #nli-section {
     background: var(--dark);
     border-radius: 12px;
     overflow: hidden;

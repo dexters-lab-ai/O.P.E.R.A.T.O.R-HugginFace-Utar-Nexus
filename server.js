@@ -166,6 +166,11 @@ app.use(session({
 }));
 
 // Session logging middleware
+app.use((req, res, next) => {
+  console.log('Session ID:', req.sessionID);
+  console.log('Session Data:', req.session);
+  next();
+});
 
 // Logger setup
 const logger = winston.createLogger({
