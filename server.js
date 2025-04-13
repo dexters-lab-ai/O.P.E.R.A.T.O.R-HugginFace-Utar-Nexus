@@ -24,13 +24,14 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { Semaphore } from 'async-mutex';
 
+// Set strictQuery to avoid deprecation warnings
 mongoose.set('strictQuery', true);
 
-// File paths
+// Set up __dirname for ESM
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Configure stealth plugin for puppeteer
+// Configure puppeteer extra with the stealth plugin
 puppeteerExtra.use(StealthPlugin());
 const browserSemaphore = new Semaphore(5); // Limit to 5 concurrent browsers
 
@@ -49,15 +50,68 @@ if (!fs.existsSync(MIDSCENE_RUN_DIR)) fs.mkdirSync(MIDSCENE_RUN_DIR, { recursive
 const REPORT_DIR = path.join(MIDSCENE_RUN_DIR, 'report');
 if (!fs.existsSync(REPORT_DIR)) fs.mkdirSync(REPORT_DIR, { recursive: true });
 
-// Express app and HTTP server
+// Create Express app and HTTP server
 const app = express();
 const server = createServer(app);
 
-// WebSocket server setup
+// === MIDDLEWARE SETUP (IMPORTANT ORDER) ===
+
+// 1. Parse JSON bodies
+app.use(express.json());
+
+// 2. Register session middleware early so that every request gets a session
+const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://dailAdmin:ua5^bRNFCkU*--c@operator.smeax.mongodb.net/dail?retryWrites=true&w=majority&appName=OPERATOR";
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'your-secret-key',
+  resave: false,
+  saveUninitialized: false,
+  store: MongoStore.create({
+    mongoUrl: MONGO_URI,
+    dbName: 'dail',
+    collectionName: 'sessions',
+    ttl: 24 * 60 * 60,         // 24 hours in seconds
+    autoRemove: 'native',      // Use MongoDB's native TTL cleanup
+    touchAfter: 24 * 3600      // Only update session if older than 24 hours
+  }),
+  cookie: { maxAge: 24 * 60 * 60 * 1000 } // 24 hours in milliseconds
+}));
+
+// Logger setup
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
+  transports: [
+    new winston.transports.File({ filename: 'error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'combined.log' }),
+  ],
+});
+if (process.env.NODE_ENV !== 'production') {
+  logger.add(new winston.transports.Console({ format: winston.format.simple() }));
+}
+
+// 3. Session logging middleware (for debugging)
+app.use((req, res, next) => {
+  console.log('Session ID:', req.sessionID);
+  console.log('Session Data:', req.session);
+  next();
+});
+
+// 4. Serve static files from production build (dist) and public assets
+app.use(express.static(path.join(__dirname, 'dist')));
+app.use('/public', express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.js')) {
+      res.setHeader('Content-Type', 'application/javascript');
+    }
+  }
+}));
+app.use('/midscene_run', express.static(MIDSCENE_RUN_DIR));
+app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
+
+// === WEB SOCKET SETUP ===
+
 const userConnections = new Map();
 const wss = new WebSocketServer({ server });
-
-// Global cache for unsent messages (server-side)
 const unsentMessages = new Map();
 
 function sendWebSocketUpdate(userId, data) {
@@ -84,7 +138,6 @@ function sendWebSocketUpdate(userId, data) {
   }
 }
 
-// In your WebSocket connection handler (server-side), add code to flush queued messages:
 wss.on('connection', (ws, req) => {
   let userIdParam = req.url.split('userId=')[1]?.split('&')[0];
   const userId = decodeURIComponent(userIdParam || '');
@@ -100,7 +153,6 @@ wss.on('connection', (ws, req) => {
   userConnections.set(userId, userWsSet);
   console.log(`[WebSocket] Connected: userId=${userId}, total connections=${userWsSet.size}`);
 
-  // Flush queued messages for this user if any
   if (unsentMessages.has(userId)) {
     const queuedMessages = unsentMessages.get(userId);
     queuedMessages.forEach(message => {
@@ -129,61 +181,7 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-// Middleware
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'dist')));
-app.use('/public', express.static(path.join(__dirname, 'public'), {
-  setHeaders: (res, filePath) => {
-    if (filePath.endsWith('.js')) {
-      res.setHeader('Content-Type', 'application/javascript');
-    }
-  }
-}));
-app.use('/midscene_run', express.static(MIDSCENE_RUN_DIR));
-app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
-
-// Fallback route: send index.html for any unmatched routes (supports client‑side routing)
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-});
-
-const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://dailAdmin:ua5^bRNFCkU*--c@operator.smeax.mongodb.net/dail?retryWrites=true&w=majority&appName=OPERATOR";
-
-// Robust MongoDB session store setup
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'your-secret-key',
-  resave: false,
-  saveUninitialized: false,
-  store: MongoStore.create({
-    mongoUrl: MONGO_URI,
-    dbName: 'dail',
-    collectionName: 'sessions',
-    ttl: 24 * 60 * 60, // 24 hours in seconds
-    autoRemove: 'native', // Use MongoDB's native TTL cleanup
-    touchAfter: 24 * 3600 // Only update session if older than 24 hours
-  }),
-  cookie: { maxAge: 24 * 60 * 60 * 1000 } // 24 hours in milliseconds
-}));
-
-// Session logging middleware
-app.use((req, res, next) => {
-  console.log('Session ID:', req.sessionID);
-  console.log('Session Data:', req.session);
-  next();
-});
-
-// Logger setup
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
-  transports: [
-    new winston.transports.File({ filename: 'error.log', level: 'error' }),
-    new winston.transports.File({ filename: 'combined.log' }),
-  ],
-});
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(new winston.transports.Console({ format: winston.format.simple() }));
-}
+// === ROUTES ===
 
 // Authentication middleware
 function requireAuth(req, res, next) {
@@ -191,122 +189,7 @@ function requireAuth(req, res, next) {
   next();
 }
 
-// Mongoose connection with retry logic and timing
-async function connectToMongoDB() {
-  const startTime = Date.now();
-  try {
-    await mongoose.connect(process.env.MONGO_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-      serverSelectionTimeoutMS: 5000, // Timeout for server selection
-      connectTimeoutMS: 10000,       // Timeout for initial connection
-    });
-    console.log(`Connected to MongoDB in ${Date.now() - startTime}ms`);
-  } catch (err) {
-    console.error('Mongoose connection error:', err);
-    logger.error('MongoDB connection failed', { error: err.message });
-    // Retry logic: wait 2 seconds and try again (up to 5 attempts)
-    throw new pRetry.AbortError('MongoDB connection failed after retries');
-  }
-}
-
-// Mongoose schemas with indexes
-const userSchema = new mongoose.Schema({
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  customUrls: [{ type: String }],
-});
-
-// Define indexes for User schema
-userSchema.index({ email: 1 }, { unique: true }); // Email index
-const User = mongoose.model('User', userSchema);
-
-const chatHistorySchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  messages: [{
-    role: { type: String, enum: ['user', 'assistant'], required: true },
-    content: { type: String, required: true },
-    timestamp: { type: Date, default: Date.now }
-  }]
-});
-
-// Define index for ChatHistory schema
-chatHistorySchema.index({ userId: 1 });
-const ChatHistory = mongoose.model('ChatHistory', chatHistorySchema);
-
-// Ensure indexes are created on startup
-async function ensureIndexes() {
-  try {
-    // Ensure User indexes
-    await User.ensureIndexes();
-    console.log('User indexes ensured');
-
-    // Ensure ChatHistory indexes
-    await ChatHistory.ensureIndexes();
-    console.log('ChatHistory indexes ensured');
-  } catch (err) {
-    console.error('Error ensuring indexes:', err);
-    logger.error('Index creation failed', { error: err.message });
-  }
-}
-
-const taskSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  command: String,
-  status: { type: String, enum: ['pending', 'processing', 'completed', 'error'], default: 'pending' },
-  progress: { type: Number, default: 0 },
-  startTime: { type: Date, default: Date.now },
-  endTime: Date,
-  result: mongoose.Schema.Types.Mixed,
-  error: String,
-  url: String,
-  runId: String,
-  isComplex: { type: Boolean, default: false },
-  subTasks: [{
-    id: { type: String },
-    command: String,
-    status: { type: String, enum: ['pending', 'processing', 'completed', 'error'], default: 'pending' },
-    result: mongoose.Schema.Types.Mixed,
-    progress: { type: Number, default: 0 },
-    error: String
-  }],
-  intermediateResults: [mongoose.Schema.Types.Mixed],
-  plan: String,
-  steps: [String],
-  totalSteps: Number,
-  currentStep: Number,
-  stepMap: mongoose.Schema.Types.Mixed,
-  currentStepDescription: String,
-  currentStepFunction: String,
-  currentStepArgs: mongoose.Schema.Types.Mixed,
-  planAdjustment: String,
-  lastAction: String,
-  lastQuery: String
-});
-taskSchema.index({ endTime: 1 }, { expireAfterSeconds: 604000 }); // 7 days
-const Task = mongoose.model('Task', taskSchema);
-
-// Startup function with robust MongoDB connection and index creation
-async function startApp() {
-  try {
-    await pRetry(connectToMongoDB, {
-      retries: 5,
-      minTimeout: 2000,
-      onFailedAttempt: error => {
-        console.log(`MongoDB connection attempt ${error.attemptNumber} failed. Retrying...`);
-      }
-    });
-    await ensureIndexes();
-    console.log('Application started successfully');
-  } catch (err) {
-    console.error('Failed to start application:', err);
-    process.exit(1); // Exit process if startup fails
-  }
-}
-// Run Once to ensure index creation
-await startApp();
-
-// Routes
+// Define your routes here
 app.post('/register', async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -557,6 +440,132 @@ app.get('/settings.html', (req, res) => {
   fs.existsSync(filePath) ? res.sendFile(filePath) : res.status(404).send('Settings page not found');
 });
 
+// Fallback route: send index.html for any unmatched routes (for client-side routing)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
+
+import { Schema } from 'mongoose';
+
+const userSchema = new Schema({
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  customUrls: [{ type: String }],
+});
+userSchema.index({ email: 1 }, { unique: true });
+const User = mongoose.model('User', userSchema);
+
+const chatHistorySchema = new Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  messages: [{
+    role: { type: String, enum: ['user', 'assistant'], required: true },
+    content: { type: String, required: true },
+    timestamp: { type: Date, default: Date.now }
+  }]
+});
+chatHistorySchema.index({ userId: 1 });
+const ChatHistory = mongoose.model('ChatHistory', chatHistorySchema);
+
+// Task schema definition
+const taskSchema = new Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  command: String,
+  status: { type: String, enum: ['pending', 'processing', 'completed', 'error'], default: 'pending' },
+  progress: { type: Number, default: 0 },
+  startTime: { type: Date, default: Date.now },
+  endTime: Date,
+  result: Schema.Types.Mixed,
+  error: String,
+  url: String,
+  runId: String,
+  isComplex: { type: Boolean, default: false },
+  subTasks: [{
+    id: { type: String },
+    command: String,
+    status: { type: String, enum: ['pending', 'processing', 'completed', 'error'], default: 'pending' },
+    result: Schema.Types.Mixed,
+    progress: { type: Number, default: 0 },
+    error: String
+  }],
+  intermediateResults: [Schema.Types.Mixed],
+  plan: String,
+  steps: [String],
+  totalSteps: Number,
+  currentStep: Number,
+  stepMap: Schema.Types.Mixed,
+  currentStepDescription: String,
+  currentStepFunction: String,
+  currentStepArgs: Schema.Types.Mixed,
+  planAdjustment: String,
+  lastAction: String,
+  lastQuery: String
+});
+taskSchema.index({ endTime: 1 }, { expireAfterSeconds: 604000 });
+const Task = mongoose.model('Task', taskSchema);
+
+async function connectToMongoDB() {
+  const startTime = Date.now();
+  try {
+    await mongoose.connect(process.env.MONGO_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+      serverSelectionTimeoutMS: 5000,
+      connectTimeoutMS: 10000,
+    });
+    console.log(`Connected to MongoDB in ${Date.now() - startTime}ms`);
+  } catch (err) {
+    console.error('Mongoose connection error:', err);
+    throw new pRetry.AbortError('MongoDB connection failed after retries');
+  }
+}
+
+async function ensureIndexes() {
+  try {
+    await User.ensureIndexes();
+    console.log('User indexes ensured');
+
+    await ChatHistory.ensureIndexes();
+    console.log('ChatHistory indexes ensured');
+  } catch (err) {
+    console.error('Error ensuring indexes:', err);
+  }
+}
+
+async function startApp() {
+  try {
+    await pRetry(connectToMongoDB, {
+      retries: 5,
+      minTimeout: 2000,
+      onFailedAttempt: error => {
+        console.log(`MongoDB connection attempt ${error.attemptNumber} failed. Retrying...`);
+      }
+    });
+    await ensureIndexes();
+    console.log('Application started successfully');
+  } catch (err) {
+    console.error('Failed to start application:', err);
+    process.exit(1);
+  }
+}
+await startApp();
+
+// === START THE SERVER ===
+
+const PORT = process.env.PORT || 3400;
+server.listen(PORT, () => {
+  console.log(`Server started on http://localhost:${PORT}`);
+});
+
+// Handle termination signals
+process.on('SIGINT', async () => {
+  await mongoose.connection.close();
+  console.log('Mongoose connection closed');
+  process.exit(0);
+});
+process.on('uncaughtException', (err) => { console.error('Uncaught Exception:', err); process.exit(1); });
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
 
 // Utility functions
 async function sleep(ms) {
@@ -2716,23 +2725,3 @@ async function handlePageObstacles(page, agent) {
     return results;
   }
 }
-
-// Start server
-const PORT = process.env.PORT || 3400;
-server.listen(PORT, () => {
-  console.log(`Server started on http://localhost:${PORT}`);
-});
-
-// Handle process termination
-process.on('SIGINT', async () => {
-  await mongoose.connection.close();
-  console.log('Mongoose connection closed');
-  process.exit(0);
-});
-
-process.on('uncaughtException', (err) => { console.error('Uncaught Exception:', err); process.exit(1); });
-
-// Unhandled rejection handler
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
