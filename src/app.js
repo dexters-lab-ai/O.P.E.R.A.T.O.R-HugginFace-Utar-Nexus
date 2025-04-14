@@ -274,34 +274,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Start splash animation concurrently (if needed)
     const splashPromise = startSplashAnimation();
     
-    // Load UI-critical data concurrently
-    const dataPromise = Promise.all([loadActiveTasks(), loadHistory()]);
-  
-    // Wait for the data to load
-    await dataPromise;
-  
-    // Wait until the splash animation is finished
+    // Instead of waiting for data to resolve, just kick them off:
+    loadActiveTasks();
+    loadHistory();
+    
+    // Wait for splash only (no large data)
     await splashPromise;
-  
-    // Hide splash screen
     await hideSplashScreen();
-  
-    // Now, initialize critical UI elements (like history, navigation, etc.)
-    // (They have been loaded already with loadActiveTasks(), loadHistory(), etc.)
-  
-    // Defer the heavy animation initialization so it doesn't block UI rendering.
-    if ('requestIdleCallback' in window) {
-      requestIdleCallback(() => {
-        // Initialize the sentinel animation when the browser is idle.
-        init('sentinel-container');
-      });
-    } else {
-      // Fallback: use setTimeout to delay initialization by a few milliseconds.
-      setTimeout(() => {
-        init('sentinel-container');
-      }, 100); // 100ms delay can be adjusted
-    }
-  
+
+    // The tasks & history can keep loading while user sees the page
+    init('sentinel-container');
+    
     // WebGL check and UI update for sentinel canvas visibility.
     const webGLSupported = isWebGLAvailable();
     if (webGLSupported) {
