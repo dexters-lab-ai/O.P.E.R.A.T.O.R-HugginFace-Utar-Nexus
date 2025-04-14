@@ -24,13 +24,14 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { Semaphore } from 'async-mutex';
 
+// Set strictQuery to avoid deprecation warnings
 mongoose.set('strictQuery', true);
 
-// File paths
+// Set up __dirname for ESM
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Configure stealth plugin for puppeteer
+// Configure puppeteer extra with the stealth plugin
 puppeteerExtra.use(StealthPlugin());
 const browserSemaphore = new Semaphore(5); // Limit to 5 concurrent browsers
 
@@ -49,15 +50,68 @@ if (!fs.existsSync(MIDSCENE_RUN_DIR)) fs.mkdirSync(MIDSCENE_RUN_DIR, { recursive
 const REPORT_DIR = path.join(MIDSCENE_RUN_DIR, 'report');
 if (!fs.existsSync(REPORT_DIR)) fs.mkdirSync(REPORT_DIR, { recursive: true });
 
-// Express app and HTTP server
+// Create Express app and HTTP server
 const app = express();
 const server = createServer(app);
 
-// WebSocket server setup
+// === MIDDLEWARE SETUP (IMPORTANT ORDER) ===
+
+// 1. Parse JSON bodies
+app.use(express.json());
+
+// 2. Register session middleware early so that every request gets a session
+const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://dailAdmin:ua5^bRNFCkU*--c@operator.smeax.mongodb.net/dail?retryWrites=true&w=majority&appName=OPERATOR";
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'your-secret-key',
+  resave: false,
+  saveUninitialized: false,
+  store: MongoStore.create({
+    mongoUrl: MONGO_URI,
+    dbName: 'dail',
+    collectionName: 'sessions',
+    ttl: 24 * 60 * 60,         // 24 hours in seconds
+    autoRemove: 'native',      // Use MongoDB's native TTL cleanup
+    touchAfter: 24 * 3600      // Only update session if older than 24 hours
+  }),
+  cookie: { maxAge: 24 * 60 * 60 * 1000 } // 24 hours in milliseconds
+}));
+
+// Logger setup
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
+  transports: [
+    new winston.transports.File({ filename: 'error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'combined.log' }),
+  ],
+});
+if (process.env.NODE_ENV !== 'production') {
+  logger.add(new winston.transports.Console({ format: winston.format.simple() }));
+}
+
+// 3. Session logging middleware (for debugging)
+app.use((req, res, next) => {
+  console.log('Session ID:', req.sessionID);
+  console.log('Session Data:', req.session);
+  next();
+});
+
+// 4. Serve static files from production build (dist) and public assets
+app.use(express.static(path.join(__dirname, 'dist')));
+app.use('/src', express.static(path.join(__dirname, 'src'), {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.js')) {
+      res.setHeader('Content-Type', 'application/javascript');
+    }
+  }
+}));
+app.use('/midscene_run', express.static(MIDSCENE_RUN_DIR));
+app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
+
+// === WEB SOCKET SETUP ===
+
 const userConnections = new Map();
 const wss = new WebSocketServer({ server });
-
-// Global cache for unsent messages (server-side)
 const unsentMessages = new Map();
 
 function sendWebSocketUpdate(userId, data) {
@@ -84,7 +138,6 @@ function sendWebSocketUpdate(userId, data) {
   }
 }
 
-// In your WebSocket connection handler (server-side), add code to flush queued messages:
 wss.on('connection', (ws, req) => {
   let userIdParam = req.url.split('userId=')[1]?.split('&')[0];
   const userId = decodeURIComponent(userIdParam || '');
@@ -100,7 +153,6 @@ wss.on('connection', (ws, req) => {
   userConnections.set(userId, userWsSet);
   console.log(`[WebSocket] Connected: userId=${userId}, total connections=${userWsSet.size}`);
 
-  // Flush queued messages for this user if any
   if (unsentMessages.has(userId)) {
     const queuedMessages = unsentMessages.get(userId);
     queuedMessages.forEach(message => {
@@ -129,51 +181,7 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-// Middleware
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'dist')));
-app.use('/public', express.static(path.join(__dirname, 'public'), {
-  setHeaders: (res, filePath) => {
-    if (filePath.endsWith('.js')) {
-      res.setHeader('Content-Type', 'application/javascript');
-    }
-  }
-}));
-app.use('/midscene_run', express.static(MIDSCENE_RUN_DIR));
-app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
-
-const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://dailAdmin:ua5^bRNFCkU*--c@operator.smeax.mongodb.net/dail?retryWrites=true&w=majority&appName=OPERATOR";
-
-// Robust MongoDB session store setup
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'your-secret-key',
-  resave: false,
-  saveUninitialized: false,
-  store: MongoStore.create({
-    mongoUrl: MONGO_URI,
-    dbName: 'dail',
-    collectionName: 'sessions',
-    ttl: 24 * 60 * 60, // 24 hours in seconds
-    autoRemove: 'native', // Use MongoDB's native TTL cleanup
-    touchAfter: 24 * 3600 // Only update session if older than 24 hours
-  }),
-  cookie: { maxAge: 24 * 60 * 60 * 1000 } // 24 hours in milliseconds
-}));
-
-// Session logging middleware
-
-// Logger setup
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
-  transports: [
-    new winston.transports.File({ filename: 'error.log', level: 'error' }),
-    new winston.transports.File({ filename: 'combined.log' }),
-  ],
-});
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(new winston.transports.Console({ format: winston.format.simple() }));
-}
+// === ROUTES ===
 
 // Authentication middleware
 function requireAuth(req, res, next) {
@@ -181,122 +189,7 @@ function requireAuth(req, res, next) {
   next();
 }
 
-// Mongoose connection with retry logic and timing
-async function connectToMongoDB() {
-  const startTime = Date.now();
-  try {
-    await mongoose.connect(process.env.MONGO_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-      serverSelectionTimeoutMS: 5000, // Timeout for server selection
-      connectTimeoutMS: 10000,       // Timeout for initial connection
-    });
-    console.log(`Connected to MongoDB in ${Date.now() - startTime}ms`);
-  } catch (err) {
-    console.error('Mongoose connection error:', err);
-    logger.error('MongoDB connection failed', { error: err.message });
-    // Retry logic: wait 2 seconds and try again (up to 5 attempts)
-    throw new pRetry.AbortError('MongoDB connection failed after retries');
-  }
-}
-
-// Mongoose schemas with indexes
-const userSchema = new mongoose.Schema({
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  customUrls: [{ type: String }],
-});
-
-// Define indexes for User schema
-userSchema.index({ email: 1 }, { unique: true }); // Email index
-const User = mongoose.model('User', userSchema);
-
-const chatHistorySchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  messages: [{
-    role: { type: String, enum: ['user', 'assistant'], required: true },
-    content: { type: String, required: true },
-    timestamp: { type: Date, default: Date.now }
-  }]
-});
-
-// Define index for ChatHistory schema
-chatHistorySchema.index({ userId: 1 });
-const ChatHistory = mongoose.model('ChatHistory', chatHistorySchema);
-
-// Ensure indexes are created on startup
-async function ensureIndexes() {
-  try {
-    // Ensure User indexes
-    await User.ensureIndexes();
-    console.log('User indexes ensured');
-
-    // Ensure ChatHistory indexes
-    await ChatHistory.ensureIndexes();
-    console.log('ChatHistory indexes ensured');
-  } catch (err) {
-    console.error('Error ensuring indexes:', err);
-    logger.error('Index creation failed', { error: err.message });
-  }
-}
-
-const taskSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  command: String,
-  status: { type: String, enum: ['pending', 'processing', 'completed', 'error'], default: 'pending' },
-  progress: { type: Number, default: 0 },
-  startTime: { type: Date, default: Date.now },
-  endTime: Date,
-  result: mongoose.Schema.Types.Mixed,
-  error: String,
-  url: String,
-  runId: String,
-  isComplex: { type: Boolean, default: false },
-  subTasks: [{
-    id: { type: String },
-    command: String,
-    status: { type: String, enum: ['pending', 'processing', 'completed', 'error'], default: 'pending' },
-    result: mongoose.Schema.Types.Mixed,
-    progress: { type: Number, default: 0 },
-    error: String
-  }],
-  intermediateResults: [mongoose.Schema.Types.Mixed],
-  plan: String,
-  steps: [String],
-  totalSteps: Number,
-  currentStep: Number,
-  stepMap: mongoose.Schema.Types.Mixed,
-  currentStepDescription: String,
-  currentStepFunction: String,
-  currentStepArgs: mongoose.Schema.Types.Mixed,
-  planAdjustment: String,
-  lastAction: String,
-  lastQuery: String
-});
-taskSchema.index({ endTime: 1 }, { expireAfterSeconds: 604000 }); // 7 days
-const Task = mongoose.model('Task', taskSchema);
-
-// Startup function with robust MongoDB connection and index creation
-async function startApp() {
-  try {
-    await pRetry(connectToMongoDB, {
-      retries: 5,
-      minTimeout: 2000,
-      onFailedAttempt: error => {
-        console.log(`MongoDB connection attempt ${error.attemptNumber} failed. Retrying...`);
-      }
-    });
-    await ensureIndexes();
-    console.log('Application started successfully');
-  } catch (err) {
-    console.error('Failed to start application:', err);
-    process.exit(1); // Exit process if startup fails
-  }
-}
-// Run Once to ensure index creation
-await startApp();
-
-// Routes
+// Define your routes here
 app.post('/register', async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -407,14 +300,22 @@ app.delete('/history', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/chat-history', async (req, res) => {
+app.get('/chat-history', requireAuth, async (req, res) => {
   try {
     if (mongoose.connection.readyState !== 1) {
       throw new Error('Database not connected');
     }
+    // If the user must be logged in:
+    if (!req.session.user) {
+      // Return an empty structure or a 401 if it’s truly protected
+      return res.json({ messages: [] });
+    }
+
+    // Attempt to load chat history
     const chatHistory = await ChatHistory.findOne({ userId: req.session.user }).lean();
     if (!chatHistory) {
-      return res.status(404).json({ error: 'Chat history not found' });
+      // Instead of 404, just return an empty messages array
+      return res.json({ messages: [] });
     }
     res.json(chatHistory);
   } catch (error) {
@@ -449,21 +350,146 @@ app.get('/tasks/active', requireAuth, async (req, res) => {
   }
 });
 
+/**
+ * Utility to limit a string’s length and add a note if trimmed.
+ * @param {string} str - The string to trim.
+ * @param {number} maxLen - Maximum length before truncation.
+ * @return {string} - Trimmed string (with appended note if truncated).
+ */
+function trimString(str, maxLen = 200) {
+  if (typeof str !== 'string') return str;
+  if (str.length <= maxLen) return str;
+  return str.substring(0, maxLen) + `... [trimmed, original length: ${str.length}]`;
+}
+
+/**
+ * A thorough function to remove or shorten large fields in an “update” object
+ * before sending logs or SSE data to the client.
+ * 
+ * “update” typically has structure:
+ *   {
+ *     status, progress, intermediateResults[], steps[],
+ *     error, result, done
+ *   }
+ * This function:
+ *   - Removes base64 screenshot data in favor of screenshot *paths*
+ *   - Trims large text fields: extractedInfo, rawResponse, etc.
+ *   - Replaces big nested DOM data (tree, pageContext) with placeholders
+ *   - Works shallowly in result & intermediateResults[] but not deep recursion.
+ * 
+ * @param {Object} originalUpdate - The raw update object from the DB or code.
+ * @returns {Object} - A copy of “originalUpdate” with large fields trimmed.
+ */
+function stripLargeFields(originalUpdate) {
+  // Clone so we don't mutate the original object
+  const newUpdate = { ...originalUpdate };
+
+  // --- 1) TRIM FIELDS IN "result" ---
+
+  if (newUpdate.result && typeof newUpdate.result === 'object') {
+    // If there's raw screenshot data, remove or replace with a short note.
+    if (newUpdate.result.screenshot) {
+      newUpdate.result.screenshot = '[Screenshot Omitted - use screenshotPath instead]';
+    }
+
+    // If there's a screenshotPath, keep it (that’s presumably just a short URL).
+    // newUpdate.result.screenshotPath is fine.
+
+    // If there's large text fields like extractedInfo or rawResponse, trim them
+    if (typeof newUpdate.result.extractedInfo === 'string') {
+      newUpdate.result.extractedInfo = trimString(newUpdate.result.extractedInfo, 300);
+    }
+    if (typeof newUpdate.result.rawResponse === 'string') {
+      newUpdate.result.rawResponse = trimString(newUpdate.result.rawResponse, 300);
+    }
+
+    // If there's a potentially huge nested object like pageContext or tree, replace with a note
+    if (newUpdate.result.pageContext && typeof newUpdate.result.pageContext === 'object') {
+      newUpdate.result.pageContext = '[pageContext omitted - too large]';
+    }
+    if (newUpdate.result.tree && typeof newUpdate.result.tree === 'object') {
+      newUpdate.result.tree = '[DOM tree omitted - too large]';
+    }
+  }
+
+  // --- 2) TRIM FIELDS IN "intermediateResults" ARRAY ---
+
+  if (Array.isArray(newUpdate.intermediateResults)) {
+    newUpdate.intermediateResults = newUpdate.intermediateResults.map((item) => {
+      const trimmed = { ...item };
+
+      // If there's a raw screenshot, remove or replace it
+      if (trimmed.screenshot) {
+        trimmed.screenshot = '[Screenshot Omitted - use screenshotPath instead]';
+      }
+
+      // Keep screenshotPath if present (that’s a short string).
+      // if (trimmed.screenshotPath) ...
+
+      // If there's big text fields, trim them
+      if (typeof trimmed.extractedInfo === 'string') {
+        trimmed.extractedInfo = trimString(trimmed.extractedInfo, 300);
+      }
+      if (typeof trimmed.rawResponse === 'string') {
+        trimmed.rawResponse = trimString(trimmed.rawResponse, 300);
+      }
+
+      // Potential heavy fields
+      if (trimmed.pageContext && typeof trimmed.pageContext === 'object') {
+        trimmed.pageContext = '[pageContext omitted - too large]';
+      }
+      if (trimmed.tree && typeof trimmed.tree === 'object') {
+        trimmed.tree = '[DOM tree omitted - too large]';
+      }
+
+      return trimmed;
+    });
+  }
+
+  // --- 3) (Optional) TRIM FIELDS IN "steps" IF YOU USE THAT ---
+
+  if (Array.isArray(newUpdate.steps)) {
+    // If you store big logs or screenshot data in steps, do something similar:
+    newUpdate.steps = newUpdate.steps.map((step) => {
+      const s = { ...step };
+      // For example, if step has “screenshot”:
+      if (s.screenshot) {
+        s.screenshot = '[Screenshot Omitted - use screenshotPath instead]';
+      }
+      // If step has big text fields:
+      if (typeof s.extractedInfo === 'string') {
+        s.extractedInfo = trimString(s.extractedInfo, 300);
+      }
+      if (s.pageContext && typeof s.pageContext === 'object') {
+        s.pageContext = '[pageContext omitted - too large]';
+      }
+      return s;
+    });
+  }
+
+  // That’s enough for a shallow pass. Return the trimmed copy.
+  return newUpdate;
+}
+
 app.get('/tasks/:id/stream', requireAuth, async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
+  // Helper function that loads the Task from DB and sends trimmed update
   const sendUpdate = async () => {
     try {
       const task = await Task.findById(req.params.id).lean();
       if (!task) {
-        res.write(`data: ${JSON.stringify({ done: true, error: 'Task not found' })}\n\n`);
+        const msg = { done: true, error: 'Task not found' };
+        res.write(`data: ${JSON.stringify(msg)}\n\n`);
         res.end();
         return;
       }
-      const update = {
+
+      // Build the raw update object from the DB
+      const rawUpdate = {
         status: task.status || 'unknown',
         progress: task.progress || 0,
         intermediateResults: task.intermediateResults || [],
@@ -472,9 +498,19 @@ app.get('/tasks/:id/stream', requireAuth, async (req, res) => {
         result: task.result || null,
         done: task.status === 'completed' || task.status === 'error'
       };
-      console.log(`[Stream] Sending update for task ${req.params.id}:`, JSON.stringify(update, null, 2));
-      res.write(`data: ${JSON.stringify(update)}\n\n`);
-      if (update.done) {
+
+      // 1) Trim big fields
+      const safeUpdate = stripLargeFields(rawUpdate);
+
+      // 2) Log the *trimmed* version in console
+      console.log(`[Stream] Sending trimmed update for task ${req.params.id}:`, JSON.stringify(safeUpdate, null, 2));
+
+      // 3) Also send the trimmed version to the client
+      // (If you prefer, you can send the untrimmed version, but it's typically better to keep them in sync.)
+      res.write(`data: ${JSON.stringify(safeUpdate)}\n\n`);
+
+      // If the task is done, close the SSE stream
+      if (safeUpdate.done) {
         res.end();
       }
     } catch (error) {
@@ -484,8 +520,11 @@ app.get('/tasks/:id/stream', requireAuth, async (req, res) => {
     }
   };
 
-  const interval = setInterval(sendUpdate, 1000);
+  // Send an update immediately
   await sendUpdate();
+
+  // Then send updates every 5 seconds
+  const interval = setInterval(sendUpdate, 5000);
 
   req.on('close', () => {
     clearInterval(interval);
@@ -547,6 +586,157 @@ app.get('/settings.html', (req, res) => {
   fs.existsSync(filePath) ? res.sendFile(filePath) : res.status(404).send('Settings page not found');
 });
 
+// Fallback route: send index.html for any unmatched routes (for client-side routing)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
+
+import { Schema } from 'mongoose';
+
+const userSchema = new Schema({
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  customUrls: [{ type: String }],
+});
+userSchema.index({ email: 1 }, { unique: true });
+const User = mongoose.model('User', userSchema);
+
+const chatHistorySchema = new Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  messages: [{
+    role: { type: String, enum: ['user', 'assistant'], required: true },
+    content: { type: String, required: true },
+    timestamp: { type: Date, default: Date.now }
+  }]
+});
+chatHistorySchema.index({ userId: 1 });
+const ChatHistory = mongoose.model('ChatHistory', chatHistorySchema);
+
+// Task schema definition
+const taskSchema = new Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  command: String,
+  status: { type: String, enum: ['pending', 'processing', 'completed', 'error'], default: 'pending' },
+  progress: { type: Number, default: 0 },
+  startTime: { type: Date, default: Date.now },
+  endTime: Date,
+  result: Schema.Types.Mixed,
+  error: String,
+  url: String,
+  runId: String,
+  isComplex: { type: Boolean, default: false },
+  subTasks: [{
+    id: { type: String },
+    command: String,
+    status: { type: String, enum: ['pending', 'processing', 'completed', 'error'], default: 'pending' },
+    result: Schema.Types.Mixed,
+    progress: { type: Number, default: 0 },
+    error: String
+  }],
+  intermediateResults: [Schema.Types.Mixed],
+  plan: String,
+  steps: [String],
+  totalSteps: Number,
+  currentStep: Number,
+  stepMap: Schema.Types.Mixed,
+  currentStepDescription: String,
+  currentStepFunction: String,
+  currentStepArgs: Schema.Types.Mixed,
+  planAdjustment: String,
+  lastAction: String,
+  lastQuery: String
+});
+taskSchema.index({ endTime: 1 }, { expireAfterSeconds: 604000 });
+const Task = mongoose.model('Task', taskSchema);
+
+// Function to clear the database once
+async function clearDatabaseOnce() {
+  const flagFile = path.join(__dirname, 'db_cleared.flag');
+  if (fs.existsSync(flagFile)) {
+    console.log('Database already cleared, skipping clear operation.');
+    return;
+  }
+
+  try {
+    await User.deleteMany({});
+    await ChatHistory.deleteMany({});
+    await Task.deleteMany({});
+    console.log('Successfully cleared User, ChatHistory, and Task collections.');
+
+    // Create flag file to prevent future clears
+    fs.writeFileSync(flagFile, 'Database cleared on ' + new Date().toISOString());
+    console.log('Created db_cleared.flag to mark database clear completion.');
+  } catch (err) {
+    console.error('Error clearing database:', err);
+  }
+}
+
+// MongoDB Connection and Startup
+async function connectToMongoDB() {
+  const startTime = Date.now();
+  try {
+    await mongoose.connect(process.env.MONGO_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+      serverSelectionTimeoutMS: 5000,
+      connectTimeoutMS: 10000,
+    });
+    console.log(`Connected to MongoDB in ${Date.now() - startTime}ms`);
+  } catch (err) {
+    console.error('Mongoose connection error:', err);
+    throw new pRetry.AbortError('MongoDB connection failed after retries');
+  }
+}
+
+async function ensureIndexes() {
+  try {
+    await User.ensureIndexes();
+    console.log('User indexes ensured');
+    await ChatHistory.ensureIndexes();
+    console.log('ChatHistory indexes ensured');
+    await Task.ensureIndexes();
+    console.log('Task indexes ensured');
+  } catch (err) {
+    console.error('Error ensuring indexes:', err);
+  }
+}
+
+async function startApp() {
+  try {
+    await pRetry(connectToMongoDB, {
+      retries: 5,
+      minTimeout: 2000,
+      onFailedAttempt: error => {
+        console.log(`MongoDB connection attempt ${error.attemptNumber} failed. Retrying...`);
+      }
+    });
+    await clearDatabaseOnce(); // Run one-time database clear
+    await ensureIndexes();
+    console.log('Application started successfully');
+  } catch (err) {
+    console.error('Failed to start application:', err);
+    process.exit(1);
+  }
+}
+await startApp();
+
+// === START THE SERVER ===
+
+const PORT = process.env.PORT || 3400;
+server.listen(PORT, () => {
+  console.log(`Server started on http://localhost:${PORT}`);
+});
+
+// Handle termination signals
+process.on('SIGINT', async () => {
+  await mongoose.connection.close();
+  console.log('Mongoose connection closed');
+  process.exit(0);
+});
+process.on('uncaughtException', (err) => { console.error('Uncaught Exception:', err); process.exit(1); });
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
 
 // Utility functions
 async function sleep(ms) {
@@ -1635,9 +1825,9 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
     });
     
     // Capture screenshot
-    const screenshot = await page.screenshot({ encoding: 'base64' });
     const screenshotFilename = `screenshot-${Date.now()}.png`;
     const screenshotPath = path.join(runDir, screenshotFilename);
+    const screenshot = await page.screenshot({ encoding: 'base64' });
     fs.writeFileSync(screenshotPath, Buffer.from(screenshot, 'base64'));
     const screenshotUrl = `/midscene_run/${runId}/${screenshotFilename}`;
     logAction("Screenshot captured and saved", { path: screenshotPath });
@@ -2198,10 +2388,29 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
                 runDir,
                 runId
               );
+              // Right before updating the DB with finalResult, produce a cleaned version:
+              const cleanedFinal = {
+                success: finalResult.success,
+                currentUrl: finalResult.raw?.url || finalResult.currentUrl,
+                extractedInfo: typeof finalResult.aiPrepared?.summary === 'string'
+                  ? finalResult.aiPrepared.summary.substring(0, 500) + '...'
+                  : 'No AI summary',
+                screenshotPath: finalResult.screenshot || finalResult.screenshotPath,
+                timestamp: new Date()
+              };
+
               await Task.updateOne(
                 { _id: taskId },
-                { $set: { status: 'completed', progress: 100, result: finalResult, endTime: new Date() } }
+                {
+                  $set: {
+                    status: 'completed',
+                    progress: 100,
+                    result: cleanedFinal, // store only trimmed data
+                    endTime: new Date()
+                  }
+                }
               );
+
               sendWebSocketUpdate(userId, {
                 event: 'taskComplete',
                 taskId,
@@ -2361,30 +2570,30 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
  */
 async function addIntermediateResult(userId, taskId, result) {
   try {
-    // Clean the result to avoid storing large objects
+    // Only keep fields you care about, truncating any large text.
     const cleanedResult = {
       success: result.success,
       currentUrl: result.currentUrl,
-      extractedInfo: typeof result.extractedInfo === 'string' 
-        ? result.extractedInfo.substring(0, 1000) 
-        : 'Complex data structure',
+      extractedInfo: typeof result.extractedInfo === 'string'
+        ? result.extractedInfo.substring(0, 500) + '...'
+        : 'Complex data omitted',
       navigableElements: Array.isArray(result.navigableElements) 
         ? result.navigableElements.slice(0, 10) 
         : [],
-      screenshotPath: result.screenshotPath,
+      screenshotPath: result.screenshotPath,  // Only store path/URL, not raw base64
       timestamp: new Date()
-    };    
-    
+    };
+
     await Task.updateOne(
       { _id: taskId },
       { 
         $push: { intermediateResults: cleanedResult },
-        $set: { 
+        $set: {
           currentUrl: result.currentUrl,
           lastUpdate: new Date()
         }
       }
-    );    
+    );
   } catch (error) {
     console.error(`[addIntermediateResult] Error:`, error);
   }
@@ -2706,23 +2915,3 @@ async function handlePageObstacles(page, agent) {
     return results;
   }
 }
-
-// Start server
-const PORT = process.env.PORT || 3400;
-server.listen(PORT, () => {
-  console.log(`Server started on http://localhost:${PORT}`);
-});
-
-// Handle process termination
-process.on('SIGINT', async () => {
-  await mongoose.connection.close();
-  console.log('Mongoose connection closed');
-  process.exit(0);
-});
-
-process.on('uncaughtException', (err) => { console.error('Uncaught Exception:', err); process.exit(1); });
-
-// Unhandled rejection handler
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
