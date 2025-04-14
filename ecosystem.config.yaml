@@ -1,12 +1,12 @@
 apps:
   - name: operator-server
     script: server.js
-    node_args: ["--max-old-space-size=4096"]
+    node_args: ["--max-old-space-size=8192"]
     args: start
     watch: false
     autorestart: true
     env:
-      NODE_ENV: production
+      NODE_ENV: development
   - name: midscene-playground
     script: cmd.exe
     args: /c npx midscene-playground

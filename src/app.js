@@ -1,5 +1,5 @@
 // app.js
-import { init, disperseAndReset, setAlertMode} from './animations.js';
+import { init, disperseAndReset, setAlertMode, dispose } from './animations.js';
 
 // Global state
 let taskResults = [];
@@ -269,36 +269,57 @@ function hideSplashScreen() {
 }
 
 // --- DOMContentLoaded Handler ---
-
 document.addEventListener('DOMContentLoaded', async () => {
-
-  // Start splash animation concurrently.
-  const splashPromise = startSplashAnimation();
+  try {
+    // Start splash animation concurrently (if needed)
+    const splashPromise = startSplashAnimation();
+    
+    // Load UI-critical data concurrently
+    const dataPromise = Promise.all([loadActiveTasks(), loadHistory()]);
   
-  // Start loading data concurrently. (These functions run in parallel.)
-  const dataPromise = Promise.all([loadActiveTasks(), loadHistory()]);
+    // Wait for the data to load
+    await dataPromise;
   
-  // Wait until the data is loaded.
-  await dataPromise;
+    // Wait until the splash animation is finished
+    await splashPromise;
   
-  // Wait until the splash animation is finished.
-  await splashPromise;
+    // Hide splash screen
+    await hideSplashScreen();
   
-  // Now hide the splash screen.
-  await hideSplashScreen();
+    // Now, initialize critical UI elements (like history, navigation, etc.)
+    // (They have been loaded already with loadActiveTasks(), loadHistory(), etc.)
   
-  // Initialize animations and UI after the splash is hidden.
-  init('sentinel-container');
-
-  const webGLSupported = isWebGLAvailable();
-  if (webGLSupported) {
-    disperseAndReset();
-    document.getElementById('sentinel-canvas').style.display = 'block';
-    document.getElementById('sentinel-fallback').style.display = 'none';
-  } else {
-    console.warn('WebGL not supported. Using fallback.');
-    document.getElementById('sentinel-canvas').style.display = 'none';
-    document.getElementById('sentinel-fallback').style.display = 'block';
+    // Defer the heavy animation initialization so it doesn't block UI rendering.
+    if ('requestIdleCallback' in window) {
+      requestIdleCallback(() => {
+        // Initialize the sentinel animation when the browser is idle.
+        init('sentinel-container');
+      });
+    } else {
+      // Fallback: use setTimeout to delay initialization by a few milliseconds.
+      setTimeout(() => {
+        init('sentinel-container');
+      }, 100); // 100ms delay can be adjusted
+    }
+  
+    // WebGL check and UI update for sentinel canvas visibility.
+    const webGLSupported = isWebGLAvailable();
+    if (webGLSupported) {
+      disperseAndReset();
+      document.getElementById('sentinel-canvas').style.display = 'block';
+      document.getElementById('sentinel-fallback').style.display = 'none';
+    } else {
+      console.warn('WebGL not supported. Using fallback.');
+      document.getElementById('sentinel-canvas').style.display = 'none';
+      document.getElementById('sentinel-fallback').style.display = 'block';
+    }
+  
+    // Other DOM event registrations follow...
+    document.getElementById('alert-button').addEventListener('click', setAlertMode);
+    document.getElementById('fire-button').addEventListener('click', () => fireLaser(5000));
+    document.getElementById('reset-button').addEventListener('click', disperseAndReset);
+  } catch (error) {
+    console.error('Error during initial load:', error);
   }
 });
 
