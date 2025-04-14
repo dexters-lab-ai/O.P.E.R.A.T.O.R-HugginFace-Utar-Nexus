@@ -1,5 +1,4 @@
 // app.js
-import { init, disperseAndReset, setAlertMode, dispose } from './animations.js';
 
 // Global state
 let taskResults = [];
@@ -94,17 +93,6 @@ const userId = localStorage.getItem('userId'); // Replace with your method of ge
 initWebSocket(userId);
 
 /**************************** Utility Functions ****************************/
-
-// Check WebGL availability
-function isWebGLAvailable() {
-  try {
-    const canvas = document.createElement('canvas');
-    return !!(window.WebGLRenderingContext && (canvas.getContext('webgl') || canvas.getContext('experimental-webgl')));
-  } catch (e) {
-    return false;
-  }
-}
-
 function updateFunctionCallPartial(taskId, partialArgs) {
   let partialElement = document.getElementById(`functionCall-${taskId}`);
   if (!partialElement) {
@@ -281,35 +269,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Wait for splash only (no large data)
     await splashPromise;
     await hideSplashScreen();
-
-    // The tasks & history can keep loading while user sees the page
-    init('sentinel-container');
     
-    // WebGL check and UI update for sentinel canvas visibility.
-    const webGLSupported = isWebGLAvailable();
-    if (webGLSupported) {
-      disperseAndReset();
-      document.getElementById('sentinel-canvas').style.display = 'block';
-      document.getElementById('sentinel-fallback').style.display = 'none';
-    } else {
-      console.warn('WebGL not supported. Using fallback.');
-      document.getElementById('sentinel-canvas').style.display = 'none';
-      document.getElementById('sentinel-fallback').style.display = 'block';
-    }
-  
-    // Other DOM event registrations follow...
-    document.getElementById('alert-button').addEventListener('click', setAlertMode);
-    document.getElementById('fire-button').addEventListener('click', () => fireLaser(5000));
-    document.getElementById('reset-button').addEventListener('click', disperseAndReset);
   } catch (error) {
     console.error('Error during initial load:', error);
   }
 });
-
-// Later, trigger different states
-document.getElementById('alert-button').addEventListener('click', setAlertMode);
-document.getElementById('fire-button').addEventListener('click', () => fireLaser(5000));
-document.getElementById('reset-button').addEventListener('click', disperseAndReset);
 
 // Cleanup on page unload
 window.addEventListener('beforeunload', () => {
@@ -658,17 +622,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-
-// ===============================================
-// Dispatch Events Listeners 
-document.addEventListener('taskStateChange', (event) => {
-  if(event.detail.running){
-    setAlertMode();
-  } else {
-    setIdleMode();
-  }
-});
-
 // ===============================================
 // Clear Task Results
 document.getElementById('clear-results').addEventListener('click', clearTaskResults);
@@ -679,27 +632,11 @@ function clearTaskResults() {
   const outputContainer = document.getElementById('output-container');
   const aiResults = document.getElementById('ai-results');
   const rawResults = document.getElementById('raw-results');
-  const sentinelCanvas = document.getElementById('sentinel-canvas');
-  const sentinelFallback = document.getElementById('sentinel-fallback');
-
   if (aiResults) aiResults.innerHTML = '';
   if (rawResults) rawResults.innerHTML = '';
   if (outputContainer) {
     outputContainer.innerHTML = '<p id="no-results" class="text-muted">No results yet. Run a task to see output here.</p>';
     outputContainer.style.display = 'block';
-  }
-
-  if (sentinelCanvas) {
-    if (isWebGLAvailable()) {
-      //sentinelCanvas.style.display = 'block';
-      //sentinelFallback.style.display = 'none';
-      
-      // Dispatch Events
-      document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: false } }));
-    } else {
-      //sentinelCanvas.style.display = 'none';
-      //sentinelFallback.style.display = 'block';
-    }
   }
 
   showNotification('Task results cleared!', 'success');
@@ -1293,8 +1230,6 @@ function addTaskResult(result) {
   });
 
   // Hide both the canvas and its fallback, then show the output container
-  document.getElementById('sentinel-canvas').style.display = 'none';
-  document.getElementById('sentinel-fallback').style.display = 'none';
   outputContainer.style.display = 'block';
   showNotification('Task result added!', 'success');
 }

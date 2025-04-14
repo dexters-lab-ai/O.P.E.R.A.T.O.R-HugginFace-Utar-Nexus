@@ -1501,104 +1501,125 @@ class PlanStep {
   }
 
   /**
- * Execute the step
- * @param {Object} plan - The task plan
- * @returns {Object} - Result of the step execution
- */
-async execute(plan) {
-  this.log(`Starting execution: ${this.type} - ${this.instruction}`);
-  this.status = 'running';
+   * Execute the step
+   * @param {Object} plan - The task plan
+   * @returns {Object} - Result of the step execution
+   */
+  async execute(plan) {
+    this.log(`Starting execution: ${this.type} - ${this.instruction}`);
+    this.status = 'running';
+    
+    try {
+      // For the initial "stepProgress", let's do a quick trim
+      const trimmedStepLogs = this.logs.map(entry => {
+        const shortMsg = entry.message.length > 150
+          ? entry.message.substring(0, 150) + '...'
+          : entry.message;
+        return { ...entry, message: shortMsg };
+      });
+      sendWebSocketUpdate(this.userId, { 
+        event: 'stepProgress', 
+        taskId: this.taskId, 
+        stepIndex: this.index, 
+        progress: 10, 
+        message: `Starting: ${this.instruction}`,
+        log: trimmedStepLogs
+      });
   
-  try {
-    sendWebSocketUpdate(this.userId, { 
-      event: 'stepProgress', 
-      taskId: this.taskId, 
-      stepIndex: this.index, 
-      progress: 10, 
-      message: `Starting: ${this.instruction}`,
-      log: this.logs
-    });
-
-    let result;
-    // Execute the appropriate handler based on step type
-    console.log(`[PlanStep] Executing with index: ${this.index}`);
-    if (this.type === 'action') {
-      result = await plan.executeBrowserAction(this.args, this.index);
-    } else if (this.type === 'query') {
-      result = await plan.executeBrowserQuery(this.args, this.index);
-    } else {
-      throw new Error(`Unknown step type: ${this.type}`);
-    }
-
-    this.result = result;
-    this.status = result.success ? 'completed' : 'failed';
-    this.endTime = new Date();
-    
-    // Update the plan with the browser session from this step
-    plan.updateBrowserSession(result);
-    
-    // Update the plan's current state with context info
-    if (result.extractedInfo) {
-      plan.currentState = {
-        pageDescription: result.extractedInfo,
-        navigableElements: result.navigableElements || [],
-        currentUrl: result.currentUrl
-      };
-    }
-
-    // Make sure we include the step index in our WebSocket update
-    const trimmedLogs = this.logs.map(entry => {
+      // Execute the appropriate handler
+      let result;
+      if (this.type === 'action') {
+        result = await plan.executeBrowserAction(this.args, this.index);
+      } else if (this.type === 'query') {
+        result = await plan.executeBrowserQuery(this.args, this.index);
+      } else {
+        throw new Error(`Unknown step type: ${this.type}`);
+      }
+  
+      this.result = result;
+      this.status = result.success ? 'completed' : 'failed';
+      this.endTime = new Date();
+      
+      // Update the plan with the browser session from this step
+      plan.updateBrowserSession(result);
+      
+      // Update the plan's current state with context info
+      if (result.extractedInfo) {
+        plan.currentState = {
+          pageDescription: result.extractedInfo,
+          navigableElements: result.navigableElements || [],
+          currentUrl: result.currentUrl
+        };
+      }
+  
+      // Now we trim logs again, including the newly updated step logs and
+      // the browser action logs from `result.actionLog`.
+      const trimmedActionLogs = (result.actionLog || []).map(entry => {
+        const shortMsg = entry.message.length > 150
+          ? entry.message.substring(0, 150) + '...'
+          : entry.message;
+        return { ...entry, message: shortMsg };
+      });
+  
+      const finalTrimmedStepLogs = this.logs.map(entry => {
+        const shortMsg = entry.message.length > 150
+          ? entry.message.substring(0, 150) + '...'
+          : entry.message;
+        return { ...entry, message: shortMsg };
+      });
+  
+      sendWebSocketUpdate(this.userId, { 
+        event: 'stepProgress', 
+        taskId: this.taskId, 
+        stepIndex: this.index, 
+        progress: 100, 
+        message: this.status === 'completed' ? 'Step completed' : 'Step failed',
+        // Combine them so the client sees everything, but all trimmed
+        log: [...finalTrimmedStepLogs, ...trimmedActionLogs]
+      });
+  
+      console.log(`[Task ${this.taskId}] Step ${this.index} completed`, {
+        status: this.status,
+        type: this.type,
+        url: result.currentUrl
+      });
+  
+      return result;
+    } catch (error) {
+      this.log(`Error executing step: ${error.message}`);
+      this.status = 'failed';
+      this.endTime = new Date();
+      this.error = error.message;
+      
+      // Trim logs for the error case
+      const trimmedLogs = this.logs.map(entry => {
+        const shortMsg = entry.message.length > 150
+          ? entry.message.substring(0, 150) + '...'
+          : entry.message;
+        return { ...entry, message: shortMsg };
+      });
+  
+      sendWebSocketUpdate(this.userId, { 
+        event: 'stepProgress', 
+        taskId: this.taskId, 
+        stepIndex: this.index, 
+        progress: 100, 
+        message: `Error: ${error.message}`,
+        log: trimmedLogs
+      });
+      
+      console.log(`[Task ${this.taskId}] Step ${this.index} failed`, {
+        error: error.message
+      });
+      
       return {
-        ...entry,
-        message: entry.message.length > 150 ? entry.message.substring(0, 150) + '...' : entry.message
+        success: false,
+        error: error.message,
+        actionLog: trimmedLogs,
+        stepIndex: this.index
       };
-    });
-    sendWebSocketUpdate(this.userId, { 
-      event: 'stepProgress', 
-      taskId: this.taskId, 
-      stepIndex: this.index, 
-      progress: 100, 
-      message: this.status === 'completed' ? 'Step completed' : 'Step failed',
-      log: this.logs.concat(result.actionLog || [])
-    });
-
-    // Include step index in log
-    console.log(`[Task ${this.taskId}] Step ${this.index} completed`, {
-      status: this.status,
-      type: this.type,
-      url: result.currentUrl
-    });
-
-    return result;
-  } catch (error) {
-    this.log(`Error executing step: ${error.message}`);
-    this.status = 'failed';
-    this.endTime = new Date();
-    this.error = error.message;
-    
-    // Make sure we include the step index in our WebSocket update
-    sendWebSocketUpdate(this.userId, { 
-      event: 'stepProgress', 
-      taskId: this.taskId, 
-      stepIndex: this.index, 
-      progress: 100, 
-      message: `Error: ${error.message}`,
-      log: this.logs
-    });
-    
-    // Include step index in error log
-    console.log(`[Task ${this.taskId}] Step ${this.index} failed`, {
-      error: error.message
-    });
-    
-    return {
-      success: false,
-      error: error.message,
-      actionLog: this.logs,
-      stepIndex: this.index // Ensure step index is returned in error case
-    };
-  }
-}
+    }
+  }  
 
   /**
    * Get step summary
@@ -1675,7 +1696,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
     }
     
     // Update task status in database
-    await updateTaskInDatabase(userId, taskId, {
+    await updateTaskInDatabase(taskId, {
       status: 'processing',
       progress: 50,
       lastAction: command
@@ -1857,33 +1878,66 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       log: actionLog
     });
 
-    return { 
-      task_id, 
-      browser, 
-      agent, 
-      page, 
-      release, 
+    // Right before returning, do:
+    const trimmedActionLog = actionLog.map(entry => {
+      // Trim each log message to 150-200 chars, for example
+      const truncatedMessage =
+        entry.message.length > 700
+          ? entry.message.substring(0, 700) + '...'
+          : entry.message;
+
+      return { ...entry, message: truncatedMessage };
+    });
+
+    return {
+      // Basic success/failure flags
+      success: true,
+      error: null,
+      
+      // Basic metadata
+      task_id,
       closed: false,
       currentUrl,
-      ...result, 
-      screenshotPath: screenshotUrl // Set to URL instead of file path
+      
+      // Provide step info
+      stepIndex: currentStep,
+      actionOutput: `Completed: ${command}`,
+      pageTitle: await page.title(),
+
+      // The big fields you want to keep, but as plain data
+      extractedInfo,
+      navigableElements,
+      actionLog: trimmedActionLog, // (See trimming logs below)
+      
+      // No browser/agent/page/release references
+      // Just the screenshot path as a short string:
+      screenshotPath: screenshotUrl
     };
+
   } catch (error) {
     logAction(`Error in browser action: ${error.message}`, { stack: error.stack });
+  
+    // If we want to release the semaphore right away on error, do so:
     if (typeof release === 'function') release();
-    return { 
-      task_id, 
-      error: error.message, 
+  
+    // Trim the actionLog so we don't send huge logs back
+    const trimmedActionLog = actionLog.map(entry => {
+      const shortMsg = entry.message.length > 150
+        ? entry.message.substring(0, 150) + '...'
+        : entry.message;
+      return { ...entry, message: shortMsg };
+    });
+  
+    // Return only minimal info. Do NOT return browser/page/agent anymore.
+    return {
       success: false,
-      actionLog,
-      browser, 
-      agent, 
-      page, 
-      release, 
-      currentUrl: page ? await page.url().catch(() => null) : null,
-      stepIndex: currentStep // Add this to ensure step index is returned
+      error: error.message,
+      actionLog: trimmedActionLog,
+      currentUrl: page ? page.url() : null,
+      task_id,
+      stepIndex: currentStep
     };
-  }
+  }  
 }
 
 /**
@@ -1914,6 +1968,13 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
     actionLog.push(logEntry);
     console.log(`[BrowserQuery] [Step ${currentStep}] ${message}`);
   };
+
+  // Partial update
+  await updateTaskInDatabase(taskId, {
+    status: 'processing',
+    progress: 50,
+    lastAction: query
+  });
 
   try {
     logQuery(`Starting query: "${query}"`);
@@ -2084,33 +2145,65 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
       log: actionLog
     });
 
-    return { 
-      task_id, 
-      browser, 
-      agent, 
-      page, 
-      release, 
+    // Right before returning, do:
+    const trimmedActionLog = actionLog.map(entry => {
+      // Trim each log message to 150-200 chars, for example
+      const truncatedMessage =
+        entry.message.length > 700
+          ? entry.message.substring(0, 700) + '...'
+          : entry.message;
+
+      return { ...entry, message: truncatedMessage };
+    });
+
+    return {
+      // Basic success/failure flags
+      success: true,
+      error: null,
+      
+      // Basic metadata
+      task_id,
       closed: false,
       currentUrl,
-      ...result, 
-      screenshotPath: screenshotUrl // Set to URL instead of file path
+      
+      // Provide step info
+      stepIndex: currentStep,
+      actionOutput: `Completed: ${command}`,
+      pageTitle: await page.title(),
+
+      // The big fields you want to keep, but as plain data
+      extractedInfo,
+      navigableElements,
+      actionLog: trimmedActionLog, // (See trimming logs below)
+      
+      // No browser/agent/page/release references
+      // Just the screenshot path as a short string:
+      screenshotPath: screenshotUrl
     };
   } catch (error) {
     logQuery(`Error in browser query: ${error.message}`, { stack: error.stack });
+  
+    // Optionally release the semaphore right now on error
     if (typeof release === 'function') release();
-    return { 
-      task_id, 
-      error: error.message, 
+  
+    // Trim the actionLog so we don't blow up WebSocket messages
+    const trimmedActionLog = actionLog.map(entry => {
+      const shortMsg = entry.message.length > 150
+        ? entry.message.substring(0, 150) + '...'
+        : entry.message;
+      return { ...entry, message: shortMsg };
+    });
+  
+    // Return only minimal info
+    return {
       success: false,
-      actionLog,
-      browser, 
-      agent, 
-      page, 
-      release, 
-      currentUrl: page ? await page.url().catch(() => null) : null,
-      stepIndex: currentStep // Add this to ensure step index is returned
+      error: error.message,
+      actionLog: trimmedActionLog,
+      currentUrl: page ? page.url() : null,
+      task_id,
+      stepIndex: currentStep
     };
-  }
+  }  
 }
 
 /**
@@ -2393,7 +2486,7 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
                 success: finalResult.success,
                 currentUrl: finalResult.raw?.url || finalResult.currentUrl,
                 extractedInfo: typeof finalResult.aiPrepared?.summary === 'string'
-                  ? finalResult.aiPrepared.summary.substring(0, 500) + '...'
+                  ? finalResult.aiPrepared.summary.substring(0, 1500) + '...'
                   : 'No AI summary',
                 screenshotPath: finalResult.screenshot || finalResult.screenshotPath,
                 timestamp: new Date()
@@ -2575,10 +2668,10 @@ async function addIntermediateResult(userId, taskId, result) {
       success: result.success,
       currentUrl: result.currentUrl,
       extractedInfo: typeof result.extractedInfo === 'string'
-        ? result.extractedInfo.substring(0, 500) + '...'
+        ? result.extractedInfo.substring(0, 1500) + '...'
         : 'Complex data omitted',
       navigableElements: Array.isArray(result.navigableElements) 
-        ? result.navigableElements.slice(0, 10) 
+        ? result.navigableElements.slice(0, 30) 
         : [],
       screenshotPath: result.screenshotPath,  // Only store path/URL, not raw base64
       timestamp: new Date()
