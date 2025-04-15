@@ -14,14 +14,10 @@ const RETRY_DELAY = 5000;
 
 // Function to initialize WebSocket connection
 function initWebSocket(userId) {
-  // If a connection already exists and is open, do nothing.
   if (ws && ws.readyState === WebSocket.OPEN) return;
-
-  // Use the proper protocol according to the current page.
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const wsUrl = `${protocol}://${window.location.host}?userId=${encodeURIComponent(userId)}`;
+  const wsUrl = `${protocol}://${window.location.host}/ws?userId=${encodeURIComponent(userId)}`;
   ws = new WebSocket(wsUrl);
-
   ws.addEventListener('open', () => {
     console.log('WebSocket connected at', new Date().toISOString());
     reconnectAttempts = 0;
@@ -31,8 +27,7 @@ function initWebSocket(userId) {
     try {
       const data = JSON.parse(event.data);
       console.log('WebSocket message received:', data);
-
-      // Use a switch to handle all event types
+  
       switch (data.event) {
         case 'taskStart':
           handleTaskStart(data.taskId, data.prompt, data.url);
@@ -47,7 +42,16 @@ function initWebSocket(userId) {
           handleIntermediateResult(data.taskId, data.result, data.subTask, data.streaming);
           break;
         case 'taskComplete':
-          handleTaskCompletion(data.taskId, data.status, data.result);
+          // If taskId exists, then this is a task update.
+          if (data.taskId) {
+            handleTaskCompletion(data.taskId, data.status, data.result || {});
+          } else if (data.assistantReply) {
+            // Otherwise, if an assistantReply is provided, treat it as a chat message.
+            const nliResults = document.getElementById('nli-results');
+            appendChatMessage(nliResults, 'assistant', data.assistantReply);
+          } else {
+            console.warn('Received taskComplete event with insufficient data:', data);
+          }
           break;
         case 'thoughtUpdate':
           appendThought(data.taskId, data.thought);
@@ -67,7 +71,7 @@ function initWebSocket(userId) {
     } catch (e) {
       console.error('Error processing WebSocket message:', e);
     }
-  });
+  });  
 
   ws.addEventListener('close', () => {
     console.log('[WebSocket] Disconnected');
@@ -86,8 +90,6 @@ function initWebSocket(userId) {
     console.error('WebSocket error:', error);
   });
 }
-
-
 // Initialize WebSocket connection on app load
 const userId = localStorage.getItem('userId'); // Replace with your method of getting userId
 initWebSocket(userId);
@@ -105,6 +107,7 @@ function updateFunctionCallPartial(taskId, partialArgs) {
 }
 
 function handleTaskError(taskId, error) {
+  console.log(`Task ${taskId} errored: ${error}`);
   const convertedHtml = marked.parse(error);
   const nliResults = document.getElementById('nli-results');
   const errorMessage = document.createElement('div');
@@ -161,33 +164,49 @@ function handleTaskStart(taskId, prompt, url) {
 function updateStepProgress(taskId, stepIndex, progress, message, log) {
   const taskElement = document.querySelector(`.active-task[data-task-id="${taskId}"]`);
   if (taskElement) {
-    // Update the progress bar width.
     const progressBar = taskElement.querySelector('.task-progress');
     if (progressBar) progressBar.style.width = `${progress}%`;
 
-    // Create or update the log container.
     let logContainer = taskElement.querySelector('.task-log');
     if (!logContainer) {
       logContainer = document.createElement('div');
       logContainer.className = 'task-log';
       taskElement.prepend(logContainer);
     }
-    // Ensure log is an array (or wrap single log).
+
     const logEntries = Array.isArray(log) ? log : [log];
     logEntries.forEach(entry => {
+      // Trim or default
+      const rawMsg = entry.message || message || '';
+      let shortMsg = rawMsg;
+      if (shortMsg.length > 150) {
+        shortMsg = shortMsg.substring(0, 150) + '...';
+      }
+      
+      const timeStr = entry.timestamp || new Date().toLocaleTimeString();
       const logEntry = document.createElement('p');
-      logEntry.textContent = `[${entry.timestamp || new Date().toLocaleTimeString()}] ${entry.message || message}`;
       logEntry.style.fontSize = '0.9em';
       logEntry.style.color = '#ccc';
+      logEntry.textContent = `[${timeStr}] ${shortMsg}`;
+      
       logContainer.prepend(logEntry);
     });
-    taskElement.scrollTop = taskElement.scrollHeight; // Auto-scroll log container.
+
+    // Keep the log container scrolled if you want the newest to appear at the top.
+    taskElement.scrollTop = taskElement.scrollHeight;
   }
 }
 
+console.log('Script loaded'); // Confirm script runs
+
+const logger = {
+  info: (...args) => console.log('[INFO]', ...args),
+  warn: (...args) => console.warn('[WARN]', ...args),
+  error: (...args) => console.error('[ERROR]', ...args),
+};
+
 function appendThought(taskId, thoughtChunk) {
   const nliResults = document.getElementById('nli-results');
-  // Create a new thought message for each chunk
   const thoughtMessage = document.createElement('div');
   thoughtMessage.className = 'chat-message ai-message animate-in thought-message';
   thoughtMessage.dataset.taskId = taskId;
@@ -197,7 +216,7 @@ function appendThought(taskId, thoughtChunk) {
       <span class="timestamp">${new Date().toLocaleTimeString()}</span>
     </div>
   `;
-  nliResults.appendChild(thoughtMessage);
+  nliResults.prepend(thoughtMessage);
   nliResults.scrollTop = 0;
 }
 
@@ -205,20 +224,12 @@ function finalizeThought(taskId, finalThought) {
   const thoughtCard = document.querySelector(`.thought-card[data-task-id="${taskId}"]`);
   if (thoughtCard) {
     const thoughtText = thoughtCard.querySelector('.thought-text');
-    // Append a final marker
     thoughtText.textContent += "\n\n[Final]: " + finalThought;
     thoughtCard.classList.add('final-thought');
   }
 }
 
 /**************************** Initialization ****************************/
-
-// --- Splash Screen Functions ---
-
-/**
- * Starts the splash screen animation and returns a promise
- * that resolves when the progress reaches 100%.
- */
 function startSplashAnimation() {
   return new Promise((resolve) => {
     const loadingProgress = document.getElementById('loading-progress');
@@ -228,26 +239,18 @@ function startSplashAnimation() {
       loadingProgress.style.width = `${progress}%`;
       if (progress >= 100) {
         clearInterval(interval);
-        // Wait an extra 500ms before resolving to simulate easing.
-        setTimeout(() => {
-          resolve();
-        }, 500);
+        setTimeout(() => resolve(), 500);
       }
     }, 100);
   });
 }
 
-/**
- * Hides the splash screen with a fade–out effect and returns a promise.
- */
 function hideSplashScreen() {
   return new Promise((resolve) => {
     const splashScreen = document.getElementById('splash-screen');
     splashScreen.style.opacity = '0';
-    // Wait 500ms for the opacity transition to finish.
     setTimeout(() => {
       splashScreen.style.display = 'none';
-      // Optionally, show the intro overlay if needed.
       if (!localStorage.getItem('operatorIntroShown')) {
         document.getElementById('intro-overlay').style.display = 'flex';
       }
@@ -256,40 +259,32 @@ function hideSplashScreen() {
   });
 }
 
-// --- DOMContentLoaded Handler ---
 document.addEventListener('DOMContentLoaded', async () => {
+  console.log('DOMContentLoaded fired');
   try {
-    // Start splash animation concurrently (if needed)
     const splashPromise = startSplashAnimation();
-    
-    // Instead of waiting for data to resolve, just kick them off:
     loadActiveTasks();
     loadHistory();
-    
-    // Wait for splash only (no large data)
     await splashPromise;
     await hideSplashScreen();
-    
   } catch (error) {
     console.error('Error during initial load:', error);
   }
 });
 
-// Cleanup on page unload
 window.addEventListener('beforeunload', () => {
   // cleanup();
 });
 
-// Load chat history on page load
 async function loadChatHistory() {
+  console.log('Loading chat history');
   try {
     const response = await fetch('/chat-history', { credentials: 'include' });
     if (!response.ok) throw new Error('Failed to load chat history');
     const data = await response.json();
     const nliResults = document.getElementById('nli-results');
-    nliResults.innerHTML = ''; // Clear any existing messages
+    nliResults.innerHTML = '';
 
-    // Use data.messages if available; otherwise try data.items; otherwise []
     const messages = data.messages || data.items || [];
     if (messages.length === 0) {
       nliResults.innerHTML = '<p id="no-history" class="text-muted">No chat history available.</p>';
@@ -297,8 +292,6 @@ async function loadChatHistory() {
     }
 
     const reversedMessages = messages.reverse();
-
-    // Add each message to the chat container
     reversedMessages.forEach(message => {
       const convertedHtml = marked.parse(message.content);
       const messageDiv = document.createElement('div');
@@ -313,18 +306,15 @@ async function loadChatHistory() {
       `;
       nliResults.prepend(messageDiv);
     });
-
-    // Scroll to the top to show the newest messages
     nliResults.scrollTop = 0;
   } catch (err) {
     console.error('Error loading chat history:', err);
-    // Fallback to localStorage if the server fetch fails
     const savedMessages = JSON.parse(localStorage.getItem('chatHistory') || '[]');
     const nliResults = document.getElementById('nli-results');
     nliResults.innerHTML = '';
 
     const reversedSavedMessages = savedMessages.reverse();
-    reversedSavedMessages.forEach(message => {      
+    reversedSavedMessages.forEach(message => {
       const convertedHtml = marked.parse(message.content);
       const messageDiv = document.createElement('div');
       messageDiv.className = `chat-message ${message.role}-message animate-in`;
@@ -336,291 +326,279 @@ async function loadChatHistory() {
           <span class="timestamp">${new Date(message.timestamp).toLocaleTimeString()}</span>
         </div>
       `;
-      nliResults.appendChild(messageDiv);
+      nliResults.prepend(messageDiv);
     });
     nliResults.scrollTop = 0;
   }
 }
 
-// Add to chat history in localStorage (as a fallback)
 function saveChatMessage(role, content) {
   const savedMessages = JSON.parse(localStorage.getItem('chatHistory') || '[]');
   savedMessages.push({ role, content, timestamp: new Date() });
   localStorage.setItem('chatHistory', JSON.stringify(savedMessages));
 }
 
-// Main - Chat nliForm submit handler
+// =====================================
+// NLI & CHAT: Single Submit Handler (No Streaming Approach)
+// =====================================
 document.addEventListener('DOMContentLoaded', () => {
-  loadChatHistory(); // Load chat history on page load
+  console.log('Second DOMContentLoaded fired');
+  loadChatHistory();
+  logger.info('DOM content loaded, chat history initialized');
 
   const nliForm = document.getElementById('nli-form');
-  if (nliForm) {
-    nliForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const prompt = document.getElementById('nli-prompt').value.trim();
-      console.log('Form submitted at', new Date().toISOString());
-      if (!prompt) {
-        showNotification('Please enter a command', 'error');
-        return;
+  if (!nliForm) {
+    logger.error('NLI form not found in DOM');
+    return;
+  }
+
+  nliForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const prompt = document.getElementById('nli-prompt')?.value.trim();
+    logger.info('Form submitted at', new Date().toISOString(), 'Prompt:', prompt);
+
+    if (!prompt) {
+      showNotification('Please enter a command', 'error');
+      logger.warn('Empty prompt submitted');
+      return;
+    }
+
+    const submitButton = nliForm.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
+
+    const nliResults = document.getElementById('nli-results');
+    appendChatMessage(nliResults, 'user', prompt);
+    saveChatMessage('user', prompt);
+    showNotification('Executing command...', 'success');
+    document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: true } }));
+
+    let taskId;
+    try {
+      console.log('Sending fetch request');
+      const response = await fetch('/nli', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ prompt }),
+      });
+      console.log('Response received');
+      const contentType = response.headers.get('content-type') || 'unknown';
+      console.log('Content-Type:', contentType);
+      logger.info('Response received, Content-Type:', contentType);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Server error: ${errorText}`);
       }
-      nliForm.querySelector('button[type="submit"]').disabled = true;
 
-      const nliResults = document.getElementById('nli-results');
-      const userMessage = document.createElement('div');
-      userMessage.className = 'chat-message user-message animate-in';
-      userMessage.innerHTML = `
-        <div class="message-content">
-          <p>${prompt}</p>
-          <span class="timestamp">${new Date().toLocaleTimeString()}</span>
-        </div>
-      `;
-      nliResults.prepend(userMessage);
-      nliResults.scrollTop = 0;
+      // Since we're no longer streaming, always handle as a full JSON response.
+      await handleTaskResponse(response, nliResults, prompt);
+    } catch (err) {
+      console.error('Caught error:', err.message);
+      logger.error('Error processing NLI request:', err.message);
+      handleError(nliResults, prompt, err, taskId);
+    } finally {
+      submitButton.disabled = false;
+      document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: false } }));
+      logger.info('Form submission completed');
+    }
+  });
+});
 
-      saveChatMessage('user', prompt);
-      showNotification('Executing command...', 'success');
+// Helper Functions
 
-      // New: Dispatch custom events
-      document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: true } }));
+function appendChatMessage(container, role, content) {
+  const messageDiv = document.createElement('div');
+  messageDiv.className = `chat-message ${role}-message animate-in`;
+  messageDiv.innerHTML = `
+    <div class="message-content">
+      <p class="summary-text${role === 'assistant' && content.startsWith('Error:') ? ' error' : ''}">${content}</p>
+      <span class="timestamp">${new Date().toLocaleTimeString()}</span>
+    </div>
+  `;
+  container.prepend(messageDiv);
+  container.scrollTop = 0;
+}
 
-      let url = null;
-      let taskId; // Declare taskId in the outer scope
+async function handleTaskResponse(response, nliResults, prompt) {
+  console.log('Handling task response');
+  try {
+    const data = await response.json();
+    logger.info('JSON response received:', data);
 
-      try {
-        console.time('NLI Request');
-        const res = await fetch('/nli', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ prompt, url }),
-        });
-        console.timeEnd('NLI Request');
-        const data = await res.json();
-        console.log('NLI response received at', new Date().toISOString(), data);
-        if (!data.success) throw new Error(data.error || 'Command failed');
+    if (!data.success) throw new Error(data.error || 'Task execution failed');
 
-        if (data.taskId) {
-          taskId = data.taskId; // Assign taskId from server response
-          const runId = data.runId;
-
-          // Call loadActiveTasks immediately to show the task in active-tasks-container
-          await loadActiveTasks();
-
-          const resultCard = initializeResultCard(taskId, prompt);
-
-          // Set up EventSource with corrected intermediate results handling
-          const eventSource = new EventSource(`/tasks/${taskId}/stream`);
-          eventSource.onmessage = (event) => {
-            console.log('First stream event at', new Date().toISOString(), JSON.parse(event.data));
-            const update = JSON.parse(event.data);
-            console.log('Event received for taskId:', taskId, 'Update:', update);
-
-            // Handle progress and status updates
-            if (update.progress !== undefined) {
-              updateTaskProgress(taskId, update.progress, update.status, update.error);
-            }
-
-            // Handle intermediate results
-            if (update.intermediateResults && Array.isArray(update.intermediateResults)) {
-              update.intermediateResults.forEach(result => {
-                handleIntermediateResult(taskId, result, true, false);
-              });
-            }
-
-            // Handle subtask updates
-            if (update.subTasks && Array.isArray(update.subTasks)) {
-              update.subTasks.forEach((subTask, index) => {
-                const taskElement = document.querySelector(`.active-task[data-task-id="${taskId}"]`);
-                if (taskElement) {
-                  const subProgressBar = taskElement.querySelector(`.subtask-progress-bar-${index}`);
-                  if (subProgressBar) {
-                    subProgressBar.style.width = `${subTask.progress || 0}%`;
-                  }
-                  const subStatusSpan = taskElement.querySelector(`.subtask-status-${index}`);
-                  if (subStatusSpan) {
-                    subStatusSpan.textContent = subTask.status;
-                    subStatusSpan.className = `subtask-status ${subTask.status.toLowerCase()}`;
-                  }
-                }
-              });
-            }
-
-            // Handle task completion
-            if (update.done) {
-              eventSource.close();
-              const { status, result, error } = update;
-              const summary = result?.aiPrepared?.summary || error || 'No summary available';
-              const reportLink = result?.runReport
-                ? `<a href="${result.runReport}" target="_blank" class="btn btn-primary btn-sm mt-2">View Report</a>`
-                : '';
-
-              console.log('Task execution done.......', result);
-              if (!result) {
-                loadChatHistory();
-              }
-
-              const aiMessage = document.createElement('div');
-              aiMessage.className = 'chat-message ai-message animate-in';
-              aiMessage.innerHTML = `
-                <div class="message-content">
-                  <p class="summary-text">${summary}</p>
-                  <span class="timestamp">${new Date().toLocaleTimeString()}</span>
-                </div>
-              `;
-              nliResults.prepend(aiMessage);
-              nliResults.scrollTop = 0;
-              saveChatMessage('assistant', summary);
-
-              resultCard.querySelector('.result-header h4').innerHTML = `<i class="fas fa-globe"></i> ${result?.raw?.url || 'N/A'}`;
-              const outputsDiv = resultCard.querySelector('.outputs');
-              outputsDiv.innerHTML = `
-                <div class="toggle-buttons">
-                  <button class="toggle-btn active" data-view="ai">AI Prepared</button>
-                  <button class="toggle-btn" data-view="raw">Raw Output</button>
-                </div>
-                <div class="ai-output active">${result?.aiPrepared?.summary || 'No AI summary available.'}</div>
-                <div class="raw-output">${result?.raw?.pageText || 'No raw output available.'}</div>
-                ${reportLink}
-              `;
-
-              // Append final screenshot to the existing screenshots container
-              const screenshotsContainer = resultCard.querySelector('.screenshots');
-              if (result?.screenshotPath) {
-                console.log('Appending final screenshot for taskId:', taskId, 'Path:', result.screenshotPath);
-                const img = document.createElement('img');
-                img.src = result.screenshotPath;
-                img.alt = 'Final Screenshot';
-                img.style.maxWidth = '100%';
-                img.style.marginTop = '10px';
-                img.style.display = 'block';
-                img.onerror = () => console.error('Final image load failed:', result.screenshotPath);
-                img.onload = () => console.log('Final image loaded:', result.screenshotPath);
-                screenshotsContainer.prepend(img);
-              }
-
-              const toggleButtons = resultCard.querySelectorAll('.toggle-btn');
-              const aiOutput = resultCard.querySelector('.ai-output');
-              const rawOutput = resultCard.querySelector('.raw-output');
-              toggleButtons.forEach(btn => {
-                btn.addEventListener('click', () => {
-                  toggleButtons.forEach(b => b.classList.remove('active'));
-                  aiOutput.classList.remove('active');
-                  rawOutput.classList.remove('active');
-                  btn.classList.add('active');
-                  if (btn.dataset.view === 'ai') aiOutput.classList.add('active');
-                  else rawOutput.classList.add('active');
-                });
-              });
-
-              const chatResult = {
-                taskId,
-                command: prompt,
-                url: result?.raw?.url || 'N/A',
-                output: result?.raw?.pageText || 'No raw output available.',
-                aiOutput: result?.aiPrepared?.summary || 'No AI summary available.',
-                timestamp: new Date(),
-                screenshot: result?.screenshotPath,
-                report: result?.runReport,
-                status: status === 'error' ? 'error' : 'completed',
-              };
-              addToHistory(chatResult.url, chatResult.command, chatResult);
-              
-              // Dispatch Events
-              document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: false } }));
-
-              // Refresh active tasks and history after completion
-              loadActiveTasks();
-              loadHistory();
-            }
-          };
-
-          eventSource.onerror = () => {
-            console.error('EventSource error for task:', taskId);
-            eventSource.close();
-            resultCard.querySelector('.result-header h4').innerHTML = `<i class="fas fa-globe"></i> Error`;
-            resultCard.querySelector('.outputs').innerHTML = `<div class="error">Streaming failed</div>`;
-            throw new Error('Error streaming task updates');
-          };
-        } else {
-          // Chat response
-          const summary = data.result.aiPrepared?.summary || 'No summary available';
-          const aiMessage = document.createElement('div');
-          aiMessage.className = 'chat-message ai-message animate-in';
-          aiMessage.innerHTML = `
-            <div class="message-content">
-              <p class="summary-text">${summary}</p>
-              <span class="timestamp">${new Date().toLocaleTimeString()}</span>
-            </div>
-          `;
-          nliResults.prepend(aiMessage);
-          nliResults.scrollTop = 0;
-
-          saveChatMessage('assistant', summary);
-
-          const chatResult = {
-            taskId,
-            command: prompt,
-            url: 'N/A',
-            output: summary,
-            aiOutput: summary,
-            timestamp: new Date(),
-            screenshot: null,
-            report: data.result.runReport || null,
-            status: 'completed',
-          };
-          addToHistory(chatResult.url, chatResult.command, chatResult);
-
-          // Dispatch Events
-          document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: false } }));
+    if (!data.taskId) {
+      // Chat branch (non-task)
+      const summary =
+        data.assistantReply ||
+        (data.result && data.result.aiPrepared ? data.result.aiPrepared.summary : 'No summary available');
+      appendChatMessage(nliResults, 'assistant', summary);
+      saveChatMessage('assistant', summary);
+      addToHistory('N/A', prompt, {
+        taskId: `chat-${Date.now()}`,
+        command: prompt,
+        url: 'N/A',
+        output: summary,
+        aiOutput: summary,
+        timestamp: new Date(),
+        status: 'completed',
+        result: {} // Ensure result exists
+      });
+      return;
+    } else {
+      // Task branch (non-streaming)
+      const taskId = data.taskId;
+      await loadActiveTasks();
+      const resultCard = initializeResultCard(taskId, prompt);
+      const summary =
+        data.result && data.result.aiPrepared
+          ? data.result.aiPrepared.summary
+          : (data.error || 'No summary available');
+      appendChatMessage(nliResults, 'assistant', summary);
+      saveChatMessage('assistant', summary);
+      updateResultCard(resultCard, data.result, data.status, summary);
+      addToHistory(
+        data.result && data.result.raw && data.result.raw.url ? data.result.raw.url : 'N/A',
+        prompt,
+        {
+          taskId,
+          command: prompt,
+          url: data.result && data.result.raw && data.result.raw.url ? data.result.raw.url : 'N/A',
+          output:
+            data.result && data.result.raw && data.result.raw.pageText
+              ? data.result.raw.pageText
+              : 'No raw output',
+          aiOutput: summary,
+          timestamp: new Date(),
+          screenshot: data.result ? data.result.screenshotPath : undefined,
+          report: data.result ? data.result.runReport : undefined,
+          status: data.status === 'error' ? 'error' : 'completed',
+          result: data.result || {}
         }
-      } catch (err) {
-        showNotification(err.message, 'error');
-        const errorMessage = document.createElement('div');
-        errorMessage.className = 'chat-message ai-message animate-in';
-        errorMessage.innerHTML = `
-          <div class="message-content">
-            <p class="summary-text error">Error: ${err.message}</p>
-            <span class="timestamp">${new Date().toLocaleTimeString()}</span>
-          </div>
-        `;
-        nliResults.prepend(errorMessage);
-        nliResults.scrollTop = 0;
-
-        saveChatMessage('assistant', `Error: ${err.message}`);
-
-        // Use taskId if defined, otherwise create a fallback taskId
-        if (!taskId) {
-          taskId = `error-${Date.now().toString()}`; // Fallback taskId for error cases
-        }
-        const existingCard = document.querySelector(`.result-card[data-task-id="${taskId}"]`);
-        if (existingCard) {
-          existingCard.querySelector('.result-header h4').innerHTML = `<i class="fas fa-globe"></i> Error`;
-          existingCard.querySelector('.outputs').innerHTML = `
-            <div class="error">${err.message}</div>
-          `;
-        } else {
-          const chatResult = {
-            taskId,
-            command: prompt,
-            url: 'N/A',
-            output: err.message,
-            aiOutput: `Error: ${err.message}`,
-            timestamp: new Date(),
-            screenshot: null,
-            report: null,
-            status: 'error',
-          };
-          addToHistory(chatResult.url, chatResult.command, chatResult);
-        }
-
-        // Dispatch Events
-        document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: false } }));
-      } finally {
-        nliForm.querySelector('button[type="submit"]').disabled = false;
-      }
+      );
+      loadActiveTasks();
+      loadHistory();
+    }
+  } catch (jsonErr) {
+    console.log('Not JSON, treating as text');
+    const text = await response.text();
+    logger.info('Text response received:', text);
+    appendChatMessage(nliResults, 'assistant', text || 'Received non-JSON response');
+    saveChatMessage('assistant', text || 'Received non-JSON response');
+    addToHistory('N/A', prompt, {
+      taskId: `chat-${Date.now()}`,
+      command: prompt,
+      url: 'N/A',
+      output: text,
+      aiOutput: text,
+      timestamp: new Date(),
+      status: 'completed',
+      result: {}
     });
   }
-});
+}
+
+function updateSubTasks(taskId, subTasks) {
+  const taskElement = document.querySelector(`.active-task[data-task-id="${taskId}"]`);
+  if (!taskElement) return;
+  subTasks.forEach((subTask, index) => {
+    const progressBar = taskElement.querySelector(`.subtask-progress-bar-${index}`);
+    if (progressBar) progressBar.style.width = `${subTask.progress || 0}%`;
+    const statusSpan = taskElement.querySelector(`.subtask-status-${index}`);
+    if (statusSpan) {
+      statusSpan.textContent = subTask.status;
+      statusSpan.className = `subtask-status ${subTask.status.toLowerCase()}`;
+    }
+  });
+}
+
+function updateResultCard(resultCard, result, status, summary) {
+  // Ensure result is at least an empty object
+  result = result || {};
+  let rawUrl = 'N/A';
+  let aiPreparedSummary = 'No AI summary';
+  let rawPageText = 'No raw output';
+  let runReportHtml = '';
+  let screenshotPath = '';
+
+  if (typeof result === "object") {
+    if (result.raw && typeof result.raw === "object" && result.raw.url) {
+      rawUrl = result.raw.url;
+    }
+    if (result.aiPrepared && typeof result.aiPrepared === "object" && result.aiPrepared.summary) {
+      aiPreparedSummary = result.aiPrepared.summary;
+    }
+    if (result.raw && typeof result.raw === "object" && result.raw.pageText) {
+      rawPageText = result.raw.pageText;
+    }
+    if (result.runReport) {
+      runReportHtml = `<a href="${result.runReport}" target="_blank" class="btn btn-primary btn-sm mt-2">View Report</a>`;
+    }
+    if (result.screenshotPath) {
+      screenshotPath = result.screenshotPath;
+    }
+  }
+
+  resultCard.querySelector('.result-header h4').innerHTML = `<i class="fas fa-globe"></i> ${rawUrl}`;
+  const outputsDiv = resultCard.querySelector('.outputs');
+  outputsDiv.innerHTML = `
+    <div class="toggle-buttons">
+      <button class="toggle-btn active" data-view="ai">AI Prepared</button>
+      <button class="toggle-btn" data-view="raw">Raw Output</button>
+    </div>
+    <div class="ai-output active">${aiPreparedSummary}</div>
+    <div class="raw-output">${rawPageText}</div>
+    ${runReportHtml}
+  `;
+  if (screenshotPath) {
+    const img = document.createElement('img');
+    img.src = screenshotPath;
+    img.alt = 'Final Screenshot';
+    img.style.cssText = 'max-width: 100%; margin-top: 10px; display: block;';
+    const screenshotsDiv = resultCard.querySelector('.screenshots');
+    if (screenshotsDiv) {
+      screenshotsDiv.prepend(img);
+    }
+  }
+  setupToggleButtons(resultCard);
+}
+
+function setupToggleButtons(resultCard) {
+  const toggleButtons = resultCard.querySelectorAll('.toggle-btn');
+  const aiOutput = resultCard.querySelector('.ai-output');
+  const rawOutput = resultCard.querySelector('.raw-output');
+  toggleButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      toggleButtons.forEach(b => b.classList.remove('active'));
+      aiOutput.classList.remove('active');
+      rawOutput.classList.remove('active');
+      btn.classList.add('active');
+      if (btn.dataset.view === 'ai') aiOutput.classList.add('active');
+      else rawOutput.classList.add('active');
+    });
+  });
+}
+
+function handleError(nliResults, prompt, err, taskId, resultCard) {
+  showNotification(err.message, 'error');
+  appendChatMessage(nliResults, 'assistant', `Error: ${err.message}`);
+  saveChatMessage('assistant', `Error: ${err.message}`);
+  const chatResult = {
+    taskId: taskId || `error-${Date.now()}`,
+    command: prompt,
+    url: 'N/A',
+    output: err.message,
+    aiOutput: `Error: ${err.message}`,
+    timestamp: new Date(),
+    status: 'error',
+  };
+  addToHistory('N/A', prompt, chatResult);
+  if (taskId && resultCard) {
+    resultCard.querySelector('.result-header h4').innerHTML = `<i class="fas fa-globe"></i> Error`;
+    resultCard.querySelector('.outputs').innerHTML = `<div class="error">${err.message}</div>`;
+  }
+}
 
 // ===============================================
 // Clear Task Results
@@ -1104,14 +1082,24 @@ function handleIntermediateResult(taskId, result, subTask, streaming) {
   }
 }
 
-function handleTaskCompletion(taskId, status, result) {
+function handleTaskCompletion(taskId, status, result = {}) {
+  // Force default empty objects to avoid undefined errors
+  result.aiPrepared = result.aiPrepared || {};
+  result.raw = result.raw || {};
+  
   console.log('Task completed:', taskId, status, result);
-  let resultCard = document.querySelector(`.result-card[data-task-id="${taskId}"]`) || initializeResultCard(taskId, result.command || 'Unknown');
+  
+  let resultCard = document.querySelector(`.result-card[data-task-id="${taskId}"]`);
+  if (!resultCard) {
+    // If no result card exists, use a fallback
+    resultCard = initializeResultCard(taskId, result.command || 'Unknown');
+  }
+  
   const timestamp = new Date();
   const formattedTime = `${timestamp.toLocaleTimeString()} ${timestamp.toLocaleDateString()}`;
-  const summary = (result.aiPrepared && result.aiPrepared.summary) || 'No summary available';
-  const urlValue = (result.raw && result.raw.url) || 'N/A';
-
+  const summary = result.aiPrepared.summary || 'No summary available';
+  const urlValue = result.raw.url || 'N/A';
+  
   resultCard.querySelector('.result-header').innerHTML = `
     <h4><i class="fas fa-globe"></i> ${urlValue}</h4>
     <p><strong>Command:</strong> ${result.command || 'Unknown'}</p>
@@ -1119,7 +1107,7 @@ function handleTaskCompletion(taskId, status, result) {
       <span>${formattedTime}</span>
     </div>
   `;
-
+  
   const outputsDiv = resultCard.querySelector('.outputs');
   const screenshotsContainer = resultCard.querySelector('.screenshots');
   outputsDiv.innerHTML = `
@@ -1128,32 +1116,22 @@ function handleTaskCompletion(taskId, status, result) {
       <button class="toggle-btn" data-view="raw">Raw Output</button>
     </div>
     <div class="ai-output active">${summary}</div>
-    <div class="raw-output">${(result.raw && result.raw.pageText) || 'No raw output available.'}</div>
+    <div class="raw-output">${result.raw.pageText || 'No raw output available.'}</div>
     ${result.landingReportUrl ? `<a href="${result.landingReportUrl}" target="_blank" class="btn btn-primary btn-sm mt-2">View Landing Report</a>` : ''}
     ${result.midsceneReportUrl ? `<a href="${result.midsceneReportUrl}" target="_blank" class="btn btn-primary btn-sm mt-2">View Midscene Report</a>` : ''}
   `;
+  
   if (result.screenshot) {
     const img = document.createElement('img');
     img.src = result.screenshot;
     img.alt = 'Final Screenshot';
-    img.style.maxWidth = '100%';
-    img.style.marginTop = '10px';
-    img.style.display = 'block';
+    img.style.cssText = 'max-width: 100%; margin-top: 10px; display: block;';
     screenshotsContainer.prepend(img);
   }
-  const toggleButtons = resultCard.querySelectorAll('.toggle-btn');
-  const aiOutput = resultCard.querySelector('.ai-output');
-  const rawOutput = resultCard.querySelector('.raw-output');
-  toggleButtons.forEach(btn => {
-    btn.addEventListener('click', () => {
-      toggleButtons.forEach(b => b.classList.remove('active'));
-      aiOutput.classList.remove('active');
-      rawOutput.classList.remove('active');
-      btn.classList.add('active');
-      if (btn.dataset.view === 'ai') aiOutput.classList.add('active');
-      else rawOutput.classList.add('active');
-    });
-  });
+  
+  setupToggleButtons(resultCard);
+  
+  // Also insert a final AI message in the chat box
   const nliResults = document.getElementById('nli-results');
   const aiMessage = document.createElement('div');
   aiMessage.className = 'chat-message ai-message animate-in';
@@ -1165,10 +1143,10 @@ function handleTaskCompletion(taskId, status, result) {
   `;
   nliResults.prepend(aiMessage);
   nliResults.scrollTop = 0;
+  
   loadActiveTasks();
   loadHistory();
 }
-
 
 function addTaskResult(result) {
   const outputContainer = document.getElementById('output-container');
@@ -1698,162 +1676,160 @@ function handleHistoryCardClick(e) {
   const taskId = e.currentTarget.dataset.taskId;
   const popup = document.getElementById('history-popup');
   const details = document.getElementById('history-details-content');
+  if (!popup || !details) {
+    console.error('Popup or details element is missing in the DOM!');
+    return;
+  }
 
   fetch(`/history/${taskId}`, { credentials: 'include' })
-  .then(res => {
-    if (!res.ok) {
-      if (res.status === 401) {
-        window.location.href = '/login.html';
+    .then(res => {
+      if (!res.ok) {
+        if (res.status === 401) {
+          window.location.href = '/login.html';
+          return;
+        }
+        throw new Error('Failed to fetch history item');
+      }
+      return res.json();
+    })
+    .then(item => {
+      if (!item) {
+        showNotification('History item not found', 'error');
         return;
       }
-      throw new Error('Failed to fetch history item');
-    }
-    return res.json();
-  })
-  .then(item => {
-    if (!item) {
-      showNotification('History item not found', 'error');
-      return;
-    }
-    
-    // Pull out top-level info
-    const { command, url, timestamp, result = {} } = item;
-    // result may contain nested fields
-    const {
-      aiPrepared = {},
-      raw = {},
-      runReport,              // some code calls this 'landingReportUrl'
-      landingReportUrl,
-      midsceneReportUrl,
-      screenshot,            // might exist if you stored a final screenshot
-      finalScreenshotPath,
-      screenshotPath,        // sometimes used if a single screenshot was saved
-      intermediateResults,
-    } = result;
 
-    // --- Prepare data for display ---
-    // 1. Basic fallback strings
-    const summary = aiPrepared.summary || 'No summary available';
-    const rawOutput = raw.pageText || 'No raw output available.';
-    
-    // 2. Build a list of screenshots if intermediateResults or final screenshot exist
-    //    Each intermediate result might have a screenshotPath field
-    let screenshotsHtml = '';
-    if (Array.isArray(intermediateResults)) {
-      const screenshotResults = intermediateResults.filter(r => r.screenshotPath);
-      if (screenshotResults.length > 0) {
-        screenshotsHtml = screenshotResults
-          .map(r => `<img src="${r.screenshotPath}" alt="Screenshot" style="max-width: 100%; border-radius: 5px; margin: 10px 0;">`)
-          .join('');
+      const { command, url, timestamp, result = {}, intermediateResults = [] } = item;
+      const {
+        aiPrepared = {},
+        raw = {},
+        runReport,
+        landingReportUrl,
+        midsceneReportUrl,
+        screenshot,
+        finalScreenshotPath,
+        screenshotPath,
+        // Already in "result"
+      } = result;
+
+      // Summaries
+      const summary = aiPrepared.summary || 'No summary available';
+      const rawOutput = raw.pageText || 'No raw output available.';
+
+      // Screenshots
+      let screenshotsHtml = '';
+      if (Array.isArray(intermediateResults)) {
+        const screenshotResults = intermediateResults.filter(r => r.screenshotPath);
+        if (screenshotResults.length > 0) {
+          screenshotsHtml = screenshotResults
+            .map(r => `<img src="${r.screenshotPath}" alt="Screenshot" style="max-width: 100%; border-radius: 5px; margin: 10px 0;">`)
+            .join('');
+        }
       }
-    }
-    // fallback if no intermediate screenshots but final screenshot is available
-    if (!screenshotsHtml) {
-      const finalShot = finalScreenshotPath || screenshot || screenshotPath;
-      if (finalShot) {
-        screenshotsHtml = `<img src="${finalShot}" alt="Screenshot" style="max-width: 100%; border-radius: 5px; margin: 10px 0;">`;
+      if (!screenshotsHtml) {
+        const finalShot = finalScreenshotPath || screenshot || screenshotPath;
+        if (finalShot) {
+          screenshotsHtml = `<img src="${finalShot}" alt="Screenshot" style="max-width: 100%; border-radius: 5px; margin: 10px 0;">`;
+        }
       }
-    }
-    if (!screenshotsHtml) {
-      screenshotsHtml = '<p>No screenshots available.</p>';
-    }
+      if (!screenshotsHtml) {
+        screenshotsHtml = '<p>No screenshots available.</p>';
+      }
 
-    // 3. Build report link(s)
-    let reportLinksHtml = '';
-    if (landingReportUrl) {
-      reportLinksHtml += `
-        <a href="${landingReportUrl}" target="_blank" 
-           class="btn btn-primary btn-sm" 
-           style="display: inline-block; margin-top: 10px; padding: 8px 16px; background: #007bff; color: #fff; text-decoration: none; border-radius: 5px;">
-          View Landing Report
-        </a>
+      // Reports
+      let reportLinksHtml = '';
+      if (landingReportUrl) {
+        reportLinksHtml += `
+          <a href="${landingReportUrl}" target="_blank" 
+             class="btn btn-primary btn-sm" 
+             style="display: inline-block; margin-top: 10px; padding: 8px 16px; background: #007bff; color: #fff; text-decoration: none; border-radius: 5px;">
+            View Landing Report
+          </a>
+        `;
+      }
+      if (midsceneReportUrl) {
+        reportLinksHtml += `
+          <a href="${midsceneReportUrl}" target="_blank"
+             class="btn btn-primary btn-sm"
+             style="display: inline-block; margin-top: 10px; margin-left: 10px; padding: 8px 16px; background: #007bff; color: #fff; text-decoration: none; border-radius: 5px;">
+            View Midscene Report
+          </a>
+        `;
+      }
+      if (runReport) {
+        reportLinksHtml += `
+          <a href="${runReport}" target="_blank"
+             class="btn btn-primary btn-sm"
+             style="display: inline-block; margin-top: 10px; margin-left: 10px; padding: 8px 16px; background: #007bff; color: #fff; text-decoration: none; border-radius: 5px;">
+            View Run Report
+          </a>
+        `;
+      }
+      if (!reportLinksHtml) {
+        reportLinksHtml = '<p>No report available.</p>';
+      }
+
+      // Insert into popup
+      details.innerHTML = `
+        <h4 style="color: #e8e8e8; margin-bottom: 15px;">Task Details</h4>
+        <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0;">
+          <strong>Command:</strong> ${command}
+        </p>
+        <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0;">
+          <strong>URL:</strong> ${url || 'Unknown URL'}
+        </p>
+        <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0;">
+          <strong>Timestamp:</strong> ${new Date(timestamp).toLocaleString()}
+        </p>
+
+        <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">AI Summary</h4>
+        <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0;
+                  white-space: pre-wrap; max-height: 200px; overflow-y: auto;">
+          ${summary}
+        </p>
+
+        <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">Screenshots</h4>
+        <div style="background: #222; padding: 10px; border-radius: 5px;">
+          ${screenshotsHtml}
+        </div>
+
+        <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">Raw Output</h4>
+        <div style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; max-height: 200px; overflow-y: auto; white-space: pre-wrap;">
+          ${rawOutput}
+        </div>
+
+        <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">Reports</h4>
+        <div>
+          ${reportLinksHtml}
+        </div>
       `;
-    }
-    if (midsceneReportUrl) {
-      reportLinksHtml += `
-        <a href="${midsceneReportUrl}" target="_blank"
-           class="btn btn-primary btn-sm"
-           style="display: inline-block; margin-top: 10px; margin-left: 10px; padding: 8px 16px; background: #007bff; color: #fff; text-decoration: none; border-radius: 5px;">
-          View Midscene Report
-        </a>
-      `;
-    }
-    if (runReport) {
-      // Some code uses 'runReport' for a final HTML file. If so:
-      reportLinksHtml += `
-        <a href="${runReport}" target="_blank"
-           class="btn btn-primary btn-sm"
-           style="display: inline-block; margin-top: 10px; margin-left: 10px; padding: 8px 16px; background: #007bff; color: #fff; text-decoration: none; border-radius: 5px;">
-          View Run Report
-        </a>
-      `;
-    }
-    if (!reportLinksHtml) {
-      reportLinksHtml = '<p>No report available.</p>';
-    }
 
-    // Insert into the popup
-    details.innerHTML = `
-      <h4 style="color: #e8e8e8; margin-bottom: 15px;">Task Details</h4>
-      <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0;">
-        <strong>Command:</strong> ${command}
-      </p>
-      <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0;">
-        <strong>URL:</strong> ${url || 'Unknown URL'}
-      </p>
-      <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0;">
-        <strong>Timestamp:</strong> ${new Date(timestamp).toLocaleString()}
-      </p>
+      popup.classList.add('active');
 
-      <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">AI Summary</h4>
-      <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0; 
-                white-space: pre-wrap; max-height: 200px; overflow-y: auto;">
-        ${summary}
-      </p>
-
-      <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">Screenshots</h4>
-      <div style="background: #222; padding: 10px; border-radius: 5px;">
-        ${screenshotsHtml}
-      </div>
-
-      <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">Raw Output</h4>
-      <div style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; max-height: 200px; overflow-y: auto; white-space: pre-wrap;">
-        ${rawOutput}
-      </div>
-
-      <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">Reports</h4>
-      <div>
-        ${reportLinksHtml}
-      </div>
-    `;
-
-    popup.classList.add('active');
-
-    // Hook up close button
-    document.getElementById('close-history-popup').onclick = () => {
-      popup.classList.remove('active');
-    };
-
-    // Close on background click
-    popup.onclick = (e) => {
-      if (e.target === popup) {
+      // Hook up close button
+      document.getElementById('close-history-popup').onclick = () => {
         popup.classList.remove('active');
-      }
-    };
+      };
 
-    // Close on Escape
-    const escapeHandler = (e) => {
-      if (e.key === 'Escape') {
-        popup.classList.remove('active');
-        document.removeEventListener('keydown', escapeHandler);
-      }
-    };
-    document.addEventListener('keydown', escapeHandler);
-  })
-  .catch(err => {
-    console.error('Error fetching history details:', err);
-    showNotification('Error loading task details', 'error');
-  });
+      // Close on background click
+      popup.onclick = (ev) => {
+        if (ev.target === popup) {
+          popup.classList.remove('active');
+        }
+      };
+
+      // Close on Escape
+      const escapeHandler = (ev) => {
+        if (ev.key === 'Escape') {
+          popup.classList.remove('active');
+          document.removeEventListener('keydown', escapeHandler);
+        }
+      };
+      document.addEventListener('keydown', escapeHandler);
+    })
+    .catch(err => {
+      console.error('Error fetching history details:', err);
+      showNotification('Error loading task details', 'error');
+    });
 }
 
 function addToHistory(url, command, result) {

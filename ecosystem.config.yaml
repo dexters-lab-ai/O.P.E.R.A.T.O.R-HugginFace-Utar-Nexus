@@ -1,7 +1,7 @@
 apps:
   - name: operator-server
     script: server.js
-    node_args: ["--max-old-space-size=8192"]
+    node_args: ["--max-old-space-size=4096"]
     args: start
     watch: false
     autorestart: true

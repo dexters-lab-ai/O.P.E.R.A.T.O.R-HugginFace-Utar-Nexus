@@ -4,9 +4,9 @@
     "type": "module",
     "scripts": {
         "start": "pm2 start ecosystem.config.yaml --no-daemon",
-        "dev": "concurrently \"vite\" \"node --max-old-space-size=8192 server.js\"",
+        "dev": "concurrently \"node --max-old-space-size=4096 node_modules/vite/bin/vite.js\" \"node --max-old-space-size=4096 server.js\"",
         "build": "vite build",
-        "serve": "node --max-old-space-size=8192 server.js"
+        "serve": "node --max-old-space-size=4096 server.js"
     },
     "dependencies": {
         "@midscene/web": "^0.12.7",

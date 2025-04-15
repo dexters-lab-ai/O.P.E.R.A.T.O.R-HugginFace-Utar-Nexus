@@ -110,8 +110,10 @@ app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
 
 // === WEB SOCKET SETUP ===
 
+// === WEB SOCKET SETUP ===
+
 const userConnections = new Map();
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ server, path: '/ws' });
 const unsentMessages = new Map();
 
 function sendWebSocketUpdate(userId, data) {
@@ -208,9 +210,11 @@ app.post('/login', async (req, res) => {
   const { email, password } = req.body;
   try {
     const user = await User.findOne({ email });
-    if (!user || !(await bcrypt.compare(password, user.password))) throw new Error('Invalid email or password');
-    req.session.user = user._id;
-    res.json({ success: true, userId: email });
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      throw new Error('Invalid email or password');
+    }
+    req.session.user = user._id; // Save the MongoDB _id in the session
+    res.json({ success: true, userId: user._id.toString() }); // Return the _id as a string
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }
@@ -225,6 +229,10 @@ app.get('/logout', (req, res) => {
   });
 });
 
+/*******************************
+ * GET /history
+ * Returns paginated "completed" tasks for the user
+ *******************************/
 app.get('/history', requireAuth, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -248,7 +256,8 @@ app.get('/history', requireAuth, async (req, res) => {
         url: task.url || 'Unknown URL',
         command: task.command,
         timestamp: task.endTime,
-        result: task.result
+        // Return the entire result so the front-end can see if needed
+        result: task.result || {}
       })),
     });
   } catch (err) {
@@ -257,21 +266,32 @@ app.get('/history', requireAuth, async (req, res) => {
   }
 });
 
+/*******************************
+ * GET /history/:id
+ * Returns a single completed task (or any task) with full details
+ *******************************/
 app.get('/history/:id', requireAuth, async (req, res) => {
   try {
     res.setHeader('Content-Type', 'application/json');
     const task = await Task.findOne({ _id: req.params.id, userId: req.session.user }).lean();
-    if (!task) return res.status(404).json({ error: 'History item not found' });
+    if (!task) {
+      return res.status(404).json({ error: 'History item not found' });
+    }
+
+    // Return everything needed:
     res.json({
       _id: task._id,
       url: task.url || 'Unknown URL',
       command: task.command,
       timestamp: task.endTime,
-      result: {
-        raw: task.result?.raw || null,
-        aiPrepared: task.result?.aiPrepared || null,
-        runReport: task.result?.runReport || null
-      },
+      status: task.status,
+      error: task.error,
+      subTasks: task.subTasks,
+      // Return the entire intermediateResults array
+      intermediateResults: task.intermediateResults || [],
+      // Return the entire "result" object, which might contain raw, aiPrepared, 
+      // landingReportUrl, midsceneReportUrl, screenshot, etc.
+      result: task.result || {}
     });
   } catch (err) {
     console.error('Error fetching history item:', err);
@@ -279,6 +299,10 @@ app.get('/history/:id', requireAuth, async (req, res) => {
   }
 });
 
+/*******************************
+ * DELETE /history/:id
+ * Removes one completed task from the DB
+ *******************************/
 app.delete('/history/:id', requireAuth, async (req, res) => {
   try {
     const result = await Task.deleteOne({ _id: req.params.id, userId: req.session.user });
@@ -291,6 +315,10 @@ app.delete('/history/:id', requireAuth, async (req, res) => {
   }
 });
 
+/*******************************
+ * DELETE /history
+ * Clears all "completed" tasks for the user
+ *******************************/
 app.delete('/history', requireAuth, async (req, res) => {
   try {
     await Task.deleteMany({ userId: req.session.user, status: 'completed' });
@@ -299,7 +327,10 @@ app.delete('/history', requireAuth, async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
-
+/*******************************
+ * GET /chat-history
+ * Returns the chat history for the user
+ *******************************/
 app.get('/chat-history', requireAuth, async (req, res) => {
   try {
     if (mongoose.connection.readyState !== 1) {
@@ -471,65 +502,45 @@ function stripLargeFields(originalUpdate) {
   return newUpdate;
 }
 
+// Task Stream Endpoint
 app.get('/tasks/:id/stream', requireAuth, async (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders();
+  logger.info('Task stream started', { taskId: req.params.id });
 
-  // Helper function that loads the Task from DB and sends trimmed update
   const sendUpdate = async () => {
     try {
       const task = await Task.findById(req.params.id).lean();
       if (!task) {
-        const msg = { done: true, error: 'Task not found' };
-        res.write(`data: ${JSON.stringify(msg)}\n\n`);
+        res.write(`data: ${JSON.stringify({ done: true, error: 'Task not found' })}\n\n`);
         res.end();
         return;
       }
 
-      // Build the raw update object from the DB
-      const rawUpdate = {
+      const update = stripLargeFields({
         status: task.status || 'unknown',
         progress: task.progress || 0,
         intermediateResults: task.intermediateResults || [],
         steps: task.steps || [],
         error: task.error || null,
         result: task.result || null,
-        done: task.status === 'completed' || task.status === 'error'
-      };
+        done: ['completed', 'error'].includes(task.status),
+      });
+      res.write(`data: ${JSON.stringify(update)}\n\n`);
+      logger.info('Task update sent', { taskId: req.params.id, update });
 
-      // 1) Trim big fields
-      const safeUpdate = stripLargeFields(rawUpdate);
-
-      // 2) Log the *trimmed* version in console
-      console.log(`[Stream] Sending trimmed update for task ${req.params.id}:`, JSON.stringify(safeUpdate, null, 2));
-
-      // 3) Also send the trimmed version to the client
-      // (If you prefer, you can send the untrimmed version, but it's typically better to keep them in sync.)
-      res.write(`data: ${JSON.stringify(safeUpdate)}\n\n`);
-
-      // If the task is done, close the SSE stream
-      if (safeUpdate.done) {
-        res.end();
-      }
-    } catch (error) {
-      console.error('[Stream] Error:', error);
-      res.write(`data: ${JSON.stringify({ error: error.message, done: true })}\n\n`);
+      if (update.done) res.end();
+    } catch (err) {
+      logger.error('Task stream error', err);
+      res.write(`data: ${JSON.stringify({ error: err.message, done: true })}\n\n`);
       res.end();
     }
   };
 
-  // Send an update immediately
   await sendUpdate();
-
-  // Then send updates every 5 seconds
   const interval = setInterval(sendUpdate, 5000);
-
   req.on('close', () => {
     clearInterval(interval);
     res.end();
-    console.log(`[Stream] Client disconnected for task ${req.params.id}`);
+    logger.info('Task stream closed', { taskId: req.params.id });
   });
 });
 
@@ -604,7 +615,11 @@ const User = mongoose.model('User', userSchema);
 const chatHistorySchema = new Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   messages: [{
-    role: { type: String, enum: ['user', 'assistant'], required: true },
+    role: { 
+      type: String, 
+      enum: ['user', 'assistant', 'system', 'function'], 
+      required: true 
+    },
     content: { type: String, required: true },
     timestamp: { type: Date, default: Date.now }
   }]
@@ -710,7 +725,7 @@ async function startApp() {
         console.log(`MongoDB connection attempt ${error.attemptNumber} failed. Retrying...`);
       }
     });
-    await clearDatabaseOnce(); // Run one-time database clear
+    // await clearDatabaseOnce(); // Run one-time database clear
     await ensureIndexes();
     console.log('Application started successfully');
   } catch (err) {
@@ -727,12 +742,25 @@ server.listen(PORT, () => {
   console.log(`Server started on http://localhost:${PORT}`);
 });
 
-// Handle termination signals
+// Graceful shutdown on SIGINT (Ctrl+C)
 process.on('SIGINT', async () => {
-  await mongoose.connection.close();
-  console.log('Mongoose connection closed');
-  process.exit(0);
+  console.log('SIGINT received. Shutting down gracefully...');
+  try {
+    // Close the HTTP server if available
+    server.close(() => {
+      console.log('HTTP server closed.');
+    });
+    // Close your Mongoose connection
+    await mongoose.connection.close();
+    console.log('Mongoose connection closed.');
+  } catch (error) {
+    console.error('Error during shutdown:', error);
+  } finally {
+    // Exit the process explicitly
+    process.exit(0);
+  }
 });
+
 process.on('uncaughtException', (err) => { console.error('Uncaught Exception:', err); process.exit(1); });
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
@@ -2206,50 +2234,128 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
   }  
 }
 
+// ===========================
+// MAIN CHAT LOGIC & route entry
+// ===========================
+
 /**
- * Main NLI endpoint handler with improved step processing
+ * A minimal classifier that calls your LLM to see if the user wants “chat” or “task”.
+ * You can replace with simpler logic (regex, keywords, etc.) if you like.
  */
+async function openaiClassifyPrompt(prompt) {
+  const classification = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages: [
+      { role: 'system', content: 'You classify user messages as "task" or "chat". Respond ONLY with "task" or "chat".' },
+      { role: 'user', content: prompt }
+    ],
+    temperature: 0,
+    max_tokens: 5,
+  });
+  const content = classification.choices?.[0]?.message?.content?.toLowerCase() || '';
+  if (content.includes('task')) return 'task';
+  return 'chat';
+}
+
+/**
+ * Unified NLI endpoint:
+ * - If we detect it's a “task,” do your existing logic: create a Task doc, call processTask, etc.
+ * - If we detect it's “chat,” stream partial output from the LLM directly.
+ */
+// NLI Endpoint
 app.post('/nli', requireAuth, async (req, res) => {
-  const { prompt, url } = req.body;
-  if (!prompt) return res.status(400).json({ success: false, error: 'Prompt is required.' });
+  const { prompt } = req.body;
+  if (!prompt) {
+    logger.warn('Missing prompt in request');
+    return res.status(400).json({ success: false, error: 'Prompt is required' });
+  }
 
   const userId = req.session.user;
   const user = await User.findById(userId).select('email').lean();
-  if (!user) return res.status(400).json({ success: false, error: 'User not found' });
-  const userEmail = user.email;
-
-  const taskId = new mongoose.Types.ObjectId();
-  const runId = uuidv4();
-  const runDir = path.join(MIDSCENE_RUN_DIR, runId);
-  fs.mkdirSync(runDir, { recursive: true });
-
-  console.log(`[NLI] Starting task ${taskId} for ${userEmail}`);
-
-  try {
-    const newTask = new Task({
-      _id: taskId,
-      userId,
-      command: prompt,
-      status: 'pending',
-      progress: 0,
-      startTime: new Date(),
-      url: url || null,
-      runId
-    });
-    await newTask.save();
-
-    await User.updateOne(
-      { _id: userId },
-      { $push: { activeTasks: { _id: taskId.toString(), command: prompt, status: 'pending', startTime: new Date(), url } } }
-    );
-  } catch (dbError) {
-    console.error(`[NLI] Database error:`, dbError);
-    return res.status(500).json({ success: false, error: 'Database error' });
+  if (!user) {
+    logger.error('User not found', { userId });
+    return res.status(400).json({ success: false, error: 'User not found' });
   }
 
-  res.json({ success: true, taskId: taskId.toString(), runId });
-  processTask(userId, userEmail, taskId.toString(), runId, runDir, prompt, url); // Triggers streaming
+  let classification;
+  try {
+    classification = await openaiClassifyPrompt(prompt);
+    logger.info('Prompt classified', { prompt, classification });
+  } catch (err) {
+    logger.error('Classification error, defaulting to task', err);
+    classification = 'task';
+  }
+
+  if (classification === 'task') {
+    logger.info('Processing as task');
+    const taskId = new mongoose.Types.ObjectId();
+    const runId = uuidv4();
+    const runDir = path.join(MIDSCENE_RUN_DIR, runId);
+    fs.mkdirSync(runDir, { recursive: true });
+
+    try {
+      const newTask = new Task({ _id: taskId, userId, command: prompt, status: 'pending', progress: 0, startTime: new Date(), runId });
+      await newTask.save();
+      await User.updateOne({ _id: userId }, { $push: { activeTasks: { _id: taskId.toString(), command: prompt, status: 'pending', startTime: new Date() } } });
+      logger.info('Task created', { taskId, runId });
+    } catch (err) {
+      logger.error('Database error creating task', err);
+      return res.status(500).json({ success: false, error: 'Database error' });
+    }
+
+    processTask(userId, user.email, taskId.toString(), runId, runDir, prompt, null);
+    res.json({ success: true, taskId: taskId.toString(), runId });
+  } else {
+    // --- Chat branch (non-streaming) ---
+    logger.info('Processing as chat, using normal JSON response');
+
+    // Update chat history (same as before)
+    let chatHistory = await ChatHistory.findOne({ userId });
+    if (!chatHistory) {
+      chatHistory = new ChatHistory({ userId, messages: [] });
+    }
+    chatHistory.messages.push({
+      role: 'user',
+      content: prompt,
+      timestamp: new Date(),
+    });
+    await chatHistory.save();
+
+    // Build last few messages
+    const lastMessages = chatHistory.messages
+      .filter(m => ['user', 'assistant'].includes(m.role))
+      .slice(-10)
+      .map(m => ({ role: m.role, content: m.content }));
+
+    try {
+      // Request the full completion with streaming disabled.
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: lastMessages,
+        temperature: 0.7,
+        stream: false,  // Disable streaming
+      });
+
+      // Extract the assistant reply from the response.
+      const assistantReply = completion.choices[0].message.content;
+      chatHistory.messages.push({
+        role: 'assistant',
+        content: assistantReply,
+        timestamp: new Date(),
+      });
+      await chatHistory.save();
+
+      // Return the full reply in JSON.
+      res.json({ success: true, assistantReply });
+      logger.info('Chat response sent', { userId });
+    } catch (err) {
+      logger.error('Chat error', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  }
 });
+
+
 /**
  * Refactored processTask function using the grand plan approach
  * @param {string} userId - User ID
