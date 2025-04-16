@@ -117,7 +117,7 @@ const wss = new WebSocketServer({ server, path: '/ws' });
 const unsentMessages = new Map();
 
 function sendWebSocketUpdate(userId, data) {
-  console.log(`[WebSocket] Sending to userId=${userId}:`, JSON.stringify(data, null, 2));
+  // console.log(`[WebSocket] Sending to userId=${userId}:`, JSON.stringify(data, null, 2));
   const connections = userConnections.get(userId);
   if (connections && connections.size > 0) {
     connections.forEach(ws => {
@@ -327,6 +327,7 @@ app.delete('/history', requireAuth, async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
 /*******************************
  * GET /chat-history
  * Returns the chat history for the user
@@ -336,22 +337,23 @@ app.get('/chat-history', requireAuth, async (req, res) => {
     if (mongoose.connection.readyState !== 1) {
       throw new Error('Database not connected');
     }
-    // If the user must be logged in:
+    // Ensure the user is logged in.
     if (!req.session.user) {
-      // Return an empty structure or a 401 if it’s truly protected
+      // Alternatively, you could send a 401 error.
       return res.json({ messages: [] });
     }
-
-    // Attempt to load chat history
+    
+    // Find the user's chat history.
     const chatHistory = await ChatHistory.findOne({ userId: req.session.user }).lean();
     if (!chatHistory) {
-      // Instead of 404, just return an empty messages array
+      // Return empty messages if no history exists.
       return res.json({ messages: [] });
     }
-    res.json(chatHistory);
+    // Optionally, you could include a success flag.
+    res.json({ success: true, messages: chatHistory.messages });
   } catch (error) {
     console.error('Error fetching chat history:', error);
-    res.status(500).json({ error: 'Failed to fetch chat history' });
+    res.status(500).json({ success: false, error: 'Failed to fetch chat history' });
   }
 });
 
@@ -1230,27 +1232,25 @@ async function editMidsceneReport(midsceneReportPath) {
   });
 }
 
-// Sessions map - shared across the application
-const activeBrowsers = new Map();
-
 /**
  * TaskPlan - Class to manage the execution plan for a browser task
  */
 class TaskPlan {
-  constructor(userId, taskId, prompt, initialUrl, runDir, runId, maxSteps = 20) {
+  constructor(userId, taskId, prompt, initialUrl, runDir, runId, maxSteps = 10) {
     this.userId = userId;
     this.taskId = taskId;
-    this.prompt = prompt; // Original task description
+    this.prompt = prompt; // Main Task description
     this.initialUrl = initialUrl;
     this.runDir = runDir;
-    this.runId = runId; // **** NEW: Store runId for constructing file URLs ****
+    this.runId = runId; // For file URLs
     this.steps = [];
     this.currentStepIndex = -1;
     this.maxSteps = maxSteps;
-    this.currentState = null; // Holds latest page state
+    this.currentState = null; // Holds latest page state (ensured never to be undefined)
     this.planLog = [];
     this.completed = false;
     this.summary = null;
+    this.currentUrl = initialUrl || 'Not specified';
   }
 
   log(message, metadata = {}) {
@@ -1260,11 +1260,13 @@ class TaskPlan {
   }
 
   /**
-   * Create a new step in the plan
-   * @param {string} type - Step type (action or query)
-   * @param {string} instruction - Step instruction
-   * @param {Object} args - Step arguments
-   * @returns {PlanStep} - The created step
+   * Create a new step in the plan.
+   * After execution, a short step summary (max ~5 tokens) is generated
+   * and stored in the step's `stepSummary` property.
+   * @param {string} type - Step type: 'action' or 'query'
+   * @param {string} instruction - Instruction for the step
+   * @param {Object} args - Associated arguments
+   * @returns {PlanStep} - The created step.
    */
   createStep(type, instruction, args) {
     const step = {
@@ -1287,8 +1289,12 @@ class TaskPlan {
           }
           step.result = result;
           step.status = result.success ? 'completed' : 'failed';
+          // Update currentUrl using the returned value (or fallback to previous)
           plan.currentUrl = result.currentUrl || plan.currentUrl;
-          plan.currentState = result.state || plan.currentState;
+          // Update the current state using the new "state" property from the result.
+          if (result.state) {
+            plan.currentState = result.state;
+          }
           plan.log(`Step ${step.index + 1} ${step.status}`);
           return result;
         } catch (error) {
@@ -1303,7 +1309,8 @@ class TaskPlan {
         type: step.type,
         instruction: step.instruction,
         status: step.status,
-        success: step.result?.success || false
+        success: step.result?.success || false,
+        stepSummary: step.stepSummary || 'No summary'
       })
     };
     this.steps.push(step);
@@ -1323,18 +1330,6 @@ class TaskPlan {
   }
 
   /**
-   * Update the browser session with new data
-   * @param {Object} session - Browser session data
-   */
-  updateBrowserSession(session) {
-    this.browserSession = session;
-    if (session && session.currentUrl) {
-      this.currentUrl = session.currentUrl;
-    }
-    this.log(`Updated browser session, current URL: ${this.currentUrl}`);
-  }
-
-  /**
    * Mark the plan as completed
    * @param {string} summary - Completion summary
    */
@@ -1345,39 +1340,41 @@ class TaskPlan {
   }
 
   /**
-   * Generate a system prompt for the AI based on current plan state
-   * @returns {string} - System prompt
+   * Generate a system prompt that now includes a PROGRESS SUMMARY section
+   * based on the last step's short summary.
+   * @returns {string} - The generated system prompt.
    */
   generateSystemPrompt() {
-    // Concise progress summary
+    // Generate a step-by-step summary
     const progressSummary = this.steps.length > 0
-      ? this.steps.map(step => 
-          `- Step ${step.index + 1}: ${step.type.toUpperCase()} - ${step.instruction} (${step.status})`
-        ).join('\n')
-      : 'No steps executed yet';
+    ? this.steps.map(step => 
+        `- Step ${step.index + 1}: ${step.type.toUpperCase()} - ${step.instruction} (${step.status})`
+      ).join('\n')
+    : 'No steps executed yet';
 
-    // Highlight recent failures (last 3 steps) for context
-    const recentFailures = this.steps.slice(-3)
-      .filter(step => step.status === 'failed')
-      .map(step => 
-        `- Step ${step.index + 1}: ${step.instruction} failed (${step.error || 'Unknown error'})`
-      ).join('\n') || 'No recent failures';
+  const lastStepSummary = (this.steps.length > 0 && this.steps[this.steps.length - 1].stepSummary)
+    ? this.steps[this.steps.length - 1].stepSummary
+    : 'No summary available';
 
-    // Current page state summary
-    const stateSummary = this.currentState
-      ? `**Current Page State**:\n` +
-        `- Description: ${typeof this.currentState.pageDescription === 'string' 
-          ? this.currentState.pageDescription.substring(0, 200) + '...' 
-          : 'Structured data'}\n` +
-        (this.currentState.navigableElements 
-          ? `- Navigable: ${this.currentState.navigableElements.slice(0, 5).join(', ')}...` 
-          : '')
-      : '**Current Page State**: Not available';
+  const recentFailures = this.steps.slice(-3)
+    .filter(step => step.status === 'failed')
+    .map(step => 
+      `- Step ${step.index + 1}: ${step.instruction} failed (${step.error || 'Unknown error'})`
+    ).join('\n') || 'No recent failures';
 
+  // Create separate summaries from extracted info and the assertion from global state.
+  const extractedSummary = this.extractedInfo
+    ? this.extractedInfo.substring(0, 700) + '...'
+    : 'No extracted info available';
+  const assertionSummary = this.currentState && this.currentState.assertion
+    ? this.currentState.assertion
+    : 'No assertion available';
+
+    // NOTE: The starting URL now shows properly if provided.
     return `
 You are an AI assistant automating browser tasks with resilience and adaptability. 
 You never fail to accomplish the task and reason all steps until you accomplish it. 
-You always instruct towards achieving the main original task.
+You always instruct towards achieving the "Main Task".
 
 GUIDELINES:
 1. PERSISTENCE: Never give up on a task. If one approach fails, try alternative methods.
@@ -1396,101 +1393,105 @@ CAPABILITIES:
 
 FUNCTIONS AVAILABLE:
 - browser_action: Execute actions on websites or navigate to URL (clicking, typing, navigating, scrolling, etc. browser_action has not data extraction capabilities, never use for data extraction).
-- browser_query: Extract information from websites (it can navigate autonomously to desired page, click elements on page to navigate or filter products or charts, or select, extract info)
-- use these 2 functions interchangebly where relevant
+- browser_query: Extract information from websites (it can navigate autonomously to desired page, click elements on page to navigate or filter products or charts, or select, extract info).
+- Use these functions interchangeably where relevant.
 
 ERROR RECOVERY:
 - When stuck on a page, try URL construction with query parameters, or instruct browser_action to navigate through main menu or sidebar.
-- When element selection fails, treat them as placeholders and try different selectors
-- When timeouts occur, retry with longer timeouts
-- If clicking a image or element does not work use the top main menu options or sidebar menus interchachably to discover your way around the site and to navigate to required page
-- Overlays can affect navigation, check if the overlay is still there, if so, try to click a button to accept or close the overlay
-- Retry using different navigation so you never fail, persistance is required always, be smart in browsing.
-- Always pay attention to the URL in relation to the task, if you navigated beyond the relevant URL go back to desired last known URL.
+- When element selection fails, treat them as placeholders and try different selectors.
+- When timeouts occur, retry with longer timeouts.
+- If clicking a button or element does not work, use top menu options or sidebar menus to navigate.
+- Overlays can affect navigation: check for them and try to dismiss if found.
+- Retry using different navigation so you never fail; persistence is required.
+- If you navigate to the wrong page or URL or Domain which does not have desired info & content relevant to our main goal, navigate using menus or go back to the last known URL using browser_action.
 
-**Original Task**: "${this.prompt}"
+**Instructions**:
+- Use 'browser_action' for navigation, clicks, or input (e.g., {"command": "navigate to https://example.com"}). This function is for high-level commands.
+- Use 'browser_query' to analyze the page or extract info (e.g., {"query": "What is on the page?"}). This function extracts visible data.
+- Break complex commands into simpler steps only when necessary.
+- If the starting URL is 'Not specified', include the 'url' parameter in your first call.
+- Use 'task_complete' with a summary to finish (e.g., {"summary": "Task done"}).
+- If stuck, propose a new approach based on the current state and navigatable elements, you can navigate other ways.
+
+**Rules**:
+- Always check full progress summary before making decisions. Get the full picture of where you are and overall progress.
+- Always return a function call in JSON format.
+- Keep actions specific and goal-oriented toward "Main Task".
+- Avoid repeating failed actions without new information.
+- When scrolling, ensure the desired content remains in view.
+- Avoid going beyond Main Task. Always check current url, state summary, progress summary to see if the main goal or Main Task as been achieved, then mark as complete by firing task_complete.
+
+CONSIDER THESE TASK DETAILS IN FULL TO PLAN FOR YOUR NEXT STEP FORWARD TOWARDS ACHIEVING THE 'Main Task':
+**Main Task**: "${this.prompt}"
 **Starting URL**: ${this.initialUrl || 'Not specified'}
 **Current Step**: ${this.currentStepIndex + 1} of ${this.maxSteps} max
 **Current URL**: ${this.currentUrl || 'Not yet navigated'}
+
+PROGRESS SUMMARY (based on previous step): ${lastStepSummary}
+- FULL STEP SUMMARY:
 **Progress Summary**:
 ${progressSummary}
 **Recent Failures**:
 ${recentFailures}
-${stateSummary}
-**Instructions**:
-- Use 'browser_action' for navigation, clicks, or input (e.g., {"command": "navigate to https://example.com"}). This is a VLM able to accept high level command like "look for Bitcoin and click it. Click 3M chart view and candlestick view".
-- Use 'browser_query' to analyze the page or extract info (e.g., {"query": "What is on the page?"}). This is a high level VLM able to accept instructions like "scroll and find a product under $1000. Click to open when found. Extract all information on product page".
-- Break complex commands into simple steps only when necessary.
-- If the starting URL is 'Not specified', you must include the 'url' parameter in your first 'browser_action' or 'browser_query' call with the initial URL to navigate to.
-- Use 'task_complete' with a summary to finish (e.g., {"summary": "Task done"}).
-- After a failure, use 'browser_query' to assess the state before retrying.
-- If stuck, propose a new approach based on the current state.
-**Rules**:
-- Always return a function call in JSON format.
-- Keep actions specific and goal-oriented toward "${this.prompt}".
-- Avoid repeating failed actions without new information.
-- Avoid going beyond the task goal, always check if you accomplished it based on whats visible, display what the user asked as final resut, dont scroll out of view, if out of view then scroll around to ensure the desired content is visible and focus on it. then conclude task.
-    
+**Extracted Useful Infomation from Prev Step**:
+- ${extractedSummary}
+**Previous Step's Assertion (Page State)**:
+- ${assertionSummary}
+
+[END OF SUMMARY]
+
+Aim for the Main Task with maximum efficiency, navigation awareness, smart prompt crafting & function calling, and accuracy: "${this.prompt}".
+Now proceed.
 
 `.trim();
   }
 
-  /**
-   * Get execution summary
-   * @returns {Object} - Execution summary
-   */
   getSummary() {
     return {
       taskId: this.taskId,
       prompt: this.prompt,
       initialUrl: this.initialUrl,
       currentUrl: this.currentUrl,
-      steps: this.steps.map(step => step.getSummary()), // Detailed summary for each step
+      steps: this.steps.map(step => step.getSummary()),
       completed: this.completed,
-      summary: this.summary, // Final summary when task is completed
-      planLog: this.planLog, // Full log of events for the task plan
+      summary: this.summary,
+      planLog: this.planLog,
       currentStepIndex: this.currentStepIndex,
       maxSteps: this.maxSteps
     };
   }
 
-  // Add these methods to your TaskPlan class:
+  async executeBrowserAction(args, stepIndex) {
+    return await handleBrowserAction(
+      args,
+      this.userId,
+      this.taskId,
+      this.runId,
+      this.runDir,
+      stepIndex,
+      this.browserSession
+    );
+  }
 
-/**
- * Execute a browser action
- * @param {Object} args - Action arguments
- * @param {number} stepIndex - Current step index
- * @returns {Object} - Result of the action
- */
-async executeBrowserAction(args, stepIndex) {
-  return await handleBrowserAction(
-    args,
-    this.userId,
-    this.taskId,
-    this.runId,
-    this.runDir,
-    stepIndex,
-    this.browserSession
-  );
-}
+  async executeBrowserQuery(args, stepIndex) {
+    return await handleBrowserQuery(
+      args,
+      this.userId,
+      this.taskId,
+      this.runId,
+      this.runDir,
+      stepIndex,
+      this.browserSession
+    );
+  }
 
-/**
- * Execute a browser query
- * @param {Object} args - Query arguments
- * @param {number} stepIndex - Current step index
- * @returns {Object} - Result of the query
- */
-async executeBrowserQuery(args, stepIndex) {
-  return await handleBrowserQuery(
-    args,
-    this.userId,
-    this.taskId,
-    this.runId,
-    this.runDir,
-    stepIndex,
-    this.browserSession
-  );
-}
+  updateBrowserSession(session) {
+    this.browserSession = session;
+    if (session && session.currentUrl) {
+      this.currentUrl = session.currentUrl;
+    }
+    this.log(`Updated browser session, current URL: ${this.currentUrl}`);
+  }
 }
 
 /**
@@ -1499,7 +1500,7 @@ async executeBrowserQuery(args, stepIndex) {
 class PlanStep {
   constructor(index, type, instruction, args, userId, taskId, runDir) {
     this.index = index;
-    this.type = type; // 'action' or 'query'
+    this.type = type;
     this.instruction = instruction;
     this.args = args;
     this.userId = userId;
@@ -1510,13 +1511,10 @@ class PlanStep {
     this.startTime = new Date();
     this.endTime = null;
     this.logs = [];
+    this.error = null;
+    this.stepSummary = null; 
   }
 
-  /**
-   * Log an event in the step execution
-   * @param {string} message - Message to log
-   * @param {Object} data - Optional data to include
-   */
   log(message, data = null) {
     const logEntry = {
       timestamp: new Date().toISOString(),
@@ -1528,21 +1526,37 @@ class PlanStep {
     console.log(`[PlanStep:${this.index}] ${message}`);
   }
 
-  /**
-   * Execute the step
-   * @param {Object} plan - The task plan
-   * @returns {Object} - Result of the step execution
-   */
+  async generateStepSummary() {
+    // Only generate a summary if not present.
+    if (this.stepSummary) return this.stepSummary;
+    try {
+      // Call OpenAI with a prompt to summarize the step very briefly.
+      const summaryResponse = await openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          { role: 'system', content: 'Summarize the following step result in at most 5 tokens:' },
+          { role: 'user', content: JSON.stringify(this.getSummary()) }
+        ],
+        temperature: 0,
+        max_tokens: 5
+      });
+      const summary = summaryResponse.choices[0].message.content.trim();
+      this.stepSummary = summary;
+      return summary;
+    } catch (error) {
+      console.error(`Error generating step summary: ${error.message}`);
+      this.stepSummary = 'No summary';
+      return this.stepSummary;
+    }
+  }
+
   async execute(plan) {
     this.log(`Starting execution: ${this.type} - ${this.instruction}`);
     this.status = 'running';
     
     try {
-      // For the initial "stepProgress", let's do a quick trim
       const trimmedStepLogs = this.logs.map(entry => {
-        const shortMsg = entry.message.length > 150
-          ? entry.message.substring(0, 150) + '...'
-          : entry.message;
+        const shortMsg = entry.message.length > 150 ? entry.message.substring(0, 150) + '...' : entry.message;
         return { ...entry, message: shortMsg };
       });
       sendWebSocketUpdate(this.userId, { 
@@ -1554,7 +1568,6 @@ class PlanStep {
         log: trimmedStepLogs
       });
   
-      // Execute the appropriate handler
       let result;
       if (this.type === 'action') {
         result = await plan.executeBrowserAction(this.args, this.index);
@@ -1568,31 +1581,34 @@ class PlanStep {
       this.status = result.success ? 'completed' : 'failed';
       this.endTime = new Date();
       
-      // Update the plan with the browser session from this step
-      plan.updateBrowserSession(result);
-      
-      // Update the plan's current state with context info
-      if (result.extractedInfo) {
+      // Update the plan’s global state:
+      // 1. Store the assertion under currentState
+      // 2. Store the extracted info separately
+      if (result.state && result.state.assertion) {
+        plan.currentState = { assertion: result.state.assertion };
+      } else {
+        plan.currentState = { assertion: 'No assertion available' };
+      }
+      plan.extractedInfo = result.extractedInfo || 'No content extracted';
+      // Update browser session and global state using result.state
+      plan.updateBrowserSession({ currentUrl: result.currentUrl });
+      if (result.state) {
+        plan.currentState = result.state;
+      } else {
         plan.currentState = {
-          pageDescription: result.extractedInfo,
-          navigableElements: result.navigableElements || [],
-          currentUrl: result.currentUrl
+          pageDescription: 'No content extracted',
+          navigableElements: [],
+          currentUrl: result.currentUrl || plan.currentUrl
         };
       }
   
-      // Now we trim logs again, including the newly updated step logs and
-      // the browser action logs from `result.actionLog`.
       const trimmedActionLogs = (result.actionLog || []).map(entry => {
-        const shortMsg = entry.message.length > 150
-          ? entry.message.substring(0, 150) + '...'
-          : entry.message;
+        const shortMsg = entry.message.length > 150 ? entry.message.substring(0, 150) + '...' : entry.message;
         return { ...entry, message: shortMsg };
       });
   
       const finalTrimmedStepLogs = this.logs.map(entry => {
-        const shortMsg = entry.message.length > 150
-          ? entry.message.substring(0, 150) + '...'
-          : entry.message;
+        const shortMsg = entry.message.length > 150 ? entry.message.substring(0, 150) + '...' : entry.message;
         return { ...entry, message: shortMsg };
       });
   
@@ -1602,7 +1618,6 @@ class PlanStep {
         stepIndex: this.index, 
         progress: 100, 
         message: this.status === 'completed' ? 'Step completed' : 'Step failed',
-        // Combine them so the client sees everything, but all trimmed
         log: [...finalTrimmedStepLogs, ...trimmedActionLogs]
       });
   
@@ -1611,6 +1626,9 @@ class PlanStep {
         type: this.type,
         url: result.currentUrl
       });
+      
+      // Generate and store a short step summary if not already set.
+      await this.generateStepSummary();
   
       return result;
     } catch (error) {
@@ -1619,11 +1637,8 @@ class PlanStep {
       this.endTime = new Date();
       this.error = error.message;
       
-      // Trim logs for the error case
       const trimmedLogs = this.logs.map(entry => {
-        const shortMsg = entry.message.length > 150
-          ? entry.message.substring(0, 150) + '...'
-          : entry.message;
+        const shortMsg = entry.message.length > 150 ? entry.message.substring(0, 150) + '...' : entry.message;
         return { ...entry, message: shortMsg };
       });
   
@@ -1636,9 +1651,7 @@ class PlanStep {
         log: trimmedLogs
       });
       
-      console.log(`[Task ${this.taskId}] Step ${this.index} failed`, {
-        error: error.message
-      });
+      console.log(`[Task ${this.taskId}] Step ${this.index} failed`, { error: error.message });
       
       return {
         success: false,
@@ -1647,12 +1660,8 @@ class PlanStep {
         stepIndex: this.index
       };
     }
-  }  
+  }
 
-  /**
-   * Get step summary
-   * @returns {Object} - Step summary
-   */
   getSummary() {
     return {
       index: this.index,
@@ -1662,16 +1671,17 @@ class PlanStep {
       status: this.status,
       startTime: this.startTime,
       endTime: this.endTime,
-      duration: this.endTime ? (this.endTime - this.startTime) : null, // Duration in milliseconds
+      duration: this.endTime ? (this.endTime - this.startTime) : null,
       resultSummary: this.result ? {
         success: this.result.success,
-        url: this.result.currentUrl,
+        currentUrl: this.result.currentUrl,
         error: this.result.error,
-        extractedInfo: this.result.extractedInfo, // Full extracted info
+        extractedInfo: this.result.extractedInfo,
         navigableElements: this.result.navigableElements
       } : null,
-      logs: this.logs, // Full logs for this step
-      error: this.error // Error message if the step failed
+      logs: this.logs,
+      error: this.error,
+      stepSummary: this.stepSummary
     };
   }
 }
@@ -1708,32 +1718,39 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
   try {
     logAction(`Starting action with command: "${command}", URL: "${providedUrl || 'none provided'}"`);
 
-    // Extract URL from command if not provided
-    let effectiveUrl = providedUrl;
-    if (!effectiveUrl && command.startsWith('navigate to ')) {
-      const urlMatch = command.match(/navigate to (\S+)/);
-      if (urlMatch) {
-        effectiveUrl = urlMatch[1];
+    // Determine if it's a navigation command and set effective URL.
+    const isNavigationCommand = command.toLowerCase().startsWith('navigate to ');
+    let effectiveUrl;
+    if (isNavigationCommand) {
+      const navigateMatch = command.match(/navigate to (\S+)/i);
+      if (navigateMatch) {
+        effectiveUrl = navigateMatch[1];
         logAction(`Extracted URL from command: ${effectiveUrl}`);
+      } else {
+        throw new Error("Invalid navigate to command: no URL found");
       }
+    } else {
+      effectiveUrl = providedUrl;
     }
 
-    // Single URL validation for new tasks
+    // Validate URL for new tasks.
     if (!existingSession && !effectiveUrl) {
       throw new Error("URL required for new tasks");
     }
-    
-    // Update task status in database
+
+    // Update task status in database.
     await updateTaskInDatabase(taskId, {
       status: 'processing',
       progress: 50,
       lastAction: command
     });
-    
-    // Browser session management
+
+    // Browser session management.
     if (existingSession) {
       logAction("Using existing browser session");
       ({ browser, agent, page, release } = existingSession);
+      
+      // If the page is invalid or closed, create a new one.
       if (!page || page.isClosed()) {
         logAction("Page is invalid or closed, creating a new one");
         page = await browser.newPage();
@@ -1744,6 +1761,14 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
           model: 'bytedance/ui-tars-72b'
         });
         activeBrowsers.set(task_id, { browser, agent, page, release, closed: false, hasReleased: false });
+      }
+
+      // Force navigation if a navigation command is provided and the current URL differs from the target.
+      const currentPageUrl = await page.url();
+      if (isNavigationCommand && effectiveUrl && currentPageUrl !== effectiveUrl) {
+        logAction(`Navigating from ${currentPageUrl} to new URL: ${effectiveUrl}`);
+        await page.goto(effectiveUrl, { waitUntil: 'domcontentloaded', timeout: 300000 });
+        logAction("Navigation completed successfully");
       }
     } else if (task_id && activeBrowsers.has(task_id)) {
       logAction("Retrieving existing browser session from active browsers");
@@ -1760,38 +1785,42 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
         activeBrowsers.set(task_id, { browser, agent, page, release, closed: false, hasReleased: false });
       }
     } else {
-      // Create new session with clear logging
+      // Create new session and navigate.
       logAction(`Creating new browser session and navigating to URL: ${effectiveUrl}`);
-      
       release = await browserSemaphore.acquire();
       logAction("Acquired browser semaphore");
-      
       browser = await puppeteerExtra.launch({ 
         headless: false, 
         args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-web-security"],
         defaultViewport: { width: 1280, height: 720 }
       });
       logAction("Browser launched successfully");
-      
       page = await browser.newPage();
       logAction("New page created");
+      await page.setDefaultNavigationTimeout(300000); // 60 seconds
       
-      await page.setDefaultNavigationTimeout(60000); // 60 seconds
-      page.on('console', msg => logAction(`Console: ${msg.text().substring(0, 150)}`));
-      page.on('pageerror', err => logAction(`Page error: ${err.message}`));
+      // Set up listeners.
+      page.on('console', msg => {
+        debugLog(`Console: ${msg.text().substring(0, 150)}`);
+      });
+      page.on('pageerror', err => {
+        debugLog(`Page error: ${err.message}`);
+      });
       page.on('request', req => {
-        if (['document', 'script', 'xhr', 'fetch'].includes(req.resourceType())) {
-          logAction(`Request: ${req.method()} ${req.url().substring(0, 100)}`);
+        if (['document', 'script', 'xhr', 'fetch'].includes(req.resourceType()) &&
+            !req.url().includes("challenges.cloudflare.com")) {
+          debugLog(`Request: ${req.method()} ${req.url().substring(0, 100)}`);
         }
       });
       page.on('response', res => {
-        if (['document', 'script', 'xhr', 'fetch'].includes(res.request().resourceType())) {
-          logAction(`Response: ${res.status()} ${res.url().substring(0, 100)}`);
+        if (['document', 'script', 'xhr', 'fetch'].includes(res.request().resourceType()) &&
+            !res.url().includes("challenges.cloudflare.com")) {
+          debugLog(`Response: ${res.status()} ${res.url().substring(0, 100)}`);
         }
       });
       
       logAction(`Navigating to URL: ${effectiveUrl}`);
-      await page.goto(effectiveUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await page.goto(effectiveUrl, { waitUntil: 'domcontentloaded', timeout: 300000 });
       logAction("Navigation completed successfully");
       
       agent = new PuppeteerAgent(page, { 
@@ -1800,12 +1829,11 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
         model: 'bytedance/ui-tars-72b'
       });
       logAction("PuppeteerAgent initialized");
-      
       activeBrowsers.set(task_id, { browser, agent, page, release, closed: false, hasReleased: false });
       logAction("Browser session stored in active browsers");
     }
 
-    // Progress update
+    // Progress update.
     sendWebSocketUpdate(userId, { 
       event: 'stepProgress', 
       taskId, 
@@ -1815,23 +1843,34 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       log: actionLog
     });
 
-    // Set viewport
+    // Set viewport.
     await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
     logAction("Set viewport to 1280x720");
-    
-    // Handle page obstacles
+
+    // Handle page obstacles.
     logAction("Checking for page obstacles");
     const obstacleResults = await handlePageObstacles(page, agent);
     logAction("Obstacle check results", obstacleResults);
-    
-    // Execute action
+
+    // Execute action (only for non-navigation commands).
     logAction(`Executing action: "${command}"`);
     await agent.aiAction(command);
+
+    // Assertion to obtain efficient page state.
+    const assertion = await agent.aiWaitFor(
+      `We just executed this command: "${command}". What does the page show currently, detail all visible elements and information relevant to the command?`,
+      {
+        timeoutMs: 30000,    // Wait for 30 seconds.
+        checkIntervalMs: 5000  // Check every 5 seconds.
+      }
+    );
+    // Optional wait to ensure the assertion result propagates.
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    logAction("Assertion completed", { assertion });
+
     logAction("Action executed successfully");
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Check for popups
+    // Check for popups.
     const popupCheck = await page.evaluate(() => {
       return {
         url: window.location.href,
@@ -1841,7 +1880,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       };
     });
     logAction("Post-action popup check", popupCheck);
-    
+
     if (popupCheck.popupOpened) {
       logAction("Popup detected - checking for new pages");
       const pages = await browser.pages();
@@ -1859,21 +1898,21 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
         }
       }
     }
-    
-    // Extract rich context
+
+    // Extract rich context (extractedInfo remains separate).
     logAction("Extracting rich page context");
     const { pageContent: extractedInfo, navigableElements } = await extractRichPageContext(
       agent, 
       page, 
       command,
-      "What information is now visible on the page? What can be clicked or interacted with?"
+      "Read, scan and observe the page. Then state - What information is now visible on the page? What can be clicked or interacted with?"
     );
     logAction("Rich context extraction complete", { 
       contentLength: typeof extractedInfo === 'string' ? extractedInfo.length : 'object',
       navigableElements: navigableElements.length
     });
-    
-    // Capture screenshot
+
+    // Capture screenshot.
     const screenshotFilename = `screenshot-${Date.now()}.png`;
     const screenshotPath = path.join(runDir, screenshotFilename);
     const screenshot = await page.screenshot({ encoding: 'base64' });
@@ -1884,19 +1923,21 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
     const currentUrl = await page.url();
     logAction(`Current URL: ${currentUrl}`);
 
-    // Prepare result
-    const result = {
-      success: true,
-      currentUrl,
-      pageTitle: await page.title(),
-      actionOutput: `Completed: ${command}`,
-      extractedInfo,
-      navigableElements,
-      actionLog,
-      stepIndex: currentStep
-    };
+    console.log('[Server] Preparing to send intermediateResult for taskId:', taskId);
+    // Send intermediate result update to the front end.
+    sendWebSocketUpdate(userId, {
+      event: 'intermediateResult',
+      taskId,
+      result: {
+        screenshotUrl,   
+        currentUrl,
+        extractedInfo,    // Raw extracted info.
+        navigableElements
+      }
+    });
+    console.log('[Server] Sent intermediateResult for taskId:', taskId);
 
-    // Final progress update
+    // Final progress update.
     sendWebSocketUpdate(userId, { 
       event: 'stepProgress', 
       taskId, 
@@ -1906,70 +1947,60 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       log: actionLog
     });
 
-    // Right before returning, do:
+    // Trim action log before returning.
     const trimmedActionLog = actionLog.map(entry => {
-      // Trim each log message to 150-200 chars, for example
-      const truncatedMessage =
-        entry.message.length > 700
-          ? entry.message.substring(0, 700) + '...'
-          : entry.message;
-
+      const truncatedMessage = entry.message.length > 700 
+        ? entry.message.substring(0, 700) + '...' 
+        : entry.message;
       return { ...entry, message: truncatedMessage };
     });
 
+    // Return full results.
+    // Note: "state" contains only the assertion result.
     return {
-      // Basic success/failure flags
       success: true,
       error: null,
-      
-      // Basic metadata
       task_id,
       closed: false,
       currentUrl,
-      
-      // Provide step info
       stepIndex: currentStep,
       actionOutput: `Completed: ${command}`,
       pageTitle: await page.title(),
-
-      // The big fields you want to keep, but as plain data
-      extractedInfo,
-      navigableElements,
-      actionLog: trimmedActionLog, // (See trimming logs below)
-      
-      // No browser/agent/page/release references
-      // Just the screenshot path as a short string:
-      screenshotPath: screenshotUrl
+      extractedInfo,        // Full extraction data.
+      navigableElements,      // Navigable elements.
+      actionLog: trimmedActionLog,
+      screenshotPath: screenshotUrl,
+      state: {
+        assertion // Holds the efficient page state as returned by aiWaitFor.
+      }
     };
 
   } catch (error) {
     logAction(`Error in browser action: ${error.message}`, { stack: error.stack });
-  
-    // If we want to release the semaphore right away on error, do so:
     if (typeof release === 'function') release();
-  
-    // Trim the actionLog so we don't send huge logs back
+
+    // Trim action log on error.
     const trimmedActionLog = actionLog.map(entry => {
-      const shortMsg = entry.message.length > 150
-        ? entry.message.substring(0, 150) + '...'
+      const shortMsg = entry.message.length > 150 
+        ? entry.message.substring(0, 150) + '...' 
         : entry.message;
       return { ...entry, message: shortMsg };
     });
-  
-    // Return only minimal info. Do NOT return browser/page/agent anymore.
+
     return {
       success: false,
       error: error.message,
       actionLog: trimmedActionLog,
-      currentUrl: page ? page.url() : null,
+      currentUrl: page ? await page.url() : null,
       task_id,
       stepIndex: currentStep
     };
-  }  
+  }
 }
 
 /**
- * Enhanced browser query handler with improved logging and obstacle management
+ * Enhanced browser query handler with improved logging, obstacle management,
+ * and inclusion of a "state" property that holds a concise assertion of the page.
  * @param {Object} args - Query arguments
  * @param {string} userId - User ID
  * @param {string} taskId - Task ID
@@ -1977,15 +2008,14 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
  * @param {string} runDir - Run directory
  * @param {number} currentStep - Current step number
  * @param {Object} existingSession - Existing browser session
- * @returns {Object} - Result of the query
+ * @returns {Object} - Result of the query including state.
  */
 async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentStep = 0, existingSession) {
-  console.log(`[BrowserQuery] Received currentStep: ${currentStep}`); // Debug log
+  console.log(`[BrowserQuery] Received currentStep: ${currentStep}`);
   const { query, url: providedUrl, task_id } = args;
   let browser, agent, page, release;
   const actionLog = [];
 
-  // Log function for capturing detailed process information
   const logQuery = (message, data = null) => {
     const logEntry = {
       timestamp: new Date().toISOString(),
@@ -1997,7 +2027,6 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
     console.log(`[BrowserQuery] [Step ${currentStep}] ${message}`);
   };
 
-  // Partial update
   await updateTaskInDatabase(taskId, {
     status: 'processing',
     progress: 50,
@@ -2007,7 +2036,8 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
   try {
     logQuery(`Starting query: "${query}"`);
 
-    // Determine if we need to create a new session or use an existing one
+    const taskKey = task_id || taskId;
+
     if (existingSession) {
       logQuery("Using existing browser session");
       ({ browser, agent, page, release } = existingSession);
@@ -2020,66 +2050,73 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
           apiKey: process.env.HF_API_KEY, 
           model: 'bytedance/ui-tars-72b'
         });
-        activeBrowsers.set(task_id, { browser, agent, page, release, closed: false, hasReleased: false });
+        activeBrowsers.set(taskKey, { browser, agent, page, release, closed: false, hasReleased: false });
       }
-    } else if (task_id && activeBrowsers.has(task_id)) {
-      logQuery("Retrieving existing browser session from active browsers");
-      ({ browser, agent, page, release } = activeBrowsers.get(task_id));
-      if (!page || page.isClosed()) {
-        logQuery("Page is invalid or closed, creating a new one");
+    } else if (taskKey && activeBrowsers.has(taskKey)) {
+      const session = activeBrowsers.get(taskKey);
+      if (!session || !session.browser) {
+        logQuery("Browser session not valid, creating a new one.");
+        browser = await puppeteerExtra.launch({ 
+          headless: false,
+          args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-web-security"],
+          defaultViewport: { width: 1280, height: 720 }
+        });
         page = await browser.newPage();
         await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
-        agent = new PuppeteerAgent(page, { 
-          provider: 'huggingface', 
-          apiKey: process.env.HF_API_KEY, 
+        agent = new PuppeteerAgent(page, {
+          provider: 'huggingface',
+          apiKey: process.env.HF_API_KEY,
           model: 'bytedance/ui-tars-72b'
         });
-        activeBrowsers.set(task_id, { browser, agent, page, release, closed: false, hasReleased: false });
+        release = null;
+        activeBrowsers.set(taskKey, { browser, agent, page, release, closed: false, hasReleased: false });
+      } else {
+        ({ browser, agent, page, release } = session);
       }
     } else {
-      // Create new session only if a URL is provided
       if (!providedUrl) throw new Error("URL required for new tasks");
       logQuery(`Creating new browser session for URL: ${providedUrl}`);
-      
       release = await browserSemaphore.acquire();
       logQuery("Acquired browser semaphore");
-      
       browser = await puppeteerExtra.launch({ 
-        headless: false, 
+        headless: false,
         args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-web-security"],
         defaultViewport: { width: 1280, height: 720 }
       });
       logQuery("Browser launched successfully");
-      
       page = await browser.newPage();
       logQuery("New page created");
-      
-      await page.setDefaultNavigationTimeout(60000); // 60 seconds
-      page.on('console', msg => logQuery(`Console: ${msg.text().substring(0, 150)}`));
-      page.on('pageerror', err => logQuery(`Page error: ${err.message}`));
+      await page.setDefaultNavigationTimeout(60000);
+      // Set up event listeners.
+      page.on('console', msg => {
+        debugLog(`Console: ${msg.text().substring(0, 150)}`);
+      });
+      page.on('pageerror', err => {
+        debugLog(`Page error: ${err.message}`);
+      });
       page.on('request', req => {
-        if (['document', 'script', 'xhr', 'fetch'].includes(req.resourceType())) {
-          logQuery(`Request: ${req.method()} ${req.url().substring(0, 100)}`);
+        if (['document', 'script', 'xhr', 'fetch'].includes(req.resourceType()) &&
+            !req.url().includes("challenges.cloudflare.com")) {
+          debugLog(`Request: ${req.method()} ${req.url().substring(0, 100)}`);
         }
       });
       page.on('response', res => {
-        if (['document', 'script', 'xhr', 'fetch'].includes(res.request().resourceType())) {
-          logQuery(`Response: ${res.status()} ${res.url().substring(0, 100)}`);
+        if (['document', 'script', 'xhr', 'fetch'].includes(res.request().resourceType()) &&
+            !res.url().includes("challenges.cloudflare.com")) {
+          debugLog(`Response: ${res.status()} ${res.url().substring(0, 100)}`);
         }
       });
       
       logQuery(`Navigating to URL: ${providedUrl}`);
       await page.goto(providedUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
       logQuery("Navigation completed successfully");
-      
-      agent = new PuppeteerAgent(page, { 
-        provider: 'huggingface', 
-        apiKey: process.env.HF_API_KEY, 
+      agent = new PuppeteerAgent(page, {
+        provider: 'huggingface',
+        apiKey: process.env.HF_API_KEY,
         model: 'bytedance/ui-tars-72b'
       });
       logQuery("PuppeteerAgent initialized");
-      
-      activeBrowsers.set(task_id, { browser, agent, page, release, closed: false, hasReleased: false });
+      activeBrowsers.set(taskKey, { browser, agent, page, release, closed: false, hasReleased: false });
       logQuery("Browser session stored in active browsers");
     }
 
@@ -2091,37 +2128,32 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
       message: `Querying: ${query}`,
       log: actionLog
     });
-
-    // Set viewport
+    
     await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
     logQuery("Set viewport to 1280x720");
     
-    // Check for and handle page obstacles
     logQuery("Checking for page obstacles");
     const obstacleResults = await handlePageObstacles(page, agent);
     logQuery("Obstacle check results", obstacleResults);
     
-    // Execute query
     logQuery(`Executing query: "${query}"`);
+    // Perform extraction only once.
     const { pageContent: extractedInfo, navigableElements } = await extractRichPageContext(
       agent, 
       page, 
-      "scroll and observe",
+      "read, scan, extract, and observe",
       query
     );
     logQuery("Query executed successfully");
     
     await new Promise(resolve => setTimeout(resolve, 1000));
     
-    // Check for state changes
-    const stateCheck = await page.evaluate(() => {
-      return {
-        url: window.location.href,
-        popupOpened: window.opener !== null,
-        numFrames: window.frames.length,
-        alerts: document.querySelectorAll('[role="alert"]').length
-      };
-    });
+    const stateCheck = await page.evaluate(() => ({
+      url: window.location.href,
+      popupOpened: window.opener !== null,
+      numFrames: window.frames.length,
+      alerts: document.querySelectorAll('[role="alert"]').length
+    }));
     logQuery("Post-query state check", stateCheck);
     
     if (stateCheck.popupOpened) {
@@ -2132,9 +2164,9 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
         const newPage = pages[pages.length - 1];
         if (newPage !== page) {
           page = newPage;
-          agent = new PuppeteerAgent(page, { 
-            provider: 'huggingface', 
-            apiKey: process.env.HF_API_KEY, 
+          agent = new PuppeteerAgent(page, {
+            provider: 'huggingface',
+            apiKey: process.env.HF_API_KEY,
             model: 'bytedance/ui-tars-72b'
           });
           logQuery("Switched to new page and reinitialized agent");
@@ -2142,7 +2174,6 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
       }
     }
     
-    // Capture screenshot
     const screenshot = await page.screenshot({ encoding: 'base64' });
     const screenshotFilename = `screenshot-${Date.now()}.png`;
     const screenshotPath = path.join(runDir, screenshotFilename);
@@ -2152,17 +2183,19 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
 
     const currentUrl = await page.url();
     logQuery(`Current URL: ${currentUrl}`);
-
-    const result = {
-      success: true,
-      currentUrl,
-      pageTitle: await page.title(),
-      queryOutput: `Completed: ${query}`,
-      extractedInfo,
-      navigableElements,
-      actionLog,
-      stepIndex: currentStep
-    };
+    
+    sendWebSocketUpdate(userId, {
+      event: 'intermediateResult',
+      taskId,
+      result: {
+        screenshotUrl,
+        currentUrl,
+        extractedInfo: cleanForPrompt(extractedInfo),
+        navigableElements: Array.isArray(navigableElements)
+          ? navigableElements.map(el => cleanForPrompt(el))
+          : cleanForPrompt(navigableElements)
+      }
+    });
 
     sendWebSocketUpdate(userId, { 
       event: 'stepProgress', 
@@ -2173,66 +2206,70 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
       log: actionLog
     });
 
-    // Right before returning, do:
     const trimmedActionLog = actionLog.map(entry => {
-      // Trim each log message to 150-200 chars, for example
-      const truncatedMessage =
-        entry.message.length > 700
-          ? entry.message.substring(0, 700) + '...'
-          : entry.message;
-
+      const truncatedMessage = entry.message.length > 700 
+        ? entry.message.substring(0, 700) + '...' 
+        : entry.message;
       return { ...entry, message: truncatedMessage };
     });
 
+    // Run a single assertion based on the extracted information.
+    const assertion = await agent.aiWaitFor(
+      `Based on the extracted information: "${extractedInfo}", provide a concise summary of the page's state.`,
+      {
+        timeoutMs: 30000,
+        checkIntervalMs: 5000
+      }
+    );
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    logQuery("Assertion for query completed", { assertion });
+
+    // Return full results with state holding the assertion.
     return {
-      // Basic success/failure flags
       success: true,
       error: null,
-      
-      // Basic metadata
       task_id,
       closed: false,
       currentUrl,
-      
-      // Provide step info
       stepIndex: currentStep,
-      actionOutput: `Completed: ${command}`,
+      actionOutput: `Completed: ${query}`,
       pageTitle: await page.title(),
-
-      // The big fields you want to keep, but as plain data
       extractedInfo,
       navigableElements,
-      actionLog: trimmedActionLog, // (See trimming logs below)
-      
-      // No browser/agent/page/release references
-      // Just the screenshot path as a short string:
-      screenshotPath: screenshotUrl
+      actionLog: trimmedActionLog,
+      screenshotPath: screenshotUrl,
+      state: {
+        assertion // The state now holds the concise summary of the page.
+      }
     };
   } catch (error) {
     logQuery(`Error in browser query: ${error.message}`, { stack: error.stack });
-  
-    // Optionally release the semaphore right now on error
     if (typeof release === 'function') release();
-  
-    // Trim the actionLog so we don't blow up WebSocket messages
+
     const trimmedActionLog = actionLog.map(entry => {
-      const shortMsg = entry.message.length > 150
+      const shortMsg = entry.message.length > 150 
         ? entry.message.substring(0, 150) + '...'
         : entry.message;
       return { ...entry, message: shortMsg };
     });
-  
-    // Return only minimal info
+
     return {
       success: false,
       error: error.message,
       actionLog: trimmedActionLog,
-      currentUrl: page ? page.url() : null,
+      currentUrl: page ? await page.url() : null,
       task_id,
       stepIndex: currentStep
     };
-  }  
+  }
 }
+
+// Helper function to conditionally log debug messages.
+const debugLog = (msg, data = null) => {
+  if (process.env.DEBUG_PUPPETEER_LOGS === "true") {
+    console.log(msg, data || '');
+  }
+};
 
 // ===========================
 // MAIN CHAT LOGIC & route entry
@@ -2257,12 +2294,12 @@ async function openaiClassifyPrompt(prompt) {
   return 'chat';
 }
 
+
 /**
  * Unified NLI endpoint:
- * - If we detect it's a “task,” do your existing logic: create a Task doc, call processTask, etc.
+ * - If we detect it's a “task,” do your existing logic.
  * - If we detect it's “chat,” stream partial output from the LLM directly.
  */
-// NLI Endpoint
 app.post('/nli', requireAuth, async (req, res) => {
   const { prompt } = req.body;
   if (!prompt) {
@@ -2288,28 +2325,8 @@ app.post('/nli', requireAuth, async (req, res) => {
 
   if (classification === 'task') {
     logger.info('Processing as task');
-    const taskId = new mongoose.Types.ObjectId();
-    const runId = uuidv4();
-    const runDir = path.join(MIDSCENE_RUN_DIR, runId);
-    fs.mkdirSync(runDir, { recursive: true });
 
-    try {
-      const newTask = new Task({ _id: taskId, userId, command: prompt, status: 'pending', progress: 0, startTime: new Date(), runId });
-      await newTask.save();
-      await User.updateOne({ _id: userId }, { $push: { activeTasks: { _id: taskId.toString(), command: prompt, status: 'pending', startTime: new Date() } } });
-      logger.info('Task created', { taskId, runId });
-    } catch (err) {
-      logger.error('Database error creating task', err);
-      return res.status(500).json({ success: false, error: 'Database error' });
-    }
-
-    processTask(userId, user.email, taskId.toString(), runId, runDir, prompt, null);
-    res.json({ success: true, taskId: taskId.toString(), runId });
-  } else {
-    // --- Chat branch (non-streaming) ---
-    logger.info('Processing as chat, using normal JSON response');
-
-    // Update chat history (same as before)
+    // Save the user command to ChatHistory even for tasks.
     let chatHistory = await ChatHistory.findOne({ userId });
     if (!chatHistory) {
       chatHistory = new ChatHistory({ userId, messages: [] });
@@ -2317,35 +2334,75 @@ app.post('/nli', requireAuth, async (req, res) => {
     chatHistory.messages.push({
       role: 'user',
       content: prompt,
-      timestamp: new Date(),
+      timestamp: new Date()
     });
     await chatHistory.save();
 
-    // Build last few messages
+    const taskId = new mongoose.Types.ObjectId();
+    const runId = uuidv4();
+    const runDir = path.join(MIDSCENE_RUN_DIR, runId);
+    fs.mkdirSync(runDir, { recursive: true });
+
+    try {
+      const newTask = new Task({
+        _id: taskId,
+        userId,
+        command: prompt,
+        status: 'pending',
+        progress: 0,
+        startTime: new Date(),
+        runId
+      });
+      await newTask.save();
+      await User.updateOne({ _id: userId }, { 
+        $push: { 
+          activeTasks: { _id: taskId.toString(), command: prompt, status: 'pending', startTime: new Date() } 
+        } 
+      });
+      logger.info('Task created', { taskId, runId });
+    } catch (err) {
+      logger.error('Database error creating task', err);
+      return res.status(500).json({ success: false, error: 'Database error' });
+    }
+
+    processTask(userId, user.email, taskId.toString(), runId, runDir, prompt, null);
+    return res.json({ success: true, taskId: taskId.toString(), runId });
+  } else {
+    // --- Chat branch (non-streaming) ---
+    logger.info('Processing as chat, using normal JSON response');
+
+    let chatHistory = await ChatHistory.findOne({ userId });
+    if (!chatHistory) {
+      chatHistory = new ChatHistory({ userId, messages: [] });
+    }
+    chatHistory.messages.push({
+      role: 'user',
+      content: prompt,
+      timestamp: new Date()
+    });
+    await chatHistory.save();
+
     const lastMessages = chatHistory.messages
       .filter(m => ['user', 'assistant'].includes(m.role))
       .slice(-10)
       .map(m => ({ role: m.role, content: m.content }));
 
     try {
-      // Request the full completion with streaming disabled.
       const completion = await openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
         messages: lastMessages,
         temperature: 0.7,
-        stream: false,  // Disable streaming
+        stream: false
       });
 
-      // Extract the assistant reply from the response.
       const assistantReply = completion.choices[0].message.content;
       chatHistory.messages.push({
         role: 'assistant',
         content: assistantReply,
-        timestamp: new Date(),
+        timestamp: new Date()
       });
       await chatHistory.save();
 
-      // Return the full reply in JSON.
       res.json({ success: true, assistantReply });
       logger.info('Chat response sent', { userId });
     } catch (err) {
@@ -2354,7 +2411,6 @@ app.post('/nli', requireAuth, async (req, res) => {
     }
   }
 });
-
 
 /**
  * Refactored processTask function using the grand plan approach
@@ -2369,138 +2425,147 @@ app.post('/nli', requireAuth, async (req, res) => {
 async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url) {
   console.log(`[ProcessTask] Starting task ${taskId} with prompt: "${prompt}"`);
   
-  // Create a new task plan
   const plan = new TaskPlan(userId, taskId, prompt, url, runDir, runId);
+  plan.log("Task plan created.");
   
   try {
-    // Initialize the task in the database
-    await Task.updateOne(
-      { _id: taskId },
-      { 
-        $set: { 
-          status: 'processing', 
-          progress: 5,
-        }
-      }
-    );
+    await Task.updateOne({ _id: taskId }, { $set: { status: 'processing', progress: 5 } });
+    plan.log("Task status updated to processing in DB (progress 5%).");
     
-    // Send initial update to client
-    sendWebSocketUpdate(userId, {
-      event: 'taskStart',
-      taskId,
-      prompt,
-      url
-    });
-    
+    sendWebSocketUpdate(userId, { event: 'taskStart', taskId, prompt, url });
+    plan.log("Sent taskStart update over WebSocket.");
+
     let taskCompleted = false;
-    let consecutiveFailures = 0; // Track consecutive failures for dynamic adjustments
-    
+    let consecutiveFailures = 0;
+
     while (!taskCompleted && plan.currentStepIndex < plan.maxSteps - 1) {
-      // Generate system prompt based on current plan state
       const systemPrompt = plan.generateSystemPrompt();
+      plan.log(`Generated system prompt: ${systemPrompt}`);
       
-      // Prepare messages for AI
       let messages = [
         { role: "system", content: systemPrompt },
         { role: "user", content: prompt }
       ];
       
-      // Add previous step results if they exist (summarized for better memory management)
       if (plan.steps.length > 0) {
         plan.steps.slice(-3).forEach(step => {
           if (step.result) {
+            const toolCallId = `call_${step.index}`;
             messages.push({
               role: "assistant",
               content: null,
-              function_call: {
-                name: step.type === 'action' ? 'browser_action' : 'browser_query',
-                arguments: JSON.stringify({
-                  [step.type === 'action' ? 'command' : 'query']: step.instruction,
-                  task_id: taskId,
-                  url: plan.currentUrl
-                })
-              }
+              tool_calls: [
+                {
+                  id: toolCallId,
+                  type: "function",
+                  function: {
+                    name: step.type === 'action' ? 'browser_action' : 'browser_query',
+                    arguments: JSON.stringify({
+                      [step.type === 'action' ? 'command' : 'query']: step.instruction,
+                      task_id: taskId,
+                      url: plan.currentUrl
+                    })
+                  }
+                }
+              ]
             });
-            
-            // Summarized result to reduce memory usage
             messages.push({
-              role: "function",
+              role: "tool",
+              tool_call_id: toolCallId,
               name: step.type === 'action' ? 'browser_action' : 'browser_query',
               content: JSON.stringify({
                 success: step.result.success,
                 currentUrl: step.result.currentUrl,
-                extractedInfo: typeof step.result.extractedInfo === 'string' 
-                  ? step.result.extractedInfo.substring(0, 100) + '...' 
-                  : 'Structured data',
-                navigableElements: step.result.navigableElements?.slice(0, 5)
+                extractedInfo: typeof step.result.extractedInfo === 'string'
+                  ? cleanForPrompt(step.result.extractedInfo)
+                  : "No extraction",
+                navigableElements: Array.isArray(step.result.navigableElements)
+                  ? step.result.navigableElements.map(el => cleanForPrompt(el))
+                  : "No navigable elements"
               })
             });
           }
         });
       }
-      // Add current state if available
+      
       if (plan.currentState && plan.currentState.pageDescription) {
-        let descriptionText;
-        if (typeof plan.currentState.pageDescription === 'string') {
-          descriptionText = plan.currentState.pageDescription.substring(0, 300) + '...';
-        } else {
-          descriptionText = JSON.stringify(plan.currentState.pageDescription).substring(0, 300) + '...';
-        }
+        let descriptionText = (typeof plan.currentState.pageDescription === 'string')
+          ? plan.currentState.pageDescription.substring(0, 300) + '...'
+          : JSON.stringify(plan.currentState.pageDescription).substring(0, 300) + '...';
         messages.push({
           role: "system",
           content: `Current page state: ${descriptionText}`
         });
       }
       
-      // Start streaming to get the next function call from the AI
-      plan.log("Requesting next action from AI");
+      // Extracted data logged thorough
+      if (plan.steps.length > 0) {
+        const lastStep = plan.steps[plan.steps.length - 1];
+        plan.log("Using extraction from last step", {
+          extractedInfo: cleanForPrompt(lastStep.result?.extractedInfo),
+          navigableElements: lastStep.result?.navigableElements
+        });
+      } else {
+        plan.log("No intermediate extraction data available.");
+      }
+      
+      plan.log("Sending function call request to AI", { messages });
       
       const stream = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages,
         stream: true,
-        temperature: 0.3,
-        max_tokens: 500,
-        functions: [
+        temperature: 0.2,
+        max_tokens: 700,
+        tools: [
           {
-            name: "browser_action",
-            parameters: {
-              type: "object",
-              properties: {
-                command: { type: "string" },
-                url: { type: "string" },
-                task_id: { type: "string" }
-              },
-              required: ["command"]
+            type: "function",
+            function: {
+              name: "browser_action",
+              description: "Executes a browser action (e.g., click, scroll, type) on the page.",
+              parameters: {
+                type: "object",
+                properties: {
+                  command: { type: "string" },
+                  url: { type: "string" },
+                  task_id: { type: "string" }
+                },
+                required: ["command"]
+              }
             }
           },
           {
-            name: "browser_query",
-            parameters: {
-              type: "object",
-              properties: {
-                query: { type: "string" },
-                url: { type: "string" },
-                task_id: { type: "string" }
-              },
-              required: ["query"]
+            type: "function",
+            function: {
+              name: "browser_query",
+              description: "Extracts information from the webpage.",
+              parameters: {
+                type: "object",
+                properties: {
+                  query: { type: "string" },
+                  url: { type: "string" },
+                  task_id: { type: "string" }
+                },
+                required: ["query"]
+              }
             }
           },
           {
-            name: "task_complete",
-            parameters: {
-              type: "object",
-              properties: {
-                summary: { type: "string" }
-              },
-              required: []
+            type: "function",
+            function: {
+              name: "task_complete",
+              description: "Signals that the task is complete with a final summary.",
+              parameters: {
+                type: "object",
+                properties: { summary: { type: "string" } },
+                required: []
+              }
             }
           }
         ],
-        function_call: "auto"
+        tool_choice: "auto"
       });
       
-      // Improved stream handling
       let currentFunctionCall = null;
       let accumulatedArgs = '';
       let functionCallReceived = false;
@@ -2509,171 +2574,152 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
       for await (const chunk of stream) {
         const delta = chunk.choices[0]?.delta;
         
-        // Handle text content (thoughts)
         if (delta?.content) {
           thoughtBuffer += delta.content;
-          sendWebSocketUpdate(userId, {
-            event: 'thoughtUpdate',
-            taskId,
-            thought: delta.content
-          });
-        }
-
-        // Handle function call start
-        if (delta?.function_call?.name) {
-          if (thoughtBuffer) {
-            sendWebSocketUpdate(userId, {
-              event: 'thoughtComplete',
-              taskId,
-              thought: thoughtBuffer
-            });
-            thoughtBuffer = '';
-          }
-          plan.log(`New function call started: ${delta.function_call.name}`);
-          currentFunctionCall = { name: delta.function_call.name };
-          accumulatedArgs = '';
+          sendWebSocketUpdate(userId, { event: 'thoughtUpdate', taskId, thought: delta.content });
         }
         
-        // Accumulate function arguments
-        if (delta?.function_call?.arguments) {
-          accumulatedArgs += delta.function_call.arguments;
-          // Send the entire accumulated string so far.
-          sendWebSocketUpdate(userId, {
-            event: 'functionCallPartial',
-            taskId,
-            functionName: currentFunctionCall?.name,
-            partialArgs: accumulatedArgs
-          });
-          try {
-            const parsedArgs = JSON.parse(accumulatedArgs);
-            plan.log(`Complete function call:`, {
-              name: currentFunctionCall.name,
-              args: parsedArgs
-            });
-            parsedArgs.task_id = taskId;
-            parsedArgs.url = parsedArgs.url || url || plan.currentUrl;
-            if (currentFunctionCall.name === "browser_action") {
-              const step = plan.createStep('action', parsedArgs.command, parsedArgs);
-              const result = await step.execute(plan);
-              await addIntermediateResult(userId, taskId, result);
-              consecutiveFailures = result.success ? 0 : consecutiveFailures + 1;
-              if (consecutiveFailures >= 3) {
-                plan.log("Triggering recovery due to consecutive failures");
-                const recoveryStep = plan.createStep('query', 'Suggest a new approach to achieve the original task', {
-                  query: 'Suggest a new approach to achieve the original task',
-                  task_id: taskId,
-                  url: plan.currentUrl
-                });
-                await recoveryStep.execute(plan);
-                consecutiveFailures = 0;
-              }
-              functionCallReceived = true;
-              break;
-            } else if (currentFunctionCall.name === "browser_query") {
-              const step = plan.createStep('query', parsedArgs.query, parsedArgs);
-              const result = await step.execute(plan);
-              await addIntermediateResult(userId, taskId, result);
-              consecutiveFailures = 0;
-              functionCallReceived = true;
-              break;
-            } else if (currentFunctionCall.name === "task_complete") {
-              const summary = parsedArgs.summary || `Task completed: ${prompt}`;
-              plan.markCompleted(summary);
-              const finalResult = await processTaskCompletion(
-                userId,
-                taskId,
-                plan.steps.map(step => step.result || { success: false }),
-                prompt,
-                runDir,
-                runId
-              );
-              // Right before updating the DB with finalResult, produce a cleaned version:
-              const cleanedFinal = {
-                success: finalResult.success,
-                currentUrl: finalResult.raw?.url || finalResult.currentUrl,
-                extractedInfo: typeof finalResult.aiPrepared?.summary === 'string'
-                  ? finalResult.aiPrepared.summary.substring(0, 1500) + '...'
-                  : 'No AI summary',
-                screenshotPath: finalResult.screenshot || finalResult.screenshotPath,
-                timestamp: new Date()
-              };
-
-              await Task.updateOne(
-                { _id: taskId },
-                {
-                  $set: {
-                    status: 'completed',
-                    progress: 100,
-                    result: cleanedFinal, // store only trimmed data
-                    endTime: new Date()
-                  }
+        if (delta?.tool_calls) {
+          for (const toolCallDelta of delta.tool_calls) {
+            if (toolCallDelta.index === 0) {
+              if (toolCallDelta.function.name && !currentFunctionCall) {
+                currentFunctionCall = { name: toolCallDelta.function.name };
+                accumulatedArgs = '';
+                if (thoughtBuffer) {
+                  sendWebSocketUpdate(userId, { event: 'thoughtComplete', taskId, thought: thoughtBuffer });
+                  thoughtBuffer = '';
                 }
-              );
+                plan.log(`New tool call started: ${currentFunctionCall.name}`);
+              }
+              if (toolCallDelta.function.arguments) {
+                accumulatedArgs += toolCallDelta.function.arguments;
+                sendWebSocketUpdate(userId, {
+                  event: 'functionCallPartial',
+                  taskId,
+                  functionName: currentFunctionCall?.name,
+                  partialArgs: accumulatedArgs
+                });
+                try {
+                  const parsedArgs = JSON.parse(accumulatedArgs);
+                  plan.log("Complete tool call received", { function: currentFunctionCall.name, args: parsedArgs });
+                  parsedArgs.task_id = taskId;
+                  parsedArgs.url = parsedArgs.url || url || plan.currentUrl;
+                  if (currentFunctionCall.name === "browser_action") {
+                    const step = plan.createStep('action', parsedArgs.command, parsedArgs);
+                    const result = await step.execute(plan);
+                    await addIntermediateResult(userId, taskId, result);
+                    consecutiveFailures = result.success ? 0 : consecutiveFailures + 1;
+                    if (consecutiveFailures >= 3) {
+                      plan.log("Triggering recovery due to consecutive failures");
+                      const recoveryStep = plan.createStep('query', 'Suggest a new approach to achieve the Main Task', {
+                        query: 'Suggest a new approach to achieve the Main Task',
+                        task_id: taskId,
+                        url: plan.currentUrl
+                      });
+                      await recoveryStep.execute(plan);
+                      consecutiveFailures = 0;
+                    }
+                    functionCallReceived = true;
+                    break;
+                  } else if (currentFunctionCall.name === "browser_query") {
+                    const step = plan.createStep('query', parsedArgs.query, parsedArgs);
+                    const result = await step.execute(plan);
+                    await addIntermediateResult(userId, taskId, result);
+                    consecutiveFailures = 0;
+                    functionCallReceived = true;
+                    break;
+                  } else if (currentFunctionCall.name === "task_complete") {
+                    const summary = parsedArgs.summary || `Task completed: ${prompt}`;
+                    plan.markCompleted(summary);
+                    const finalResult = await processTaskCompletion(
+                      userId,
+                      taskId,
+                      plan.steps.map(step => step.result || { success: false }),
+                      prompt,
+                      runDir,
+                      runId
+                    );
+                    const finalExtracted = (finalResult.raw && finalResult.raw.pageText && 
+                                            cleanForPrompt(finalResult.raw.pageText).length > 0)
+                      ? cleanForPrompt(finalResult.raw.pageText)
+                      : (finalResult.aiPrepared && finalResult.aiPrepared.summary && 
+                         cleanForPrompt(finalResult.aiPrepared.summary).length > 0)
+                        ? cleanForPrompt(finalResult.aiPrepared.summary)
+                        : `Task completed: ${prompt}`;
+                    const cleanedFinal = {
+                      success: finalResult.success,
+                      currentUrl: finalResult.raw?.url || finalResult.currentUrl,
+                      extractedInfo: finalExtracted,
+                      screenshotPath: finalResult.screenshot || finalResult.screenshotPath,
+                      timestamp: new Date()
+                    };
 
-              sendWebSocketUpdate(userId, {
-                event: 'taskComplete',
-                taskId,
-                status: 'completed',
-                result: finalResult
-              });
-              taskCompleted = true;
-              break;
+                    await Task.updateOne(
+                      { _id: taskId },
+                      { $set: { status: 'completed', progress: 100, result: cleanedFinal, endTime: new Date() } }
+                    );
+
+                    let taskChatHistory = await ChatHistory.findOne({ userId });
+                    if (!taskChatHistory) {
+                      taskChatHistory = new ChatHistory({ userId, messages: [] });
+                    }
+                    taskChatHistory.messages.push({
+                      role: 'assistant',
+                      content: finalExtracted,
+                      timestamp: new Date()
+                    });
+                    await taskChatHistory.save();
+
+                    sendWebSocketUpdate(userId, {
+                      event: 'taskComplete',
+                      taskId,
+                      status: 'completed',
+                      result: finalResult
+                    });
+                    taskCompleted = true;
+                    break;
+                  }
+                } catch (e) {
+                  // Continue accumulating if JSON is incomplete
+                }
+              }
             }
-          } catch (e) {
-            // Continue accumulating if JSON is incomplete.
           }
         }
-                
       }
-
-      // NEW: After the stream finishes, send a final thoughtComplete if there is any remaining text.
+      
       if (thoughtBuffer) {
-        sendWebSocketUpdate(userId, {
-          event: 'thoughtComplete',
-          taskId,
-          thought: thoughtBuffer
-        });
+        sendWebSocketUpdate(userId, { event: 'thoughtComplete', taskId, thought: thoughtBuffer });
         thoughtBuffer = "";
       }
       
       if (taskCompleted) {
-        plan.log(`Task completed after ${plan.currentStepIndex + 1} steps`);
+        plan.log(`Task completed after ${plan.currentStepIndex + 1} steps.`);
         break;
       }
       
       if (!functionCallReceived) {
-        plan.log(`No function call received for step ${plan.currentStepIndex + 1}`);
-        // Create a recovery step to gather page state
+        plan.log(`No tool call received for step ${plan.currentStepIndex + 1}`);
         const recoveryStep = plan.createStep('query', 'Describe the current page state and available actions', {
           query: 'Describe the current page state and available actions',
           task_id: taskId,
           url: plan.currentUrl
         });
         await recoveryStep.execute(plan);
-        consecutiveFailures = 0; // Reset after recovery step
+        consecutiveFailures = 0;
       }
       
-      // Update task progress in the database
       const progress = Math.min(95, Math.floor((plan.currentStepIndex + 1) / plan.maxSteps * 100));
       await Task.updateOne(
         { _id: taskId },
-        { 
-          $set: { 
-            status: 'running', 
-            progress,
-            currentStepIndex: plan.currentStepIndex,
-            currentUrl: plan.currentUrl
-          } 
-        }
+        { $set: { status: 'running', progress, currentStepIndex: plan.currentStepIndex, currentUrl: plan.currentUrl } }
       );
+      plan.log(`Task progress updated in DB: ${progress}%`);
     }
     
-    // If we reached max steps without completion
     if (!taskCompleted) {
       const summary = `Task reached maximum steps (${plan.maxSteps}) without explicit completion. Current URL: ${plan.currentUrl}`;
       plan.markCompleted(summary);
-      
-      // Call processTaskCompletion to generate reports and get finalResult
       const finalResult = await processTaskCompletion(
         userId,
         taskId,
@@ -2683,45 +2729,33 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
         runId
       );
       
-      // Update task as completed in the database
       await Task.updateOne(
         { _id: taskId },
-        { 
-          $set: { 
-            status: 'completed', 
-            progress: 100, 
-            result: finalResult, 
-            endTime: new Date(),
-            summary
-          } 
-        }
+        { $set: { status: 'completed', progress: 100, result: finalResult, endTime: new Date(), summary } }
       );
       
-      // Send completion update to client
       sendWebSocketUpdate(userId, {
         event: 'taskComplete',
         taskId,
         status: 'completed',
         result: finalResult
       });
+      plan.log("Sent taskComplete update for max-steps reached.");
     }
   } catch (error) {
     console.error(`[ProcessTask] Error in task ${taskId}:`, error);
-    plan.log(`Error: ${error.message}`, { stack: error.stack });
-    
+    plan.log(`Error encountered: ${error.message}`, { stack: error.stack });
     sendWebSocketUpdate(userId, {
       event: 'taskError',
       taskId,
       error: error.message,
       log: plan.planLog.slice(-10)
     });
-    
     await Task.updateOne(
       { _id: taskId },
       { $set: { status: 'error', error: error.message, endTime: new Date() } }
     );
   } finally {
-    // Clean up browser resources
     if (plan.browserSession) {
       try {
         const { browser, release, hasReleased } = plan.browserSession;
@@ -2732,35 +2766,39 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
           release();
           plan.browserSession.hasReleased = true;
         } else {
-          console.warn(`[TaskCompletion] Expected release to be a function but got ${typeof release} for session ${plan.taskId}. Skipping release.`);
-        }              
-        // Mark the session as closed and remove from activeBrowsers using the taskId
+          console.warn(`[ProcessTask] Expected release as function but got ${typeof release} for session ${plan.taskId}.`);
+        }
         plan.browserSession.closed = true;
         activeBrowsers.delete(plan.taskId);
-        console.log(`[TaskCompletion] Closed browser session ${plan.taskId}`);
+        console.log(`[ProcessTask] Closed browser session ${plan.taskId}`);
+        plan.log("Browser session closed and removed from active browsers.");
       } catch (error) {
-        console.error(`[TaskCompletion] Error closing browser session ${plan.taskId}:`, error);
+        console.error(`[ProcessTask] Error closing browser session ${plan.taskId}:`, error);
       }
-    }    
+    }
     
-    console.log(`[ProcessTask] Task ${taskId} finished with ${plan.steps.length} steps executed`);
+    console.log(`[ProcessTask] Task ${taskId} finished with ${plan.steps.length} steps executed.`);
     
-    // Save the final plan summary to the database for later reference
     try {
       await Task.updateOne(
         { _id: taskId },
-        { 
-          $set: { 
-            planSummary: plan.getSummary(),
-            stepsExecuted: plan.steps.length
-          } 
-        }
+        { $set: { planSummary: plan.getSummary(), stepsExecuted: plan.steps.length } }
       );
+      plan.log("Plan summary saved to database.");
     } catch (dbError) {
       console.error(`[ProcessTask] Error saving plan summary:`, dbError);
     }
   }
 }
+
+function cleanForPrompt(data) {
+  if (data == null) return "";
+  let str = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+  // Remove known placeholder text
+  if (str.trim() === "Structured data") return "";
+  return str.trim();
+}
+
 /**
  * Helper function to add intermediate results to a task
  * @param {string} userId - User ID
@@ -2799,29 +2837,25 @@ async function addIntermediateResult(userId, taskId, result) {
 }
 
 async function extractRichPageContext(agent, page, command, query) {
-  // Detect the domain type to apply specialized extraction
   const currentUrl = await page.url();
   const domainType = detectDomainType(currentUrl);
-  
-  // Create domain-specific query sections
   const domainSpecificPrompt = generateDomainSpecificPrompt(domainType);
   
-  // Updated query to enforce a more detailed JSON object response
   const combinedQuery = `
 After executing "${command}", thoroughly analyze the page and return a JSON object with the following structure:
 {
   "main_content": "Describe the main content visible on the page (prices, titles, important information).",
   "navigable_elements": [
-    "List ALL clickable and navigable elements (links, buttons, tabs, menus, dropdowns) with PRECISE descriptive names as they appear on screen."
+    "List ALL clickable and navigable elements with their EXACT text as shown on screen."
   ],
   "interactive_controls": [
-    "List ALL interactive controls (sliders, toggles, filters, checkboxes, radio buttons, dropdowns) with their EXACT labels/names and current state if visible."
+    "List ALL interactive controls (sliders, toggles, filters, etc.) with their EXACT labels if visible."
   ],
   "data_visualization": [
-    "List ALL chart controls, time period selectors, indicator buttons, or visualization options with their EXACT labels."
+    "List ALL chart controls, time selectors, indicator buttons with their EXACT labels."
   ],
   "product_filters": [
-    "List ALL product filtering options, sorting controls, or refinement tools with their EXACT labels."
+    "List ALL product filtering options with their EXACT labels."
   ],
   "search_fields": [
     "List any search fields or input areas with their placeholder text."
@@ -2831,56 +2865,30 @@ After executing "${command}", thoroughly analyze the page and return a JSON obje
 
 ${domainSpecificPrompt}
 
-BE EXTREMELY THOROUGH. Missing elements is a critical error. If you see any filtering options, toggles, time range selectors, or small UI controls, be sure to include them. Pay special attention to small icons or buttons near charts or product displays.
-There is no need to  give exact shape dimensions, only describe the elements and location. Only stick to the locator, id, index, attributes and content and if its navigatable or for decoration for example placeholder background pirctures of interfaces  on coinbase home page.
-Ensure the response is a valid JSON object.
+Ensure you return valid JSON. If any field is not present, return an empty string or an empty array as appropriate.
 [END OF INSTRUCTION]
 ${query}
   `;
  
   try {
-    const extractedInfo = await agent.aiQuery(combinedQuery);
-    
-    // Handle non-string (object) responses
+    let extractedInfo = await agent.aiQuery(combinedQuery);
     if (typeof extractedInfo !== 'string') {
-      console.log(`[Rich Context] Received non-string response:`, typeof extractedInfo);
-      console.log(`[Rich Context] Full object contents:`, JSON.stringify(extractedInfo, null, 2));
-      
       if (extractedInfo && typeof extractedInfo === 'object') {
-        // Extract pageContent with fallbacks
-        const pageContent = extractedInfo.main_content || 
-                           extractedInfo.description || 
-                           JSON.stringify(extractedInfo);
-        
-        // Combine all navigable elements from different categories for comprehensive detection
+        const pageContent = extractedInfo.main_content || "No content extracted";
         const navigableElements = [
           ...(Array.isArray(extractedInfo.navigable_elements) ? extractedInfo.navigable_elements : []),
           ...(Array.isArray(extractedInfo.interactive_controls) ? extractedInfo.interactive_controls : []),
           ...(Array.isArray(extractedInfo.data_visualization) ? extractedInfo.data_visualization : []),
           ...(Array.isArray(extractedInfo.product_filters) ? extractedInfo.product_filters : [])
         ];
-        
-        return {
-          pageContent,
-          navigableElements
-        };
+        return { pageContent, navigableElements };
       }
-      
-      // Fallback for invalid objects
-      console.log(`[Rich Context] Invalid object received, using fallback`);
-      return {
-        pageContent: "No content extracted",
-        navigableElements: []
-      };
+      return { pageContent: "No content extracted", navigableElements: [] };
     }
     
-    // Handle string responses (fallback for legacy behavior)
-    console.log(`[Rich Context] Received string response:`, extractedInfo.substring(0, 200) + '...');
     let pageContent = extractedInfo;
     let navigableElements = [];
-   
     try {
-      // Parse string for navigable elements - more aggressive extraction
       const sections = extractedInfo.split(/(?:\r?\n){1,}/);
       const elementKeywords = [
         "clickable", "navigable", "button", "link", "menu", "filter", "toggle", 
@@ -2888,115 +2896,70 @@ ${query}
         "slider", "candlestick", "time frame", "period", "indicator"
       ];
       
-      // More aggressive element extraction
       for (const section of sections) {
         if (elementKeywords.some(keyword => section.toLowerCase().includes(keyword))) {
           const newElements = section.split(/\r?\n/)
                                     .filter(line => line.trim())
                                     .map(line => line.trim());
-          
           navigableElements = [...navigableElements, ...newElements];
         }
       }
-      
-      // Deduplicate elements
       navigableElements = [...new Set(navigableElements)];
     } catch (parseError) {
       console.log("[Rich Context] Error parsing navigable elements:", parseError);
     }
    
-    return {
-      pageContent,
-      navigableElements
+    return { 
+      pageContent: pageContent || "No content extracted", 
+      navigableElements 
     };
   } catch (queryError) {
     console.error(`[Rich Context] Error in AI query:`, queryError);
-    return {
-      pageContent: "Error extracting page content: " + queryError.message,
-      navigableElements: []
-    };
+    return { pageContent: "Error extracting page content: " + queryError.message, navigableElements: [] };
   }
 }
 
-/**
- * Detect the domain type to apply specialized extraction
- * @param {string} url - Current page URL
- * @returns {string} - Domain type
- */
 function detectDomainType(url) {
   const urlLower = url.toLowerCase();
   
-  // E-commerce sites
+  if (urlLower.includes('dextools') || urlLower.includes('dexscreener') ||
+      urlLower.includes('coinbase') || urlLower.includes('coingecko') ||
+      urlLower.includes('coinmarketcap') || urlLower.includes('binance') ||
+      urlLower.includes('jupiexchange')) {
+    return 'cryptoSpecial';
+  }
   if (urlLower.includes('amazon') || urlLower.includes('ebay') || 
       urlLower.includes('walmart') || urlLower.includes('etsy')) {
     return 'ecommerce';
   }
-  
-  // Crypto sites
-  if (urlLower.includes('coinbase') || urlLower.includes('coingecko') || 
-      urlLower.includes('coinmarketcap') || urlLower.includes('binance') ||
-      urlLower.includes('kraken')) {
-    return 'crypto';
-  }
-  
-  // Social media
   if (urlLower.includes('twitter') || urlLower.includes('facebook') ||
       urlLower.includes('instagram') || urlLower.includes('tiktok')) {
     return 'social';
   }
-  
-  // Default
   return 'general';
 }
 
-/**
- * Generate domain-specific extraction instructions
- * @param {string} domainType - Type of domain
- * @returns {string} - Domain-specific prompt
- */
 function generateDomainSpecificPrompt(domainType) {
-  switch (domainType) {
-    case 'ecommerce':
-      return `
-ECOMMERCE SITE DETECTED: Pay special attention to:
-- Product filters (size, color, price, brand, rating)
-- Sort options (by price, relevance, rating)
-- "Add to cart" and "Buy now" buttons
-- Product variations (size selectors, color pickers)
-- Delivery options
-- "Save for later" or wishlist buttons
-      `;
-    
-    case 'crypto':
-      return `
-CRYPTOCURRENCY SITE DETECTED: Pay special attention to:
-- Timeframe selectors (1H, 4H, 1D, 1W, 1M, etc.)
-- Chart type toggles (candlestick, line, bar)
-- Technical indicators (MACD, RSI, Moving Averages, etc.)
-- Market data filters (Market Cap, Volume, Supply)
-- Price alerts or watchlist buttons
-- Trading pair selectors
-- Order book elements
-- Buy/Sell interfaces
-      `;
-    
-    case 'social':
-      return `
-SOCIAL MEDIA SITE DETECTED: Pay special attention to:
-- Post creation tools
-- Comment and reply buttons
-- Reaction/like buttons
-- Share or repost options
-- Message or DM buttons
-- Follow/unfollow controls
-- Timeline filters (Latest, Top, Trending)
-      `;
-    
-    default:
-      return `
-GENERAL SITE DETECTED: Be comprehensive in finding all interactive elements.
-Pay special attention to small UI controls that might be easy to miss.
-      `;
+  if (domainType === 'cryptoSpecial') {
+    return `
+CRYPTO SPECIAL INTERFACE DETECTED (e.g., Dextools, Dexscreener, Coinbase, Coingecko, Jupiter Exchange):
+- Note the side menus, top navigation bars, and dashboard sections.
+- Identify buttons such as "Trade", "Charts", "Market", "Analysis".
+- Include any filtering dropdowns, time frame selectors, and graph toggles.
+- List any visible labels of clickable links or tabs.
+    `;
+  } else if (domainType === 'ecommerce') {
+    return `
+ECOMMERCE SITE DETECTED: Focus on product filters, sort options, "Add to cart" buttons, and product variations.
+    `;
+  } else if (domainType === 'social') {
+    return `
+SOCIAL MEDIA SITE DETECTED: Focus on post creation, reply/comment buttons, and timeline navigation controls.
+    `;
+  } else {
+    return `
+GENERAL SITE DETECTED: Be comprehensive in finding all interactive elements to navigate this type of website. Emphasize clickable links, menus, and controls.
+    `;
   }
 }
 
@@ -3007,7 +2970,7 @@ Pay special attention to small UI controls that might be easy to miss.
  * @returns {Object} - Result of the preparation
  */
 async function handlePageObstacles(page, agent) {
-  console.log(`[Obstacles] Checking for page obstacles...`);
+  console.log(`🔍 [Obstacles] Checking for page obstacles...`);
   const results = {
     obstacles: [],
     actionsAttempted: [],
@@ -3015,101 +2978,105 @@ async function handlePageObstacles(page, agent) {
   };
 
   try {
-    // Listen for new dialogs (alerts, confirms, prompts)
-    page.on('dialog', async dialog => {
-      console.log(`[Obstacles] Dialog detected: ${dialog.type()}, message: ${dialog.message()}`);
+    // Listen for any dialogs (alerts, confirms, prompts) and auto-accept them.
+    page.on('dialog', async (dialog) => {
+      console.log(`🔔 [Obstacles] Dialog detected: ${dialog.type()} - ${dialog.message()}`);
       results.obstacles.push(`Dialog: ${dialog.type()} - ${dialog.message()}`);
-      
-      // Accept dialogs by default
       await dialog.accept();
       results.actionsAttempted.push(`Accepted ${dialog.type()} dialog`);
     });
 
-    // Check for common obstacles
-    const obstacleCheck = `
-      Analyze the current page for any of these common obstacles:
-      1. Cookie consent banners or popups
-      2. Newsletter signup or subscription modals
-      3. Login walls or authentication prompts
-      4. Age verification prompts
-      5. GDPR or privacy notice banners
-      6. "Allow notifications" prompts
-      7. App download suggestions
-      8. Survey or feedback requests
-      9. Captcha or verification challenges
-      10. Ads that block content
-
-      For each obstacle found, identify:
-      - The exact text on dismiss/accept buttons
-      - The location on screen (top, bottom, center)
-      - Whether it blocks the main content
+    // Prepare a text instruction prompt for obstacles.
+    const obstacleCheckPrompt = `
+      Analyze the current page for common obstacles such as:
+      1. Cookie consent banners,
+      2. Newsletter signup modals,
+      3. Login walls,
+      4. Captcha or Turnstile challenges,
+      5. Overlays or popups blocking content.
       
-      Return in a clear, structured format.
+      For each obstacle, list any dismiss button text visible (e.g., "Accept", "Close", "No thanks"). If no obstacles or popups are found, return "no obstacles" or "none detected" only.
+      Return a structured answer.
     `;
     
-    // Execute the obstacle check
-    const obstacles = await agent.aiQuery(obstacleCheck);
-    
+    // Execute the obstacle detection query.
+    let obstacles = await agent.aiQuery(obstacleCheckPrompt);
+    // Normalize obstacles to text regardless of whether it comes as a string or object.
+    let obstaclesText = '';
     if (typeof obstacles === 'string') {
-      if (obstacles.toLowerCase().includes('no obstacles') || 
-          obstacles.toLowerCase().includes('not found') ||
-          obstacles.toLowerCase().includes('none detected')) {
-        console.log(`[Obstacles] No obstacles detected`);
-        results.success = true;
-        return results;
-      }
-      
-      // Log detected obstacles
-      console.log(`[Obstacles] Detected: ${obstacles.slice(0, 150)}...`);
-      results.obstacles.push(obstacles);
-      
-      // Try to handle the obstacles
-      const dismissActions = [
-        // Cookie consent
-        "Find and click 'Accept', 'Accept All', 'I Accept', 'I Agree', or 'Agree' buttons for cookie notices",
-        // Privacy notices
-        "Find and click 'Continue', 'Close', 'Got it', 'I understand', or 'OK' buttons for privacy notices",
-        // Modal closing
-        "Look for and click 'X', 'Close', 'Skip', 'No thanks', or 'Maybe later' buttons on any popups or modals",
-        // Captcha handling (basic)
-        "If there's a CAPTCHA, solve the challenge and continue",
-        // Popups General
-        "For overlays and popups attempt to click Esc or outside the form to dismiss it",
-      ];
-      
-      // Try each dismissal strategy
-      for (const action of dismissActions) {
+      obstaclesText = obstacles;
+    } else if (typeof obstacles === 'object') {
+      obstaclesText = JSON.stringify(obstacles, null, 2);
+    } else {
+      obstaclesText = String(obstacles);
+    }
+    
+    // If no obstacles are detected in text, mark success.
+    if (typeof obstaclesText === 'string' &&
+        (obstaclesText.toLowerCase().includes('no obstacles') ||
+         obstaclesText.toLowerCase().includes('none detected'))) {
+      console.log(`✅ [Obstacles] No obstacles detected.`);
+      results.success = true;
+      return results;
+    }
+    
+    // Otherwise, log the detected obstacles.
+    console.log(`⚠️ [Obstacles] Detected: ${obstaclesText.slice(0, 150)}...`);
+    results.obstacles.push(obstaclesText);
+    
+    // Define a list of dismissal actions to attempt.
+    const dismissActions = [
+      "Find and click 'Accept', 'Accept All', 'I Accept', 'I Agree', or 'Agree'",
+      "Find and click 'Continue', 'Close', 'Got it', 'I understand', or 'OK'",
+      "Look for and click 'X', 'Close', 'Skip', 'No thanks', or 'Maybe later'",
+      "If a CAPTCHA is present, attempt to solve or reload the challenge",
+      "Try pressing the 'Escape' key or clicking outside a modal"
+    ];
+    
+    let attemptCount = 0;
+    const maxAttempts = 3; // Limit the number of times to retry a single dismiss action.
+    
+    // Iterate over each dismissal action.
+    for (const action of dismissActions) {
+      attemptCount = 0;
+      let cleared = false;
+      while (attemptCount < maxAttempts) {
         try {
-          console.log(`[Obstacles] Attempting: ${action}`);
-          await agent.aiAction(action);
+          console.log(`🔧 [Obstacles] Attempting dismissal: ${action}`);
           results.actionsAttempted.push(action);
+          // Use the agent's action function. Ideally, replace a raw text string with a dedicated method.
+          // For example: await agent.scroll({ startBox: [0, 0, 1280, 720], direction: 'down' })
+          // For now, we assume aiAction accepts this text.
+          await agent.aiAction(action);
+          // Wait for a moment to let the page update.
           await new Promise(resolve => setTimeout(resolve, 1000));
           
-          // Check if the obstacle is still present
-          const recheck = await agent.aiQuery("Are there still any popups, captchas, overlays, modals, or banners blocking the content?");
-          if (recheck.toLowerCase().includes('no') || 
-              recheck.toLowerCase().includes('gone') || 
-              recheck.toLowerCase().includes('removed') ||
-              recheck.toLowerCase().includes('cleared')) {
-            console.log(`[Obstacles] Successfully cleared obstacles`);
+          // Check if obstacles are still present.
+          const recheck = await agent.aiQuery("Are there any popups, overlays, or banners blocking the main content?");
+          if (typeof recheck === 'string' && 
+              (recheck.toLowerCase().includes('no') || 
+               recheck.toLowerCase().includes('cleared') ||
+               recheck.toLowerCase().includes('gone'))) {
+            console.log(`✅ [Obstacles] Cleared with action: ${action}`);
             results.success = true;
+            cleared = true;
             break;
           }
-        } catch (actionError) {
-          console.log(`[Obstacles] Action failed: ${actionError.message}`);
-          continue; // Try next action
+        } catch (dismissError) {
+          console.log(`❌ [Obstacles] Dismissal error on attempt ${attemptCount + 1} for action "${action}": ${dismissError.message}`);
         }
+        attemptCount++;
       }
-    } else if (typeof obstacles === 'object') {
-      // Handle structured response
-      console.log(`[Obstacles] Received structured obstacle data`);
-      results.obstacles.push(JSON.stringify(obstacles));
-      results.success = true; // Assume success for now
+      if (cleared) break;
+    }
+    
+    if (!results.success) {
+      console.log(`⚠️ [Obstacles] Unable to clear obstacles after ${maxAttempts * dismissActions.length} attempts.`);
     }
     
     return results;
   } catch (error) {
-    console.error(`[Obstacles] Error during obstacle handling:`, error);
+    console.error(`❌ [Obstacles] Error during obstacle handling: ${error.message}`);
     results.obstacles.push(`Error: ${error.message}`);
     return results;
   }

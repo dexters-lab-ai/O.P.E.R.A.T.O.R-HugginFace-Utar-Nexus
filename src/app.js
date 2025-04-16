@@ -39,6 +39,7 @@ function initWebSocket(userId) {
           updateTaskProgress(data.taskId, data.progress, data.status, data.error, data.milestone, data.subTask);
           break;
         case 'intermediateResult':
+          console.log('[WebSocket] Intermediate result received:', data);
           handleIntermediateResult(data.taskId, data.result, data.subTask, data.streaming);
           break;
         case 'taskComplete':
@@ -145,6 +146,7 @@ function initializeResultCard(taskId, command) {
         </div>
       </div>
       <div class="result-content">
+        <div class="intermediate-results"></div>
         <div class="outputs"></div>
         <div class="screenshots"></div>
       </div>
@@ -205,27 +207,87 @@ const logger = {
   error: (...args) => console.error('[ERROR]', ...args),
 };
 
-function appendThought(taskId, thoughtChunk) {
-  const nliResults = document.getElementById('nli-results');
-  const thoughtMessage = document.createElement('div');
-  thoughtMessage.className = 'chat-message ai-message animate-in thought-message';
-  thoughtMessage.dataset.taskId = taskId;
-  thoughtMessage.innerHTML = `
-    <div class="message-content">
-      <p class="thought-text">${thoughtChunk}</p>
-      <span class="timestamp">${new Date().toLocaleTimeString()}</span>
-    </div>
-  `;
-  nliResults.prepend(thoughtMessage);
-  nliResults.scrollTop = 0;
+/**
+ * Helper function to simulate a typing effect.
+ * Appends the provided text to the element letter by letter.
+ * @param {HTMLElement} element - The element whose text content will be updated.
+ * @param {string} text - The text to type.
+ * @param {number} delay - The delay (in milliseconds) between characters.
+ * @returns {Promise} - Resolves once the text has been fully typed.
+ */
+function simulateTypingEffect(element, text, delay = 50) {
+  return new Promise(resolve => {
+    let index = 0;
+    // If there's already text in the element, preserve it.
+    const baseText = element.textContent || '';
+    const intervalId = setInterval(() => {
+      if (index < text.length) {
+        element.textContent = baseText + text.slice(0, index + 1);
+        index++;
+      } else {
+        clearInterval(intervalId);
+        // Optionally remove the blinking-cursor CSS class
+        element.classList.remove('typing');
+        resolve();
+      }
+    }, delay);
+  });
 }
 
+/**
+ * Updates (or creates) a thought bubble for the given task.
+ * This function is called on each "thoughtUpdate" event.
+ * It uses simulateTypingEffect to append the new chunk with a typing animation.
+ * @param {string} taskId - The ID of the task.
+ * @param {string} newChunk - The new text chunk received.
+ */
+function updateThoughtBubble(taskId, newChunk) {
+  // Look for an existing element by id; if not present, create it.
+  let thoughtElement = document.getElementById(`thought-${taskId}`);
+  
+  if (!thoughtElement) {
+    thoughtElement = document.createElement('div');
+    thoughtElement.id = `thought-${taskId}`;
+    thoughtElement.className = 'chat-message ai-message thought-bubble typing';
+    thoughtElement.innerHTML = `
+      <div class="message-content">
+        <p class="thought-text"></p>
+        <span class="timestamp">${new Date().toLocaleTimeString()}</span>
+      </div>
+    `;
+    document.getElementById('nli-results').prepend(thoughtElement);
+  }
+  
+  // Append the new text chunk with a typing effect.
+  const textElement = thoughtElement.querySelector('.thought-text');
+  simulateTypingEffect(textElement, newChunk).catch(err => console.error(err));
+}
+
+/**
+ * Appends a thought update (animated) for the given task.
+ * This function is called from your WebSocket "thoughtUpdate" handler.
+ * @param {string} taskId - The ID of the task.
+ * @param {string} thoughtChunk - The text chunk to add.
+ */
+function appendThought(taskId, thoughtChunk) {
+  updateThoughtBubble(taskId, thoughtChunk);
+}
+
+/**
+ * Finalizes the thought bubble.
+ * This should be called when all thought updates are complete.
+ * It optionally appends a final marker.
+ * @param {string} taskId - The ID of the task.
+ * @param {string} finalThought - The final thought text to append.
+ */
 function finalizeThought(taskId, finalThought) {
-  const thoughtCard = document.querySelector(`.thought-card[data-task-id="${taskId}"]`);
-  if (thoughtCard) {
-    const thoughtText = thoughtCard.querySelector('.thought-text');
-    thoughtText.textContent += "\n\n[Final]: " + finalThought;
-    thoughtCard.classList.add('final-thought');
+  const thoughtElement = document.getElementById(`thought-${taskId}`);
+  if (thoughtElement) {
+    const textElement = thoughtElement.querySelector('.thought-text');
+    // Immediately append the final thought without animation.
+    textElement.textContent += "\n\n[Final]: " + finalThought;
+    // Remove the typing effect class (which may include a blinking cursor)
+    thoughtElement.classList.remove('typing');
   }
 }
 
@@ -993,25 +1055,84 @@ function updateTaskProgress(taskId, progress, status, error, milestone, subTask)
   }
 }
 
-function handleIntermediateResult(taskId, result, subTask, streaming) {
-  let resultCard = document.querySelector(`.result-card[data-task-id="${taskId}"]`);
-  const nliResults = document.getElementById('nli-results');
+function truncateText(text, maxLength) {
+  if (!text) return '';
+  return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+}
 
-  // Create a new result card if none exists.
+function handleIntermediateResult(taskId, result, subTask, streaming) {
+  console.log(`Intermediate result received for task ${taskId}:`, result);
+
+  // Look for the result card for the given task, or create it if it does not exist.
+  let resultCard = document.querySelector(`.result-card[data-task-id="${taskId}"]`);
   if (!resultCard) {
     const command = result.command || 'Unknown';
     resultCard = initializeResultCard(taskId, command);
   }
 
-  if (subTask) {
-    const outputsDiv = resultCard.querySelector('.outputs');
-    const screenshotsContainer = resultCard.querySelector('.screenshots');
+  // Get the dedicated container for intermediate results.
+  let intermediateContainer = resultCard.querySelector('.intermediate-results');
+  if (!intermediateContainer) {
+    intermediateContainer = document.createElement('div');
+    intermediateContainer.className = 'intermediate-results';
+    resultCard.querySelector('.result-content').prepend(intermediateContainer);
+  }
 
+  // If we have intermediate data (screenshotUrl, currentUrl, etc.), render them here.
+  if (result.screenshotUrl || result.currentUrl || result.extractedInfo || result.navigableElements) {
+    const detailsDiv = document.createElement('div');
+    detailsDiv.className = 'intermediate-details';
+    detailsDiv.style.border = '1px solid #ccc';
+    detailsDiv.style.padding = '10px';
+    detailsDiv.style.marginBottom = '10px';
+    
+    if (result.screenshotUrl) {
+      const img = document.createElement('img');
+      img.src = result.screenshotUrl;
+      img.alt = 'Intermediate Screenshot';
+      img.style.maxWidth = '100%';
+      img.style.marginBottom = '10px';
+      detailsDiv.appendChild(img);
+    }
+    
+    if (result.currentUrl) {
+      const urlPara = document.createElement('p');
+      urlPara.textContent = `Current URL: ${truncateText(result.currentUrl, 80)}`;
+      detailsDiv.appendChild(urlPara);
+    }
+    
+    if (result.extractedInfo) {
+      const infoPara = document.createElement('p');
+      infoPara.textContent = `Extracted Info: ${truncateText(result.extractedInfo, 200)}`;
+      detailsDiv.appendChild(infoPara);
+    }
+    
+    if (result.navigableElements) {
+      const navElements = Array.isArray(result.navigableElements)
+        ? result.navigableElements.join(', ')
+        : result.navigableElements;
+      const navPara = document.createElement('p');
+      navPara.textContent = `Navigable Elements: ${truncateText(navElements, 200)}`;
+      detailsDiv.appendChild(navPara);
+    }
+    
+    // Prepend the intermediate details so that the latest appears at the top.
+    intermediateContainer.prepend(detailsDiv);
+    return; // Do not proceed to any other streaming/subTask updates.
+  }
+  
+  // Otherwise, if handling subTask or streaming updates (if applicable):
+  if (subTask) {
+    if (result.summary) {
+      const summaryDiv = document.createElement('div');
+      summaryDiv.className = 'intermediate-result-text';
+      summaryDiv.textContent = `Step Result: ${result.summary}`;
+      intermediateContainer.prepend(summaryDiv);
+    }
     if (result.screenshotPath) {
-      console.log('Appending screenshot for taskId:', taskId, 'Path:', result.screenshotPath);
       const img = document.createElement('img');
       img.src = result.screenshotPath;
-      img.alt = 'Live Screenshot';
+      img.alt = 'Intermediate Screenshot';
       img.style.maxWidth = '100%';
       img.style.marginTop = '10px';
       img.style.display = 'block';
@@ -1020,47 +1141,24 @@ function handleIntermediateResult(taskId, result, subTask, streaming) {
         const errorText = document.createElement('p');
         errorText.textContent = 'Failed to load screenshot.';
         errorText.style.color = 'red';
-        screenshotsContainer.prepend(errorText);
+        intermediateContainer.prepend(errorText);
       };
-      img.onload = () => {
-        screenshotsContainer.prepend(img);
-        screenshotsContainer.style.display = 'block';
-      };
-      screenshotsContainer.prepend(img);
-    }
-    if (result.summary) {
-      const summaryDiv = document.createElement('div');
-      summaryDiv.className = 'subtask-summary';
-      summaryDiv.textContent = result.summary;
-      outputsDiv.prepend(summaryDiv);
-    }
-    if (result.summary) {
-      const subTaskMessage = document.createElement('div');
-      subTaskMessage.className = 'chat-message subtask-message animate-in';
-      subTaskMessage.innerHTML = `
-          <div class="message-content">
-              <p class="summary-text">${result.summary}</p>
-              <span class="timestamp">${new Date().toLocaleTimeString()}</span>
-          </div>
-      `;
-      nliResults.prepend(subTaskMessage);
-      nliResults.scrollTop = 0;
+      intermediateContainer.prepend(img);
     }
   } else {
-    // Handle streaming chunks.
-    if (result.chunk) {
-      let streamMessage = document.querySelector(`.chat-message.stream-message[data-task-id="${taskId}"]`);
+    if (result.chunk !== undefined) {
+      let streamMessage = resultCard.querySelector(`.stream-message[data-task-id="${taskId}"]`);
       if (!streamMessage) {
         streamMessage = document.createElement('div');
         streamMessage.className = 'chat-message stream-message animate-in';
         streamMessage.dataset.taskId = taskId;
         streamMessage.innerHTML = `
-            <div class="message-content">
-                <p class="summary-text"></p>
-                <span class="timestamp">${new Date().toLocaleTimeString()}</span>
-            </div>
+          <div class="message-content">
+            <p class="summary-text"></p>
+            <span class="timestamp">${new Date().toLocaleTimeString()}</span>
+          </div>
         `;
-        nliResults.prepend(streamMessage);
+        intermediateContainer.prepend(streamMessage);
       }
       const summaryText = streamMessage.querySelector('.summary-text');
       summaryText.textContent += result.chunk;
@@ -1070,14 +1168,13 @@ function handleIntermediateResult(taskId, result, subTask, streaming) {
         const endMessage = document.createElement('div');
         endMessage.className = 'chat-message subtask-end animate-in';
         endMessage.innerHTML = `
-            <div class="message-content">
-                <p class="summary-text">--- End of Streaming Updates ---</p>
-                <span class="timestamp">${new Date().toLocaleTimeString()}</span>
-            </div>
+          <div class="message-content">
+            <p class="summary-text">--- End of Streaming Updates ---</p>
+            <span class="timestamp">${new Date().toLocaleTimeString()}</span>
+          </div>
         `;
-        nliResults.insertBefore(endMessage, streamMessage.nextSibling);
+        streamMessage.parentNode.insertBefore(endMessage, streamMessage.nextSibling);
       }
-      nliResults.scrollTop = 0;
     }
   }
 }

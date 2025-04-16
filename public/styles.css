@@ -1397,16 +1397,73 @@ textarea:focus, input:focus {
     border-radius: 4px;
   }  
 
-  .thought-card {
-    background-color: rgba(0, 100, 200, 0.1); /* a subtle background color */
-    margin: 5px 0;
-    padding: 8px;
-    border-left: 4px solid #00ddeb;
+  /* Frosted Glass Thought Bubble Style */
+  .thought-bubble {
+    position: relative;
+    background: rgba(255, 255, 255, 0.15); /* light semi-transparent white */
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 16px;
+    padding: 16px;
+    margin: 10px 0;
+    max-width: 80%;
+    color: #f0f0f0;
+    font-family: 'Arial', sans-serif;
+    animation: fadeIn 0.5s ease-out;
   }
-  .final-thought {
-    font-weight: bold;
-    color: #00ddeb;
-  }  
+
+  /* Fade-in animation */
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Fade-out animation; add the "fade-out" class when you want the bubble to disappear */
+  .thought-bubble.fade-out {
+    animation: fadeOut 0.3s ease-in forwards;
+  }
+
+  @keyframes fadeOut {
+    from {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+  }
+
+  /* The inner container for the message content */
+  .thought-bubble .message-content {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  /* Styling for the thought text */
+  .thought-bubble .thought-text {
+    font-size: 1em;
+    line-height: 1.4;
+    font-style: italic;
+  }
+
+  /* Optional: Blinking cursor during typing */
+  .thought-bubble.typing .thought-text::after {
+    content: '|';
+    animation: blinkCursor 0.7s steps(1) infinite;
+  }
+
+  @keyframes blinkCursor {
+    50% { opacity: 0; }
+  }
 
   /* Enhanced NLI Chat Interface */
   #nli-section {

@@ -3032,3 +3032,45 @@
 {"classification":"task","level":"info","message":"Prompt classified","prompt":"go to Ebay look for humanoid robots","timestamp":"2025-04-15T04:35:32.819Z"}
 {"level":"info","message":"Processing as task","timestamp":"2025-04-15T04:35:32.820Z"}
 {"level":"info","message":"Task created","runId":"83f920a7-6f53-46e0-bb1f-efa12a3242c1","taskId":"67fde214c4710962affde45f","timestamp":"2025-04-15T04:35:32.868Z"}
+{"code":"insufficient_quota","error":{"code":"insufficient_quota","message":"You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors.","param":null,"type":"insufficient_quota"},"headers":{"alt-svc":"h3=\":443\"; ma=86400","cf-cache-status":"DYNAMIC","cf-ray":"93093fe4bffe93c9-JNB","connection":"keep-alive","content-length":"337","content-type":"application/json; charset=utf-8","date":"Tue, 15 Apr 2025 06:05:09 GMT","server":"cloudflare","set-cookie":"__cf_bm=jutK.DjT9mA7EoKo68Jza0xPQOTuDicnlOMJDg6gavA-1744697109-1.0.1.1-j6FdEPfRfObJ2tb6Cx6xutFpPeTIb0naYOfSQeo3NpnCrrV5WwWx.KRB9U0Hr.fWec8rauYTuUztU58sxHqSqpzz2.u6hZBrpVyAWLAAGYE; path=/; expires=Tue, 15-Apr-25 06:35:09 GMT; domain=.api.openai.com; HttpOnly; Secure; SameSite=None, _cfuvid=_MEidPBTEOLVEy_BAKWC.COS3XwNehHntaeZcuFUifM-1744697109494-0.0.1.1-604800000; path=/; domain=.api.openai.com; HttpOnly; Secure; SameSite=None","strict-transport-security":"max-age=31536000; includeSubDomains; preload","vary":"Origin","x-content-type-options":"nosniff","x-request-id":"req_77aedf0b4108777b5791415c160e680e"},"level":"error","message":"Classification error, defaulting to task 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors.","param":null,"request_id":"req_77aedf0b4108777b5791415c160e680e","stack":"Error: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors.\n    at APIError.generate (file:///C:/Users/cosyc/OPERATOR-stable/node_modules/openai/error.mjs:59:20)\n    at OpenAI.makeStatusError (file:///C:/Users/cosyc/OPERATOR-stable/node_modules/openai/core.mjs:293:25)\n    at OpenAI.makeRequest (file:///C:/Users/cosyc/OPERATOR-stable/node_modules/openai/core.mjs:337:30)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async openaiClassifyPrompt (file:///C:/Users/cosyc/OPERATOR-stable/server.js:2246:26)\n    at async file:///C:/Users/cosyc/OPERATOR-stable/server.js:2282:22","status":429,"timestamp":"2025-04-15T06:05:16.007Z","type":"insufficient_quota"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-15T06:05:16.013Z"}
+{"level":"info","message":"Task created","runId":"d3f7f1e1-a749-4c4f-85e9-863de2873135","taskId":"67fdf71c11bd5ebc698605dd","timestamp":"2025-04-15T06:05:16.114Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"go to Ebay look for humanoid robots","timestamp":"2025-04-15T06:11:36.684Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-15T06:11:36.688Z"}
+{"level":"info","message":"Task created","runId":"dda55664-dff2-4981-a863-91a8972fa85b","taskId":"67fdf89811bd5ebc698605ea","timestamp":"2025-04-15T06:11:36.761Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"go to Ebay look for humanoid robots","timestamp":"2025-04-15T06:30:04.650Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-15T06:30:04.652Z"}
+{"level":"info","message":"Task created","runId":"c67cbdd1-0cad-483a-84be-22b83c46d502","taskId":"67fdfcec53cfb2b85bbb2cd0","timestamp":"2025-04-15T06:30:04.741Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"go to Ebay look for racing simulator. find one with the best reviews and exepesnive price and open it","timestamp":"2025-04-15T07:02:42.233Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-15T07:02:42.237Z"}
+{"level":"info","message":"Task created","runId":"a968a3dc-5296-4225-a7db-5910265395ae","taskId":"67fe0492f3f93a82224948cc","timestamp":"2025-04-15T07:02:42.303Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"go to coinmarketcap and open the bitcoin chart","timestamp":"2025-04-15T07:25:20.911Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-15T07:25:20.915Z"}
+{"level":"info","message":"Task created","runId":"6f91901a-fada-49bd-aa30-9615dcd393aa","taskId":"67fe09e0ee3aa9de2cc9b919","timestamp":"2025-04-15T07:25:20.978Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"go to coinmarketcap and open the bitcoin chart","timestamp":"2025-04-15T07:28:56.715Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-15T07:28:56.719Z"}
+{"level":"info","message":"Task created","runId":"3a5163cd-105b-47c8-824a-656ce015c071","taskId":"67fe0ab809b39f69d0a5ad04","timestamp":"2025-04-15T07:28:56.788Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"go to coinmarketcap and open the bitcoin chart","timestamp":"2025-04-15T07:39:59.428Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-15T07:39:59.432Z"}
+{"level":"info","message":"Task created","runId":"c5e6c2af-be60-492b-80d3-1179ce167a31","taskId":"67fe0d4f6fe36baca7f30368","timestamp":"2025-04-15T07:39:59.494Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"go to coinmarketcap and open the bitcoin chart","timestamp":"2025-04-15T07:55:08.271Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-15T07:55:08.275Z"}
+{"level":"info","message":"Task created","runId":"cba35e66-2688-40e1-9ef6-99a132406a17","taskId":"67fe10dc6b6d61af3ff66e26","timestamp":"2025-04-15T07:55:08.344Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"go to coinmarketcap and open the bitcoin chart","timestamp":"2025-04-15T08:01:34.108Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-15T08:01:34.110Z"}
+{"level":"info","message":"Task created","runId":"4ab82707-492c-4ed9-8be3-efc972508109","taskId":"67fe125e4204cf1098331de8","timestamp":"2025-04-15T08:01:34.178Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"go to coinmarketcap and open the solana chart. zoom out to 3M.","timestamp":"2025-04-15T09:12:44.874Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-15T09:12:44.877Z"}
+{"level":"info","message":"Task created","runId":"6d56c45b-cde0-4077-ac29-8ba6791b56b5","taskId":"67fe230c4204cf1098331e46","timestamp":"2025-04-15T09:12:44.953Z"}
+{"classification":"chat","level":"info","message":"Prompt classified","prompt":"hello","timestamp":"2025-04-15T09:25:59.851Z"}
+{"level":"info","message":"Processing as chat, using normal JSON response","timestamp":"2025-04-15T09:25:59.853Z"}
+{"level":"info","message":"Chat response sent","timestamp":"2025-04-15T09:26:01.320Z","userId":"67fc732d27f293a2fe839908"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"i need some trending tokens from Dexscreener Solana","timestamp":"2025-04-15T09:26:27.292Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-15T09:26:27.293Z"}
+{"level":"info","message":"Task created","runId":"296fd9bd-09b7-48d6-92f1-1f7b01fbdcfa","taskId":"67fe2643adea1f439628d26a","timestamp":"2025-04-15T09:26:27.357Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"i need some trending tokens from Dexscreener Solana","timestamp":"2025-04-15T09:31:12.479Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-15T09:31:12.481Z"}
+{"level":"info","message":"Task created","runId":"5353f260-d7e6-436a-b749-32fe9b4bdbd6","taskId":"67fe2760adea1f439628d2c6","timestamp":"2025-04-15T09:31:13.034Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"i need some trending tokens from dextools, Solana network","timestamp":"2025-04-15T09:55:59.655Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-15T09:55:59.659Z"}
+{"level":"info","message":"Task created","runId":"855452bd-b94c-49cc-b976-e74f69e63cef","taskId":"67fe2d2f07d4a58a9205493f","timestamp":"2025-04-15T09:55:59.724Z"}
