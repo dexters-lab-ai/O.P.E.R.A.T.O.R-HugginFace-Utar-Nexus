@@ -1,28 +1,45 @@
-// server.js (ESM version)
 import dotenv from 'dotenv';
 dotenv.config();
 
-import express from 'express';
+import express          from 'express';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
-import bcrypt from 'bcrypt';
-import mongoose from 'mongoose';
-import session from 'express-session';
-import MongoStore from 'connect-mongo';
-import puppeteer from 'puppeteer';
+import mongoose         from 'mongoose';
+import session          from 'express-session';
+import MongoStore       from 'connect-mongo';
+import winston          from 'winston';
+import puppeteerExtra   from 'puppeteer-extra';
+import StealthPlugin    from 'puppeteer-extra-plugin-stealth';
 import { PuppeteerAgent } from '@midscene/web/puppeteer';
-import path from 'path';
-import fs from 'fs';
-import { Parser } from 'htmlparser2';
-import { v4 as uuidv4 } from 'uuid';
-import OpenAI from 'openai';
-import puppeteerExtra from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-import winston from 'winston';
-import pRetry from 'p-retry';
+import path             from 'path';
+import fs               from 'fs';
 import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-import { Semaphore } from 'async-mutex';
+import pRetry           from 'p-retry';
+import { v4 as uuidv4 } from 'uuid';
+import { dirname }      from 'path';
+import { Semaphore }    from 'async-mutex';
+import OpenAI           from 'openai';
+
+// Routes
+import authRouter       from './src/routes/auth.js';
+import historyRouter    from './src/routes/history.js';
+import chatRouter       from './src/routes/chat.js';
+import tasksRouter      from './src/routes/tasks.js';
+import customUrlsRouter from './src/routes/customUrls.js';
+import settingsRouter   from './src/settings.js';
+import { requireAuth }  from './src/middleware/requireAuth.js';
+
+// Models
+import User             from './src/models/User.js';
+import ChatHistory      from './models/ChatHistory.js';
+import Task             from './models/Task.js';
+
+// Report Generators
+import { generateReport }     from './src/utils/reportGenerator.js';
+import { editMidsceneReport } from './src/utils/midsceneReportEditor.js';
+
+// Utility Helpers
+import { stripLargeFields } from './src/utils/stripLargeFields.js';
 
 // Set strictQuery to avoid deprecation warnings
 mongoose.set('strictQuery', true);
@@ -35,10 +52,11 @@ const __dirname = dirname(__filename);
 puppeteerExtra.use(StealthPlugin());
 const browserSemaphore = new Semaphore(5); // Limit to 5 concurrent browsers
 
-// Nut.js for desktop automation
+// Nut.js for desktop automation, deprecated temporarily in V1.2.0
 import { keyboard, Key } from '@nut-tree-fork/nut-js';
 
-// Initialize OpenAI client
+// Initialize OpenAI client using default key (only used for non-user-specific operations)
+// (When processing tasks, a new client will be instantiated with the user’s key)
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -55,9 +73,14 @@ const app = express();
 const server = createServer(app);
 
 // === MIDDLEWARE SETUP (IMPORTANT ORDER) ===
-
-// 1. Parse JSON bodies
+// 1. Parse JSON bodies + Expose Routes
 app.use(express.json());
+app.use('/settings', settingsRouter);
+app.use(authRouter);
+app.use(historyRouter);
+app.use(chatRouter);
+app.use(tasksRouter);
+app.use(customUrlsRouter);
 
 // 2. Register session middleware early so that every request gets a session
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://dailAdmin:ua5^bRNFCkU*--c@operator.smeax.mongodb.net/dail?retryWrites=true&w=majority&appName=OPERATOR";
@@ -75,19 +98,6 @@ app.use(session({
   }),
   cookie: { maxAge: 24 * 60 * 60 * 1000 } // 24 hours in milliseconds
 }));
-
-// Logger setup
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
-  transports: [
-    new winston.transports.File({ filename: 'error.log', level: 'error' }),
-    new winston.transports.File({ filename: 'combined.log' }),
-  ],
-});
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(new winston.transports.Console({ format: winston.format.simple() }));
-}
 
 // 3. Session logging middleware (for debugging)
 app.use((req, res, next) => {
@@ -110,14 +120,11 @@ app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
 
 // === WEB SOCKET SETUP ===
 
-// === WEB SOCKET SETUP ===
-
 const userConnections = new Map();
 const wss = new WebSocketServer({ server, path: '/ws' });
 const unsentMessages = new Map();
 
 function sendWebSocketUpdate(userId, data) {
-  // console.log(`[WebSocket] Sending to userId=${userId}:`, JSON.stringify(data, null, 2));
   const connections = userConnections.get(userId);
   if (connections && connections.size > 0) {
     connections.forEach(ws => {
@@ -140,6 +147,20 @@ function sendWebSocketUpdate(userId, data) {
   }
 }
 
+// === LOGGER SETUP ===
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
+  transports: [
+    new winston.transports.File({ filename: 'error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'combined.log' }),
+  ],
+});
+if (process.env.NODE_ENV !== 'production') {
+  logger.add(new winston.transports.Console({ format: winston.format.simple() }));
+}
+
+// === WEBSOCKET SETUP ===
 wss.on('connection', (ws, req) => {
   let userIdParam = req.url.split('userId=')[1]?.split('&')[0];
   const userId = decodeURIComponent(userIdParam || '');
@@ -184,398 +205,6 @@ wss.on('connection', (ws, req) => {
 });
 
 // === ROUTES ===
-
-// Authentication middleware
-function requireAuth(req, res, next) {
-  if (!req.session.user) return res.status(401).json({ success: false, error: 'Not logged in' });
-  next();
-}
-
-// Define your routes here
-app.post('/register', async (req, res) => {
-  const { email, password } = req.body;
-  try {
-    const existing = await User.findOne({ email });
-    if (existing) throw new Error('Email already exists');
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = await User.create({ email, password: hashedPassword, customUrls: [] });
-    req.session.user = newUser._id;
-    res.json({ success: true, userId: email });
-  } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
-  }
-});
-
-app.post('/login', async (req, res) => {
-  const { email, password } = req.body;
-  try {
-    const user = await User.findOne({ email });
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-      throw new Error('Invalid email or password');
-    }
-    req.session.user = user._id; // Save the MongoDB _id in the session
-    res.json({ success: true, userId: user._id.toString() }); // Return the _id as a string
-  } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
-  }
-});
-
-app.get('/logout', (req, res) => {
-  req.session.destroy((err) => {
-    if (err) {
-      console.error('Error destroying session:', err);
-    }
-    res.redirect('/login.html');
-  });
-});
-
-/*******************************
- * GET /history
- * Returns paginated "completed" tasks for the user
- *******************************/
-app.get('/history', requireAuth, async (req, res) => {
-  try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-    const skip = (page - 1) * limit;
-    const userId = req.session.user;
-
-    const totalItems = await Task.countDocuments({ userId, status: 'completed' });
-    const tasks = await Task.find({ userId, status: 'completed' })
-      .sort({ endTime: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean();
-
-    res.json({
-      totalItems,
-      totalPages: Math.ceil(totalItems / limit),
-      currentPage: page,
-      items: tasks.map(task => ({
-        _id: task._id,
-        url: task.url || 'Unknown URL',
-        command: task.command,
-        timestamp: task.endTime,
-        // Return the entire result so the front-end can see if needed
-        result: task.result || {}
-      })),
-    });
-  } catch (err) {
-    console.error('Error fetching history:', err);
-    res.status(500).json({ error: 'Failed to fetch history' });
-  }
-});
-
-/*******************************
- * GET /history/:id
- * Returns a single completed task (or any task) with full details
- *******************************/
-app.get('/history/:id', requireAuth, async (req, res) => {
-  try {
-    res.setHeader('Content-Type', 'application/json');
-    const task = await Task.findOne({ _id: req.params.id, userId: req.session.user }).lean();
-    if (!task) {
-      return res.status(404).json({ error: 'History item not found' });
-    }
-
-    // Return everything needed:
-    res.json({
-      _id: task._id,
-      url: task.url || 'Unknown URL',
-      command: task.command,
-      timestamp: task.endTime,
-      status: task.status,
-      error: task.error,
-      subTasks: task.subTasks,
-      // Return the entire intermediateResults array
-      intermediateResults: task.intermediateResults || [],
-      // Return the entire "result" object, which might contain raw, aiPrepared, 
-      // landingReportUrl, midsceneReportUrl, screenshot, etc.
-      result: task.result || {}
-    });
-  } catch (err) {
-    console.error('Error fetching history item:', err);
-    res.status(500).json({ error: 'Failed to fetch history item' });
-  }
-});
-
-/*******************************
- * DELETE /history/:id
- * Removes one completed task from the DB
- *******************************/
-app.delete('/history/:id', requireAuth, async (req, res) => {
-  try {
-    const result = await Task.deleteOne({ _id: req.params.id, userId: req.session.user });
-    if (result.deletedCount === 0) {
-      return res.status(404).json({ success: false, error: 'Task not found' });
-    }
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-/*******************************
- * DELETE /history
- * Clears all "completed" tasks for the user
- *******************************/
-app.delete('/history', requireAuth, async (req, res) => {
-  try {
-    await Task.deleteMany({ userId: req.session.user, status: 'completed' });
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-/*******************************
- * GET /chat-history
- * Returns the chat history for the user
- *******************************/
-app.get('/chat-history', requireAuth, async (req, res) => {
-  try {
-    if (mongoose.connection.readyState !== 1) {
-      throw new Error('Database not connected');
-    }
-    // Ensure the user is logged in.
-    if (!req.session.user) {
-      // Alternatively, you could send a 401 error.
-      return res.json({ messages: [] });
-    }
-    
-    // Find the user's chat history.
-    const chatHistory = await ChatHistory.findOne({ userId: req.session.user }).lean();
-    if (!chatHistory) {
-      // Return empty messages if no history exists.
-      return res.json({ messages: [] });
-    }
-    // Optionally, you could include a success flag.
-    res.json({ success: true, messages: chatHistory.messages });
-  } catch (error) {
-    console.error('Error fetching chat history:', error);
-    res.status(500).json({ success: false, error: 'Failed to fetch chat history' });
-  }
-});
-
-app.put('/tasks/:id/progress', requireAuth, async (req, res) => {
-  const { progress } = req.body;
-  try {
-    const result = await Task.updateOne(
-      { _id: req.params.id, userId: req.session.user },
-      { $set: { progress: progress } }
-    );
-    if (result.modifiedCount === 0) {
-      return res.status(404).json({ success: false, error: 'Task not found or not updated' });
-    }
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.get('/tasks/active', requireAuth, async (req, res) => {
-  try {
-    const userId = req.session.user;
-    const activeTasks = await Task.find({ userId, status: { $in: ['pending', 'processing'] } }).lean();
-    res.json(activeTasks);
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-/**
- * Utility to limit a string’s length and add a note if trimmed.
- * @param {string} str - The string to trim.
- * @param {number} maxLen - Maximum length before truncation.
- * @return {string} - Trimmed string (with appended note if truncated).
- */
-function trimString(str, maxLen = 200) {
-  if (typeof str !== 'string') return str;
-  if (str.length <= maxLen) return str;
-  return str.substring(0, maxLen) + `... [trimmed, original length: ${str.length}]`;
-}
-
-/**
- * A thorough function to remove or shorten large fields in an “update” object
- * before sending logs or SSE data to the client.
- * 
- * “update” typically has structure:
- *   {
- *     status, progress, intermediateResults[], steps[],
- *     error, result, done
- *   }
- * This function:
- *   - Removes base64 screenshot data in favor of screenshot *paths*
- *   - Trims large text fields: extractedInfo, rawResponse, etc.
- *   - Replaces big nested DOM data (tree, pageContext) with placeholders
- *   - Works shallowly in result & intermediateResults[] but not deep recursion.
- * 
- * @param {Object} originalUpdate - The raw update object from the DB or code.
- * @returns {Object} - A copy of “originalUpdate” with large fields trimmed.
- */
-function stripLargeFields(originalUpdate) {
-  // Clone so we don't mutate the original object
-  const newUpdate = { ...originalUpdate };
-
-  // --- 1) TRIM FIELDS IN "result" ---
-
-  if (newUpdate.result && typeof newUpdate.result === 'object') {
-    // If there's raw screenshot data, remove or replace with a short note.
-    if (newUpdate.result.screenshot) {
-      newUpdate.result.screenshot = '[Screenshot Omitted - use screenshotPath instead]';
-    }
-
-    // If there's a screenshotPath, keep it (that’s presumably just a short URL).
-    // newUpdate.result.screenshotPath is fine.
-
-    // If there's large text fields like extractedInfo or rawResponse, trim them
-    if (typeof newUpdate.result.extractedInfo === 'string') {
-      newUpdate.result.extractedInfo = trimString(newUpdate.result.extractedInfo, 300);
-    }
-    if (typeof newUpdate.result.rawResponse === 'string') {
-      newUpdate.result.rawResponse = trimString(newUpdate.result.rawResponse, 300);
-    }
-
-    // If there's a potentially huge nested object like pageContext or tree, replace with a note
-    if (newUpdate.result.pageContext && typeof newUpdate.result.pageContext === 'object') {
-      newUpdate.result.pageContext = '[pageContext omitted - too large]';
-    }
-    if (newUpdate.result.tree && typeof newUpdate.result.tree === 'object') {
-      newUpdate.result.tree = '[DOM tree omitted - too large]';
-    }
-  }
-
-  // --- 2) TRIM FIELDS IN "intermediateResults" ARRAY ---
-
-  if (Array.isArray(newUpdate.intermediateResults)) {
-    newUpdate.intermediateResults = newUpdate.intermediateResults.map((item) => {
-      const trimmed = { ...item };
-
-      // If there's a raw screenshot, remove or replace it
-      if (trimmed.screenshot) {
-        trimmed.screenshot = '[Screenshot Omitted - use screenshotPath instead]';
-      }
-
-      // Keep screenshotPath if present (that’s a short string).
-      // if (trimmed.screenshotPath) ...
-
-      // If there's big text fields, trim them
-      if (typeof trimmed.extractedInfo === 'string') {
-        trimmed.extractedInfo = trimString(trimmed.extractedInfo, 300);
-      }
-      if (typeof trimmed.rawResponse === 'string') {
-        trimmed.rawResponse = trimString(trimmed.rawResponse, 300);
-      }
-
-      // Potential heavy fields
-      if (trimmed.pageContext && typeof trimmed.pageContext === 'object') {
-        trimmed.pageContext = '[pageContext omitted - too large]';
-      }
-      if (trimmed.tree && typeof trimmed.tree === 'object') {
-        trimmed.tree = '[DOM tree omitted - too large]';
-      }
-
-      return trimmed;
-    });
-  }
-
-  // --- 3) (Optional) TRIM FIELDS IN "steps" IF YOU USE THAT ---
-
-  if (Array.isArray(newUpdate.steps)) {
-    // If you store big logs or screenshot data in steps, do something similar:
-    newUpdate.steps = newUpdate.steps.map((step) => {
-      const s = { ...step };
-      // For example, if step has “screenshot”:
-      if (s.screenshot) {
-        s.screenshot = '[Screenshot Omitted - use screenshotPath instead]';
-      }
-      // If step has big text fields:
-      if (typeof s.extractedInfo === 'string') {
-        s.extractedInfo = trimString(s.extractedInfo, 300);
-      }
-      if (s.pageContext && typeof s.pageContext === 'object') {
-        s.pageContext = '[pageContext omitted - too large]';
-      }
-      return s;
-    });
-  }
-
-  // That’s enough for a shallow pass. Return the trimmed copy.
-  return newUpdate;
-}
-
-// Task Stream Endpoint
-app.get('/tasks/:id/stream', requireAuth, async (req, res) => {
-  logger.info('Task stream started', { taskId: req.params.id });
-
-  const sendUpdate = async () => {
-    try {
-      const task = await Task.findById(req.params.id).lean();
-      if (!task) {
-        res.write(`data: ${JSON.stringify({ done: true, error: 'Task not found' })}\n\n`);
-        res.end();
-        return;
-      }
-
-      const update = stripLargeFields({
-        status: task.status || 'unknown',
-        progress: task.progress || 0,
-        intermediateResults: task.intermediateResults || [],
-        steps: task.steps || [],
-        error: task.error || null,
-        result: task.result || null,
-        done: ['completed', 'error'].includes(task.status),
-      });
-      res.write(`data: ${JSON.stringify(update)}\n\n`);
-      logger.info('Task update sent', { taskId: req.params.id, update });
-
-      if (update.done) res.end();
-    } catch (err) {
-      logger.error('Task stream error', err);
-      res.write(`data: ${JSON.stringify({ error: err.message, done: true })}\n\n`);
-      res.end();
-    }
-  };
-
-  await sendUpdate();
-  const interval = setInterval(sendUpdate, 5000);
-  req.on('close', () => {
-    clearInterval(interval);
-    res.end();
-    logger.info('Task stream closed', { taskId: req.params.id });
-  });
-});
-
-app.get('/custom-urls', requireAuth, async (req, res) => {
-  try {
-    const user = await User.findById(req.session.user);
-    res.json(user.customUrls);
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.post('/custom-urls', requireAuth, async (req, res) => {
-  const { url } = req.body;
-  if (!url) return res.status(400).json({ success: false, error: 'URL is required' });
-  try {
-    await User.updateOne({ _id: req.session.user }, { $addToSet: { customUrls: url } });
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.delete('/custom-urls/:url', requireAuth, async (req, res) => {
-  const { url } = req.params;
-  try {
-    await User.updateOne({ _id: req.session.user }, { $pull: { customUrls: url } });
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
 app.get('/', (req, res) => {
   if (!req.session.user) return res.redirect('/login.html');
   res.sendFile(path.join(__dirname, '/public/index.html'));
@@ -599,89 +228,25 @@ app.get('/settings.html', (req, res) => {
   fs.existsSync(filePath) ? res.sendFile(filePath) : res.status(404).send('Settings page not found');
 });
 
-// Fallback route: send index.html for any unmatched routes (for client-side routing)
+// Fallback route for client-side routing.
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-import { Schema } from 'mongoose';
-import { error } from 'console';
-
-const userSchema = new Schema({
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  customUrls: [{ type: String }],
-});
-userSchema.index({ email: 1 }, { unique: true });
-const User = mongoose.model('User', userSchema);
-
-const chatHistorySchema = new Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  messages: [{
-    role: { 
-      type: String, 
-      enum: ['user', 'assistant', 'system', 'function'], 
-      required: true 
-    },
-    content: { type: String, required: true },
-    timestamp: { type: Date, default: Date.now }
-  }]
-});
-chatHistorySchema.index({ userId: 1 });
-const ChatHistory = mongoose.model('ChatHistory', chatHistorySchema);
-
-// Task schema definition
-const taskSchema = new Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  command: String,
-  status: { type: String, enum: ['pending', 'processing', 'completed', 'error'], default: 'pending' },
-  progress: { type: Number, default: 0 },
-  startTime: { type: Date, default: Date.now },
-  endTime: Date,
-  result: Schema.Types.Mixed,
-  error: String,
-  url: String,
-  runId: String,
-  isComplex: { type: Boolean, default: false },
-  subTasks: [{
-    id: { type: String },
-    command: String,
-    status: { type: String, enum: ['pending', 'processing', 'completed', 'error'], default: 'pending' },
-    result: Schema.Types.Mixed,
-    progress: { type: Number, default: 0 },
-    error: String
-  }],
-  intermediateResults: [Schema.Types.Mixed],
-  plan: String,
-  steps: [String],
-  totalSteps: Number,
-  currentStep: Number,
-  stepMap: Schema.Types.Mixed,
-  currentStepDescription: String,
-  currentStepFunction: String,
-  currentStepArgs: Schema.Types.Mixed,
-  planAdjustment: String,
-  lastAction: String,
-  lastQuery: String
-});
-taskSchema.index({ endTime: 1 }, { expireAfterSeconds: 604000 });
-const Task = mongoose.model('Task', taskSchema);
-
-// Function to clear the database once
+/**
+ * Clear the database once.
+ */
 async function clearDatabaseOnce() {
   const flagFile = path.join(__dirname, 'db_cleared.flag');
   if (fs.existsSync(flagFile)) {
     console.log('Database already cleared, skipping clear operation.');
     return;
   }
-
   try {
     await User.deleteMany({});
     await ChatHistory.deleteMany({});
     await Task.deleteMany({});
     console.log('Successfully cleared User, ChatHistory, and Task collections.');
-
-    // Create flag file to prevent future clears
     fs.writeFileSync(flagFile, 'Database cleared on ' + new Date().toISOString());
     console.log('Created db_cleared.flag to mark database clear completion.');
   } catch (err) {
@@ -689,7 +254,6 @@ async function clearDatabaseOnce() {
   }
 }
 
-// MongoDB Connection and Startup
 async function connectToMongoDB() {
   const startTime = Date.now();
   try {
@@ -728,7 +292,7 @@ async function startApp() {
         console.log(`MongoDB connection attempt ${error.attemptNumber} failed. Retrying...`);
       }
     });
-    // await clearDatabaseOnce(); // Run one-time database clear
+    // await clearDatabaseOnce();
     await ensureIndexes();
     console.log('Application started successfully');
   } catch (err) {
@@ -745,48 +309,37 @@ server.listen(PORT, () => {
   console.log(`Server started on http://localhost:${PORT}`);
 });
 
-// Graceful shutdown on SIGINT (Ctrl+C)
+// Graceful shutdown on SIGINT.
 process.on('SIGINT', async () => {
   console.log('SIGINT received. Shutting down gracefully...');
   try {
-    // Close the HTTP server if available
     server.close(() => {
       console.log('HTTP server closed.');
     });
-    // Close your Mongoose connection
     await mongoose.connection.close();
     console.log('Mongoose connection closed.');
   } catch (error) {
     console.error('Error during shutdown:', error);
   } finally {
-    // Exit the process explicitly
     process.exit(0);
   }
 });
 
-process.on('uncaughtException', (err) => { console.error('Uncaught Exception:', err); process.exit(1); });
+process.on('uncaughtException', (err) => { 
+  console.error('Uncaught Exception:', err); 
+  process.exit(1); 
+});
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-// Utility functions
+// Utility sleep function.
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Import statements would remain the same
-// const puppeteerExtra = require('puppeteer-extra');
-// const path = require('path');
-// const fs = require('fs');
-// const { v4: uuidv4 } = require('uuid');
-// const mongoose = require('mongoose');
-// const PuppeteerAgent = require('./PuppeteerAgent');
-// ... other imports
-
-
 /**
- * Update task in database and notify clients
- * @param {string} userId - User ID
+ * Update task in database and notify clients.
  * @param {string} taskId - Task ID
  * @param {Object} updates - Updates to apply
  */
@@ -810,7 +363,7 @@ async function updateTaskInDatabase(taskId, updates) {
 }
 
 /**
- * Process task completion and generate reports
+ * Process task completion and generate reports.
  * @param {string} userId - User ID
  * @param {string} taskId - Task ID
  * @param {Array} intermediateResults - Intermediate results
@@ -860,17 +413,14 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
       }
     }
 
-    // Compile all intermediate extracted info into one raw page text.
     const rawPageText = intermediateResults
       .map(step => (step && step.result && step.result.extractedInfo) || '')
       .join('\n');
 
-    // Use the last intermediate result for the final URL and summary.
     const currentUrl = (intermediateResults[intermediateResults.length - 1]?.result?.currentUrl) || 'N/A';
     const summary = intermediateResults[intermediateResults.length - 1]?.result?.actionOutput ||
       `Task execution completed for: ${originalPrompt}`;
 
-    // Unified final result object.
     const finalResult = {
       success: true,
       taskId,
@@ -900,7 +450,6 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
       reportUrl: `/midscene_run/report/${errorReportFile}`
     };
   } finally {
-    // Clean up active browser sessions.
     if (activeBrowsers.size > 0) {
       for (const [id, session] of activeBrowsers.entries()) {
         if (!session.closed) {
@@ -923,316 +472,6 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
   }
 }
 
-/**
- * Generate custom landing page report
- * @param {string} prompt - Original prompt
- * @param {Array} results - Task results
- * @param {string} screenshotPath - Path to final screenshot
- * @param {string} runId - Run ID
- * @returns {string} - Path to landing report file
- */
-async function generateReport(prompt, results, screenshotPath, runId) {
-  console.log(`[LandingReport] Generating landing report for run ${runId}`);
-
-  const reportContent = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>O.P.E.R.A.T.O.R Report</title>
-      <link rel="icon" href="/assets/images/dail-fav.png">
-      <style>
-        body {
-          background: linear-gradient(to bottom, #1a1a1a, #000);
-          color: #e8e8e8;
-          font-family: Arial, sans-serif;
-        }
-        .container {
-          max-width: 1200px;
-          margin: 0 auto;
-          padding: 20px;
-        }
-        .header {
-          display: flex;
-          align-items: center;
-          margin-bottom: 30px;
-        }
-        .logo {
-          width: 50px;
-          margin-right: 20px;
-        }
-        .replay-button {
-          margin-left: auto;
-          padding: 10px 20px;
-          background-color: dodgerblue;
-          color: #000;
-          text-decoration: none;
-          border-radius: 5px;
-          font-weight: bold;
-        }
-        .replay-button:hover {
-          background-color: #1e90ff;
-        }
-        .content {
-          background-color: #111;
-          padding: 20px;
-          border-radius: 10px;
-        }
-        .screenshot {
-          max-width: 100%;
-          border-radius: 5px;
-          margin: 20px 0;
-        }
-        .task {
-          background-color: #222;
-          padding: 15px;
-          margin-bottom: 15px;
-          border-radius: 5px;
-        }
-        .task-header {
-          font-weight: bold;
-          margin-bottom: 10px;
-        }
-        .detail-content {
-          background-color: dodgerblue;
-          border-radius: 10px;
-          padding: 10px;
-          color: #000;
-        }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <div class="header">
-          <img src="/assets/images/dail-fav.png" alt="OPERATOR_logo" class="logo">
-          <h1>O.P.E.R.A.T.O.R - Sentinel Report</h1>
-          <a id="replayButton" href="#" class="replay-button">Replay</a>
-        </div>
-        <div class="content">
-          <h2>Task Details</h2>
-          <div class="detail-content">
-            <p><strong>Command:</strong> ${prompt}</p>
-            <p><strong>Run ID:</strong> ${runId}</p>
-            <p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>
-          </div>
-          <h2>Execution Results</h2>
-          ${results
-            .slice(0, 10) // Only include up to 10 steps in the report
-            .map((result, index) => {
-              let resultDisplay = '';
-              if (result.error) {
-                resultDisplay = `
-                  <div class="task error">
-                    <div class="task-header">Step ${index + 1} - Error</div>
-                    <pre>${JSON.stringify(result, null, 2).substring(0, 500)}</pre>
-                  </div>`;
-              } else if (result.screenshot) {
-                const screenshotUrl = result.screenshotPath || `/midscene_run/${runId}/${result.screenshot}`;
-                resultDisplay = `
-                  <div class="task">
-                    <div class="task-header">Step ${index + 1} - Screenshot</div>
-                    <img src="${screenshotUrl}" class="screenshot" alt="Step ${index + 1} Screenshot">
-                    ${result.summary ? `<p>${result.summary.substring(0, 300)}...</p>` : ''}
-                  </div>`;
-              } else {
-                resultDisplay = `
-                  <div class="task">
-                    <div class="task-header">Step ${index + 1}</div>
-                    <pre>${JSON.stringify(result, null, 2).substring(0, 500)}</pre>
-                  </div>`;
-              }
-              return resultDisplay;
-            }).join('')
-          }         
-          ${screenshotPath ? `<h2>Final State</h2><img src="${screenshotPath}" class="screenshot" alt="Final Screenshot">` : ''}
-        </div>
-      </div>
-    </body>
-    </html>
-  `;
-
-  const reportFile = `landing-report-${Date.now()}.html`;
-  const reportPath = path.join(REPORT_DIR, reportFile);
-  fs.writeFileSync(reportPath, reportContent);
-  console.log(`[LandingReport] Saved landing report to ${reportPath}`);
-  return reportPath;
-}
-
-// Custom CSS styles to be injected into the <head>
-const customCss = `
-    /* General styling */
-    body { background: linear-gradient(to bottom, #1a1a1a, #000); color: #e8e8e8; }
-    .side-bar, .page-nav, .panel-title { background: #000 !important; color: #e8e8e8 !important; }
-    .main-right .main-content-container, .detail-panel { background: #111 !important; color: #FFF !important; }
-    .detail-side .item-list .item, .page-nav, .page-side, .main-right .main-content-container, .detail-side .meta-kv, .timeline-wrapper { border-color: #333 !important; }
-    a, .side-item-name, .meta-key, .meta-value { color: #e8e8e8 !important; }
-    .main-right .main-side, .detail-content { background-color: dodgerblue !important; color: #000 !important; }
-
-    /* Logo replacement */
-    img[src*="Midscene.png" i], img[alt*="midscene" i], img[class*="logo" i], img[src*="logo" i] {
-        content: url("/assets/images/dail-fav.png") !important;
-        width: 50px !important;
-        height: 50px !important;
-    }
-
-    /* Version number update */
-    .task-list-sub-name {
-        visibility: hidden;
-        position: relative;
-    }
-    .task-list-sub-name::after {
-        content: "v1.0.1, OPERATOR model";
-        visibility: visible;
-        position: absolute;
-        left: 0;
-        color: #e8e8e8;
-    }
-`;
-
-/**
- * Edit the Midscene SDK report with branding and updates using a streaming approach
- * @param {string} midsceneReportPath - Path to the Midscene SDK report
- * @returns {Promise<string>} - Path to the edited report
- */
-async function editMidsceneReport(midsceneReportPath) {
-  console.log(`[MidsceneReport] Editing report at ${midsceneReportPath}`);
-
-  const readStream = fs.createReadStream(midsceneReportPath, 'utf8');
-  const tempPath = `${midsceneReportPath}.tmp`;
-  const writeStream = fs.createWriteStream(tempPath, 'utf8');
-
-  // State variables for parsing
-  let insideTitle = false;
-  let insideScript = false;
-  let scriptContent = '';
-  let insideHead = false;
-  let appendedCss = false;
-
-  const parser = new Parser({
-    // Handle opening tags
-    onopentag: (name, attribs) => {
-      if (name === 'title') {
-          // Replace title
-          writeStream.write('<title>VLM Run Report | O.P.E.R.A.T.O.R.</title>');
-          insideTitle = true;
-      } else if (name === 'link' && attribs.rel === 'icon') {
-          // Replace favicon
-          writeStream.write('<link rel="icon" href="/assets/images/dail-fav.png" type="image/png" sizes="32x32">');
-      } else if (
-          name === 'img' &&
-          (attribs.src?.toLowerCase().includes('midscene.png') ||
-           attribs.alt?.toLowerCase().includes('midscene') ||
-           attribs.class?.toLowerCase().includes('logo') ||
-           attribs.src?.toLowerCase().includes('logo'))
-      ) {
-          // Replace logo images
-          writeStream.write('<img src="/assets/images/dail-fav.png" alt="OPERATOR_logo" class="logo" width="50" height="50">');
-      } else if (name === 'script' && attribs.type === 'midscene_web_dump') {
-          // Start collecting script content
-          insideScript = true;
-          scriptContent = '';
-          writeStream.write('<script type="midscene_web_dump" type="application/json">');
-      } else {
-          // Write original tag
-          const attribsStr = Object.entries(attribs)
-              .map(([key, value]) => ` ${key}="${value}"`)
-              .join('');
-          writeStream.write(`<${name}${attribsStr}>`);
-      }
-      if (name === 'head') {
-          insideHead = true;
-      }
-    },
-
-    // Handle text content
-    ontext: (text) => {
-      if (insideScript) {
-        scriptContent += text;
-      } else if (!insideTitle) {
-        writeStream.write(text);
-      }
-      // Skip original title text since we replaced it
-    },
-
-    // Handle closing tags
-    onclosetag: (name) => {
-      if (name === 'title') {
-        insideTitle = false;
-      } else if (name === 'script' && insideScript) {
-        try {
-          // Handle truncated JSON by attempting to complete it
-          let jsonContent = scriptContent.trim();
-          if (!jsonContent.endsWith('}')) {
-            jsonContent += '"}]}'; // Attempt to close truncated JSON
-          }
-          const data = JSON.parse(jsonContent);
-          if (data.executions) {
-            data.executions.forEach((exec) => {
-              if (exec.sdkVersion) exec.sdkVersion = '1.0.1';
-            });
-          }
-          if (data.groupName) data.groupName = 'O.P.E.R.A.T.O.R - Sentinel Report';
-          writeStream.write(JSON.stringify(data));
-        } catch (error) {
-          console.error('[MidsceneReport] Error parsing script content:', error);
-          // Fallback to original content if JSON parsing fails
-          writeStream.write(scriptContent);
-        }
-        writeStream.write('</script>');
-        insideScript = false;
-      } else if (name === 'head' && insideHead) {
-        // Append custom CSS before closing head
-        if (!appendedCss) {
-          writeStream.write(`\n<style>${customCss}</style>\n`);
-          appendedCss = true;
-        }
-        writeStream.write('</head>');
-        insideHead = false;
-      } else {
-        writeStream.write(`</${name}>`);
-      }
-    },
-
-    // Handle parsing errors
-    onerror: (error) => {
-      console.error('[MidsceneReport] Parser error:', error);
-    }
-  }, { decodeEntities: true });
-
-  // Pipe the read stream into the parser
-  readStream.on('data', (chunk) => {
-    parser.write(chunk);
-  });
-
-  readStream.on('end', () => {
-    parser.end();
-    writeStream.end();
-  });
-
-  readStream.on('error', (err) => {
-    console.error('[MidsceneReport] Read stream error:', err);
-    writeStream.end();
-  });
-
-  // Return a promise that resolves when writing is complete
-  return new Promise((resolve, reject) => {
-    writeStream.on('finish', () => {
-      try {
-        fs.renameSync(tempPath, midsceneReportPath);
-        console.log(`[MidsceneReport] Updated report at ${midsceneReportPath}`);
-        resolve(midsceneReportPath);
-      } catch (renameErr) {
-        console.error('[MidsceneReport] Error renaming file:', renameErr);
-        reject(renameErr);
-      }
-    });
-
-    writeStream.on('error', (err) => {
-      console.error('[MidsceneReport] Write stream error:', err);
-      reject(err);
-    });
-  });
-}
-
 // Sessions map - shared across the application
 const activeBrowsers = new Map();
 
@@ -1243,10 +482,10 @@ class TaskPlan {
   constructor(userId, taskId, prompt, initialUrl, runDir, runId, maxSteps = 10) {
     this.userId = userId;
     this.taskId = taskId;
-    this.prompt = prompt; // Main Task description
+    this.prompt = prompt;
     this.initialUrl = initialUrl;
     this.runDir = runDir;
-    this.runId = runId; // For file URLs
+    this.runId = runId;
     this.steps = [];
     this.currentStepIndex = -1;
     this.maxSteps = maxSteps;
@@ -1257,6 +496,8 @@ class TaskPlan {
     this.completed = false;
     this.summary = null;    
     this.currentUrl = initialUrl || 'Not specified';
+    // Store the user's OpenAI API key for use in PuppeteerAgent initialization.
+    this.userOpenaiKey = null; 
   }
 
   log(message, metadata = {}) {
@@ -1267,9 +508,8 @@ class TaskPlan {
 
   /**
    * Create a new step in the plan.
-   * After execution, a short step summary (max ~5 tokens) is generated
-   * and stored in the step's `stepSummary` property.
-   * @param {string} type - Step type: 'action' or 'query'
+   * After execution, a short step summary is generated and stored in step.stepSummary.
+   * @param {string} type - 'action' or 'query'
    * @param {string} instruction - Instruction for the step
    * @param {Object} args - Associated arguments
    * @returns {PlanStep} - The created step.
@@ -1277,7 +517,7 @@ class TaskPlan {
   createStep(type, instruction, args) {
     const step = {
       index: this.steps.length,
-      type, // 'action' or 'query'
+      type,
       instruction,
       args,
       status: 'pending',
@@ -1289,17 +529,15 @@ class TaskPlan {
           plan.log(`Executing step ${step.index + 1}: ${step.type} - ${step.instruction}`);
           let result;
           if (step.type === 'action') {
-            result = await plan.executeBrowserAction(step.args);
+            result = await plan.executeBrowserAction(step.args, step.index);
           } else {
-            result = await plan.executeBrowserQuery(step.args);
+            result = await plan.executeBrowserQuery(step.args, step.index);
           }
           step.result = result;
           step.status = result.success ? 'completed' : 'failed';
-          // Update currentUrl using the returned value (or fallback to previous)
           plan.currentUrl = result.currentUrl || plan.currentUrl;
-          // Update the current state using the new "state" property from the result.
           if (result.state) {
-            plan.currentState = result.state;
+            plan.updateGlobalState(result);
           }
           plan.log(`Step ${step.index + 1} ${step.status}`);
           return result;
@@ -1324,10 +562,6 @@ class TaskPlan {
     return step;
   }
 
-  /**
-   * Get the current step
-   * @returns {PlanStep} - Current step or null if no steps exist
-   */
   getCurrentStep() {
     if (this.currentStepIndex >= 0 && this.currentStepIndex < this.steps.length) {
       return this.steps[this.currentStepIndex];
@@ -1335,10 +569,6 @@ class TaskPlan {
     return null;
   }
 
-  /**
-   * Mark the plan as completed
-   * @param {string} summary - Completion summary
-   */
   markCompleted(summary) {
     this.completed = true;
     this.summary = summary;
@@ -1347,19 +577,14 @@ class TaskPlan {
 
    /**
    * Helper method to update globals when a result is received.
-   * This method ensures that:
-   * - The currentState array gets the new state appended.
-   * - The extractedInfo and navigatableElements are updated (or appended) consistently.
    */
    updateGlobalState(result) {
-    // Update currentState: Append the new assertion.
     if (result.state && result.state.assertion) {
       this.currentState.push({ assertion: result.state.assertion });
     } else if (this.currentState.length === 0) {
       this.currentState.push({ assertion: 'No assertion available' });
     }
     
-    // Extract and update extractedInfo: handle if it's an object with a pageContent property.
     let extracted = 'No extracted info available';
     if (result.extractedInfo) {
       if (typeof result.extractedInfo === 'object' && result.extractedInfo.pageContent) {
@@ -1370,7 +595,6 @@ class TaskPlan {
     }
     this.extractedInfo.push(extracted);
     
-    // Update navigatableElements: append new elements to the existing array.
     if (result.navigableElements && Array.isArray(result.navigableElements)) {
       this.navigatableElements = this.navigatableElements.concat(result.navigableElements);
     } else if (this.navigatableElements.length === 0) {
@@ -1379,8 +603,7 @@ class TaskPlan {
   }
 
   /**
-   * Generate a system prompt that now includes a PROGRESS SUMMARY section
-   * based on the last step's short summary.
+   * Generate a system prompt that includes progress and state details.
    * @returns {string} - The generated system prompt.
    */
   generateSystemPrompt() {
@@ -1389,7 +612,6 @@ class TaskPlan {
       : { assertion: 'No assertion available' };
     const assertionSummary = latestState.assertion || 'No assertion available';
 
-    // For extracted info, get the latest entry (assuming string content)
     const latestExtracted = (Array.isArray(this.extractedInfo) && this.extractedInfo.length)
       ? this.extractedInfo[this.extractedInfo.length - 1]
       : 'No extracted info available';
@@ -1397,7 +619,6 @@ class TaskPlan {
       ? latestExtracted.substring(0, 700) + '...'
       : 'No extracted info available';
 
-    // Rest of your progress summary from steps
     const progressSummary = this.steps.length > 0
       ? this.steps.map(step => 
           `- Step ${step.index + 1}: ${step.type.toUpperCase()} - ${step.instruction} (${step.status})`
@@ -1414,7 +635,6 @@ class TaskPlan {
         `- Step ${step.index + 1}: ${step.instruction} failed (${step.error || 'Unknown error'})`
       ).join('\n') || 'No recent failures';
 
-    // NOTE: The starting URL now shows properly if provided.
     return `
 You are an AI assistant automating browser tasks with resilience and adaptability. 
 You never fail to accomplish the task and reason all steps until you accomplish it. 
@@ -1423,72 +643,32 @@ You always instruct towards achieving the "Main Task".
 GUIDELINES:
 1. PERSISTENCE: Never give up on a task. If one approach fails, try alternative methods.
 2. AUTONOMY: You must determine steps needed without user input after initial request.
-3. PLANNING: You can take in a plan and execute it, or you can create a step-by-step plan based on the result of each step you take. You are smart and can figure out how to navigate towards the goal.
-4. ADAPTABILITY: Review each result and adjust your plan based on new information.
-5. COMMUNICATION: Explain what you're doing and why in simple language.
-6. PROGRESS TRACKING: Clearly indicate task progress and status.
-7. EXTRACTING DATA: Always provide a high level instruction which includes scrolling to extract all data on the page. E.g., "Scroll down and list 5 trending tokens based on volume"
-8. NAVIGATION EFFICIENCY: Before deciding to navigate, check if the current page is already the required one for the step. Only navigate if the step requires a different page or if the current page cannot fulfill the step’s goal.
-9. NEXT STEP PRECISION: You plan incremental steps based on what you see or is extracted. 
-CAPABILITIES:
-- You can call functions to interact with web browsers.
-- You maintain context between function calls to track task progress.
-- You make decisions based on function results to determine next steps, you never predict but try to click what is visible or extracted info.
-
-FUNCTIONS AVAILABLE:
-- browser_action: Execute actions on websites or navigate to URL (clicking, typing, navigating, scrolling, etc. browser_action has not data extraction capabilities, never use for data extraction).
-- browser_query: Extract information from websites (it can navigate autonomously to desired page, click elements on page to navigate or filter products or charts, or select, extract info).
-- Use these functions interchangeably where relevant.
-
-ERROR RECOVERY:
-- When stuck on a page, try URL construction with query parameters, or instruct browser_action to navigate through main menu or sidebar.
-- When element selection fails, treat them as decoration images and try different selectors.
-- If clicking a button or element does not work, use top menu options or sidebar menus to navigate.
-- Overlays can affect navigation: check for them and try to dismiss if found.
-- If you navigate to the wrong page or URL or Domain which does not have desired info & content relevant to our main goal, navigate using menus or go back to the last known URL using browser_action.
-
-**Instructions**:
-- Use 'browser_action' for navigation, clicks, or input (e.g., {"command": "navigate to https://example.com"}). This function is for high-level commands.
-- Use 'browser_query' to analyze the page or extract info (e.g., {"query": "What is on the page?"}). This function extracts visible data.
-- Break complex commands into simpler steps only when necessary.
-- If the starting URL is 'Not specified', include the 'url' parameter in your first call.
-- Use 'task_complete' with a summary to finish (e.g., {"summary": "Task done"}).
-- If stuck, propose a new approach based on the current state and navigatable elements, you can navigate other ways.
-- DONT SIGN UP or SIGN IN to crypto, shopping, news, or other open sites to read and view data. Only sign in if user specifies it in the instructions.
-
-**Rules**:
-- Only navigate by clicking elements. Read extracted info from the current page below, then determine what is useful in navigating towards goal.
-- For example if extracted info shows "a page showing crypto currencies like bitocin and prices. navigatable elements: ALL CHAINS, Pairs, News etc" then choose a relevant natigatable element like clicking all chains instead of trying to sign up or sign in or go somewhere useless.
-- Always check full progress summary before making decisions. Get the full picture of where you are and overall progress first, dont guess, dont go offside.
-- Always return a function call in JSON format.
-- Keep actions specific and goal-oriented toward "Main Task".
-- Avoid repeating failed actions without new information.
-- When scrolling, ensure the desired content remains in view.
-- Avoid going beyond Main Task. Always check current url, state summary, progress summary to see if the main goal or Main Task as been achieved, then mark as complete by firing task_complete.
-
-CONSIDER THESE TASK DETAILS IN FULL TO PLAN FOR YOUR NEXT STEP FORWARD TOWARDS ACHIEVING THE 'Main Task':
-**Main Task**: "${this.prompt}"
-**Starting URL**: ${this.initialUrl || 'Not specified'}
-**Current Step**: ${this.currentStepIndex + 1} of ${this.maxSteps} max
-**Current URL**: ${this.currentUrl || 'Not yet navigated'}
+3. PLANNING: You can take in a plan and execute it, or create a step-by-step plan based on previous results.
+4. ADAPTABILITY: Adjust your plan based on new information.
+5. COMMUNICATION: Clearly explain your actions and reasoning.
+6. PROGRESS TRACKING: Indicate task progress and status.
+7. EXTRACTING DATA: Always provide instructions to extract all necessary page data.
+8. NAVIGATION EFFICIENCY: Check the current page before navigating.
+9. NEXT STEP PRECISION: Plan incremental steps based on the latest state and data.
+CURRENT TASK: "${this.prompt}"
+Starting URL: ${this.initialUrl || 'Not specified'}
+Current Step: ${this.currentStepIndex + 1} of ${this.maxSteps}
+Current URL: ${this.currentUrl || 'Not yet navigated'}
 
 PROGRESS SUMMARY (based on previous step): ${lastStepSummary}
-- FULL STEP SUMMARY:
-**Progress Summary**:
+FULL STEP SUMMARY:
 ${progressSummary}
-**Recent Failures**:
+Recent Failures:
 ${recentFailures}
-**Extracted Useful Infomation from Prev Step**:
+Extracted Information:
 - ${extractedSummary}
-**Previous Step's Assertion (Page State)**:
+Assertion (Page State):
 - ${assertionSummary}
 
 [END OF SUMMARY]
 
-Aim for the Main Task with maximum efficiency, navigation awareness, smart prompt crafting & function calling, and accuracy: "${this.prompt}".
-Now proceed.
-
-`.trim();
+Proceed with actions toward the Main Task: "${this.prompt}".
+    `.trim();
   }
 
   getSummary() {
@@ -1514,7 +694,8 @@ Now proceed.
       this.runId,
       this.runDir,
       stepIndex,
-      this.browserSession
+      this.browserSession,
+      this.userOpenaiKey
     );
   }
 
@@ -1526,7 +707,8 @@ Now proceed.
       this.runId,
       this.runDir,
       stepIndex,
-      this.browserSession
+      this.browserSession,
+      this.userOpenaiKey
     );
   }
 
@@ -1572,10 +754,8 @@ class PlanStep {
   }
 
   async generateStepSummary() {
-    // Only generate a summary if not present.
     if (this.stepSummary) return this.stepSummary;
     try {
-      // Call OpenAI with a prompt to summarize the step very briefly.
       const summaryResponse = await openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
         messages: [
@@ -1626,13 +806,9 @@ class PlanStep {
       this.status = result.success ? 'completed' : 'failed';
       this.endTime = new Date();
       
-      // Update the plan’s global state:
-      // 1. Store the assertion under currentState
-      // 2. Store the extracted info separately
+      // Update the plan’s global state.
       plan.updateGlobalState(result);
-
       plan.extractedInfo = result.extractedInfo || 'No content extracted';
-      // Update browser session and global state using result.state
       plan.updateBrowserSession({ currentUrl: result.currentUrl });
       if (result.state) {
         plan.currentState = result.state;
@@ -1669,7 +845,6 @@ class PlanStep {
         url: result.currentUrl
       });
       
-      // Generate and store a short step summary if not already set.
       await this.generateStepSummary();
   
       return result;
@@ -1729,6 +904,25 @@ class PlanStep {
 }
 
 /**
+ * Get an OpenAI client for this user, falling back to DEFAULT_OPENAI if
+ * they haven't yet saved their own key.
+ */
+async function getUserOpenAiClient(userId) {
+  const DEFAULT_OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+  const user = await User
+    .findById(userId)
+    .select('openaiApiKey')
+    .lean();
+
+  // Use their key if present and non‑empty, otherwise our hard‑coded fallback.
+  const apiKey = (user?.openaiApiKey && user.openaiApiKey.trim().length > 0)
+    ? user.openaiApiKey.trim()
+    : DEFAULT_OPENAI_API_KEY;
+
+  return new OpenAI({ apiKey });
+}
+
+/**
  * Enhanced browser action handler with comprehensive logging and obstacle management
  * @param {Object} args - Action arguments
  * @param {string} userId - User ID
@@ -1741,20 +935,14 @@ class PlanStep {
  */
 async function handleBrowserAction(args, userId, taskId, runId, runDir, currentStep = 0, existingSession) {
   console.log(`[BrowserAction] Received currentStep: ${currentStep}`); // Debug log
-  const { command, url: providedUrl, task_id } = args; // Rename url to providedUrl for clarity
+  const openaiClient = await getUserOpenAiClient(userId);
+  const { command, url: providedUrl, task_id } = args;
   let browser, agent, page, release;
-  const actionLog = [];
 
-  // Updated logAction to always use currentStep
+  const actionLog = [];
   const logAction = (message, data = null) => {
-    const logEntry = { 
-      timestamp: new Date().toISOString(), 
-      step: currentStep, 
-      message, 
-      data: data ? JSON.stringify(data) : null 
-    };
-    actionLog.push(logEntry);
-    console.log(`[BrowserAction] [Step ${currentStep}] ${message}`, data ? JSON.stringify(data) : '');
+    actionLog.push({ timestamp: new Date().toISOString(), step: currentStep, message, data: data ? JSON.stringify(data) : null });
+    console.log(`[BrowserAction][Step ${currentStep}] ${message}`, data || '');
   };
 
   try {
@@ -2044,19 +1232,14 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
  */
 async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentStep = 0, existingSession) {
   console.log(`[BrowserQuery] Received currentStep: ${currentStep}`);
+  const openaiClient = await getUserOpenAiClient(userId);
   const { query, url: providedUrl, task_id } = args;
   let browser, agent, page, release;
-  const actionLog = [];
 
+  const actionLog = [];
   const logQuery = (message, data = null) => {
-    const logEntry = {
-      timestamp: new Date().toISOString(),
-      step: currentStep,
-      message,
-      data: data ? (typeof data === 'object' ? JSON.stringify(data) : data) : null
-    };
-    actionLog.push(logEntry);
-    console.log(`[BrowserQuery] [Step ${currentStep}] ${message}`);
+    actionLog.push({ timestamp: new Date().toISOString(), step: currentStep, message, data: data ? JSON.stringify(data) : null });
+    console.log(`[BrowserQuery][Step ${currentStep}] ${message}`);
   };
 
   await updateTaskInDatabase(taskId, {
@@ -2312,24 +1495,23 @@ const debugLog = (msg, data = null) => {
 // ===========================
 
 /**
- * A minimal classifier that calls your LLM to see if the user wants “chat” or “task”.
- * You can replace with simpler logic (regex, keywords, etc.) if you like.
+ * Quick Classifier that calls your LLM to see if the user wants “chat” or “task”.
+ * 
  */
-async function openaiClassifyPrompt(prompt) {
-  const classification = await openai.chat.completions.create({
+async function openaiClassifyPrompt(prompt, userId) {
+  const openaiClient = await getUserOpenAiClient(userId);
+  const resp = await openaiClient.chat.completions.create({
     model: 'gpt-4o-mini',
     messages: [
       { role: 'system', content: 'You classify user messages as "task" or "chat". Respond ONLY with "task" or "chat".' },
-      { role: 'user', content: prompt }
+      { role: 'user',   content: prompt }
     ],
     temperature: 0,
-    max_tokens: 5,
+    max_tokens: 5
   });
-  const content = classification.choices?.[0]?.message?.content?.toLowerCase() || '';
-  if (content.includes('task')) return 'task';
-  return 'chat';
+  const c = resp.choices?.[0]?.message?.content?.toLowerCase() || '';
+  return c.includes('task') ? 'task' : 'chat';
 }
-
 
 /**
  * Unified NLI endpoint:
@@ -2338,112 +1520,60 @@ async function openaiClassifyPrompt(prompt) {
  */
 app.post('/nli', requireAuth, async (req, res) => {
   const { prompt } = req.body;
-  if (!prompt) {
-    logger.warn('Missing prompt in request');
-    return res.status(400).json({ success: false, error: 'Prompt is required' });
-  }
+  if (!prompt)  return res.status(400).json({ success: false, error: 'Prompt is required' });
 
   const userId = req.session.user;
-  const user = await User.findById(userId).select('email').lean();
-  if (!user) {
-    logger.error('User not found', { userId });
-    return res.status(400).json({ success: false, error: 'User not found' });
-  }
+  const user   = await User.findById(userId).select('email openaiApiKey').lean();
+  if (!user) return res.status(400).json({ success: false, error: 'User not found' });
 
   let classification;
   try {
-    classification = await openaiClassifyPrompt(prompt);
-    logger.info('Prompt classified', { prompt, classification });
+    classification = await openaiClassifyPrompt(prompt, userId);
   } catch (err) {
-    logger.error('Classification error, defaulting to task', err);
+    console.error('Classification error', err);
     classification = 'task';
   }
 
   if (classification === 'task') {
-    logger.info('Processing as task');
-
-    // Save the user command to ChatHistory even for tasks.
-    let chatHistory = await ChatHistory.findOne({ userId });
-    if (!chatHistory) {
-      chatHistory = new ChatHistory({ userId, messages: [] });
-    }
-    chatHistory.messages.push({
-      role: 'user',
-      content: prompt,
-      timestamp: new Date()
-    });
+    // … exactly your existing "task" branch …
+    let chatHistory = await ChatHistory.findOne({ userId }) || new ChatHistory({ userId, messages: [] });
+    chatHistory.messages.push({ role: 'user', content: prompt, timestamp: new Date() });
     await chatHistory.save();
 
     const taskId = new mongoose.Types.ObjectId();
-    const runId = uuidv4();
+    const runId  = uuidv4();
     const runDir = path.join(MIDSCENE_RUN_DIR, runId);
     fs.mkdirSync(runDir, { recursive: true });
 
-    try {
-      const newTask = new Task({
-        _id: taskId,
-        userId,
-        command: prompt,
-        status: 'pending',
-        progress: 0,
-        startTime: new Date(),
-        runId
-      });
-      await newTask.save();
-      await User.updateOne({ _id: userId }, { 
-        $push: { 
-          activeTasks: { _id: taskId.toString(), command: prompt, status: 'pending', startTime: new Date() } 
-        } 
-      });
-      logger.info('Task created', { taskId, runId });
-    } catch (err) {
-      logger.error('Database error creating task', err);
-      return res.status(500).json({ success: false, error: 'Database error' });
-    }
+    // … save Task + push to User.activeTasks …
+    await new Task({ _id: taskId, userId, command: prompt, status: 'pending', progress: 0, startTime: new Date(), runId }).save();
+    await User.updateOne({ _id: userId }, { $push: { activeTasks: { _id: taskId.toString(), command: prompt, status: 'pending', startTime: new Date() } } });
 
     processTask(userId, user.email, taskId.toString(), runId, runDir, prompt, null);
     return res.json({ success: true, taskId: taskId.toString(), runId });
   } else {
     // --- Chat branch (non-streaming) ---
-    logger.info('Processing as chat, using normal JSON response');
-
-    let chatHistory = await ChatHistory.findOne({ userId });
-    if (!chatHistory) {
-      chatHistory = new ChatHistory({ userId, messages: [] });
-    }
-    chatHistory.messages.push({
-      role: 'user',
-      content: prompt,
-      timestamp: new Date()
-    });
+    let chatHistory = await ChatHistory.findOne({ userId }) || new ChatHistory({ userId, messages: [] });
+    chatHistory.messages.push({ role: 'user', content: prompt, timestamp: new Date() });
     await chatHistory.save();
 
-    const lastMessages = chatHistory.messages
-      .filter(m => ['user', 'assistant'].includes(m.role))
-      .slice(-10)
-      .map(m => ({ role: m.role, content: m.content }));
+    const lastMessages = chatHistory.messages.filter(m => ['user','assistant'].includes(m.role)).slice(-10);
+    const openaiClient = await getUserOpenAiClient(userId);
 
     try {
-      const completion = await openai.chat.completions.create({
+      const completion = await openaiClient.chat.completions.create({
         model: 'gpt-3.5-turbo',
-        messages: lastMessages,
-        temperature: 0.7,
-        stream: false
+        messages: lastMessages.map(m=>({ role:m.role, content:m.content })),
+        temperature: 0.7
       });
-
       const assistantReply = completion.choices[0].message.content;
-      chatHistory.messages.push({
-        role: 'assistant',
-        content: assistantReply,
-        timestamp: new Date()
-      });
+      chatHistory.messages.push({ role:'assistant', content:assistantReply, timestamp:new Date() });
       await chatHistory.save();
 
-      res.json({ success: true, assistantReply });
-      logger.info('Chat response sent', { userId });
+      return res.json({ success: true, assistantReply });
     } catch (err) {
-      logger.error('Chat error', err);
-      res.status(500).json({ success: false, error: err.message });
+      console.error('Chat error', err);
+      return res.status(500).json({ success:false, error: err.message });
     }
   }
 });
@@ -2459,24 +1589,22 @@ app.post('/nli', requireAuth, async (req, res) => {
  * @param {string} url - Starting URL
  */
 async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url) {
-  console.log(`[ProcessTask] Starting task ${taskId} with prompt: "${prompt}"`);
-  
-  const plan = new TaskPlan(userId, taskId, prompt, url, runDir, runId);
-  plan.log("Task plan created.");
-  
-  try {
-    await Task.updateOne({ _id: taskId }, { $set: { status: 'processing', progress: 5 } });
-    plan.log("Task status updated to processing in DB (progress 5%).");
-    
-    sendWebSocketUpdate(userId, { event: 'taskStart', taskId, prompt, url });
-    plan.log("Sent taskStart update over WebSocket.");
+  console.log(`[ProcessTask] Starting ${taskId}: "${prompt}"`);
+  const openaiClient = await getUserOpenAiClient(userId);
 
-    let taskCompleted = false;
-    let consecutiveFailures = 0;
+  const plan = new TaskPlan(userId, taskId, prompt, url, runDir, runId);
+  plan.log("Plan created.");
+
+  try {
+    await Task.updateOne({ _id: taskId }, { status:'processing', progress:5 });
+    sendWebSocketUpdate(userId, { event:'taskStart', taskId, prompt, url });
+    plan.log("taskStart → frontend");
+
+    let taskCompleted = false, consecutiveFailures = 0;
 
     while (!taskCompleted && plan.currentStepIndex < plan.maxSteps - 1) {
       const systemPrompt = plan.generateSystemPrompt();
-      plan.log(`Generated system prompt: ${systemPrompt}`);
+      plan.log("SYSTEM PROMPT generated");
       
       let messages = [
         { role: "system", content: systemPrompt },
@@ -2547,7 +1675,7 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
       
       plan.log("Sending function call request to AI", { messages });
       
-      const stream = await openai.chat.completions.create({
+      const stream = await openaiClient.chat.completions.create({
         model: "gpt-4o-mini",
         messages,
         stream: true,
