@@ -1,344 +1,367 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Settings | O.P.E.R.A.T.O.R</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="icon" type="image/png" sizes="36x36" href="/assets/images/dail-fav.png">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Settings | O.P.E.R.A.T.O.R</title>
+  <link
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+  />
   <style>
     :root {
-      --primary: #6e3eff;
-      --primary-dark: #5428e0;
-      --secondary: #00e5ff;
-      --dark: #0a0e17;
-      --dark-light: #181c28;
-      --text: #e0e0ff;
-      --text-muted: #a0a0b8;
+      --purple: #6e3eff;
+      --purple-dark: #522ddb;
+      --bg: #121417;
+      --card: #1f2028;
+      --text: #ececf1;
+      --text-muted: #8f8fa1;
       --success: #00e676;
       --danger: #ff3d71;
     }
-
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    }
-
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background: var(--dark);
+      background: var(--bg);
       color: var(--text);
+      font-family: 'Nunito', sans-serif;
       min-height: 100vh;
+      padding: 2rem;
     }
-
     .container {
-      max-width: 1400px;
+      max-width: 800px;
       margin: 0 auto;
-      padding: 20px;
     }
-
-    header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 20px 0;
-      border-bottom: 1px solid rgba(255,255,255,0.1);
-      margin-bottom: 30px;
-    }
-
-    .logo h1 {
-      font-size: 24px;
-      font-weight: 700;
-      background: linear-gradient(90deg, var(--primary), var(--secondary));
+    h1 {
+      margin-bottom: 1rem;
+      text-align: center;
+      background: linear-gradient(90deg, var(--purple), var(--purple-dark));
       -webkit-background-clip: text;
       color: transparent;
+      font-size: 2rem;
     }
-
-    nav a {
-      margin-left: 20px;
-      color: var(--text-muted);
-      text-decoration: none;
-      font-weight: 500;
-      transition: all 0.2s;
-      font-size: 14px;
+    .card {
+      background: var(--card);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 5px 20px rgba(0, 0, 0, 0.4);
     }
-
-    nav a:hover {
+    .card h2 {
+      font-size: 1.25rem;
+      margin-bottom: 1rem;
       color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
     }
-
+    .form-group { margin-bottom: 1rem; }
+    .form-group label {
+      display: block;
+      margin-bottom: 0.3rem;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+    .form-group input[type="text"],
+    .form-group input[type="password"] {
+      width: 100%;
+      padding: 0.6rem;
+      background: var(--bg);
+      border: 1px solid var(--text-muted);
+      border-radius: 4px;
+      color: var(--text);
+      font-size: 0.95rem;
+    }
+    .form-group input:focus {
+      outline: none;
+      border-color: var(--purple);
+    }
     .btn {
-      padding: 12px 18px;
-      background: var(--primary);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.6rem 1.2rem;
+      background: var(--purple);
       color: white;
       border: none;
-      border-radius: 6px;
+      border-radius: 4px;
       cursor: pointer;
-      font-weight: 600;
-      transition: all 0.2s;
-      text-decoration: none;
-      font-size: 14px;
+      transition: background 0.2s, transform 0.2s;
+      font-size: 0.95rem;
     }
-
     .btn:hover {
-      background: var(--primary-dark);
+      background: var(--purple-dark);
       transform: translateY(-2px);
-      box-shadow: 0 5px 15px rgba(94, 63, 255, 0.3);
     }
-
-    .btn-sm {
-      padding: 8px 14px;
-      font-size: 13px;
-    }
-
     .btn-danger {
       background: var(--danger);
     }
-
     .btn-danger:hover {
-      background: color-mix(in srgb, var(--danger), black 10%);
-      box-shadow: 0 5px 15px rgba(255, 61, 113, 0.3);
+      background: darken(var(--danger), 10%);
     }
-
-    .btn-icon {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
+    .radio-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
     }
-
-    .card {
-      background: var(--dark-light);
-      border-radius: 12px;
-      padding: 25px;
-      margin-bottom: 25px;
-      box-shadow: 0 5px 20px rgba(0,0,0,0.2);
-    }
-
-    .card-title {
-      font-size: 18px;
-      font-weight: 600;
-      margin-bottom: 20px;
-      color: var(--text);
+    .radio-group label {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 0.3rem;
+      font-size: 0.95rem;
     }
-
-    .form-group {
-      margin-bottom: 20px;
+    .toggle-switch {
+      position: relative;
+      width: 48px;
+      height: 24px;
     }
-
-    .form-group label {
-      display: block;
-      font-size: 14px;
-      margin-bottom: 8px;
-      color: var(--text-muted);
+    .toggle-switch input {
+      opacity: 0;
+      width: 0; height: 0;
     }
-
-    .form-group input {
-      width: 100%;
-      padding: 10px;
-      background: var(--dark);
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 6px;
-      color: var(--text);
-      font-size: 14px;
-    }
-
-    .form-group input:focus {
-      outline: none;
-      border-color: var(--primary);
-      box-shadow: 0 0 0 2px rgba(110, 62, 255, 0.2);
-    }
-
-    .custom-url-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 10px;
-      background: var(--dark);
-      border-radius: 6px;
-      margin-bottom: 10px;
-    }
-
-    .custom-url-item span {
-      font-size: 14px;
-      color: var(--text);
-    }
-
-    .custom-url-item button {
-      background: transparent;
-      border: none;
-      color: var(--danger);
+    .slider {
+      position: absolute;
       cursor: pointer;
-      font-size: 16px;
+      inset: 0;
+      background: var(--text-muted);
+      border-radius: 24px;
+      transition: background 0.2s;
     }
-
+    .slider::before {
+      content: "";
+      position: absolute;
+      height: 20px; width: 20px;
+      left: 2px; bottom: 2px;
+      background: var(--card);
+      transition: transform 0.2s;
+      border-radius: 50%;
+    }
+    input:checked + .slider {
+      background: var(--purple);
+    }
+    input:checked + .slider::before {
+      transform: translateX(24px);
+    }
     .notification {
       position: fixed;
-      bottom: 20px;
-      right: 20px;
+      bottom: 1rem;
+      right: 1rem;
       background: var(--success);
       color: white;
-      padding: 15px 20px;
-      border-radius: 8px;
-      box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+      padding: 0.8rem 1.2rem;
+      border-radius: 4px;
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all 0.3s;
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 0.5rem;
+      font-size: 0.9rem;
       z-index: 100;
-      transform: translateY(100px);
-      opacity: 0;
-      transition: all 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55);
     }
-
     .notification.show {
-      transform: translateY(0);
       opacity: 1;
+      transform: translateY(0);
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <header>
-      <div class="logo">
-        <h1>O.P.E.R.A.T.O.R</h1>
-      </div>
-      <nav>
-        <a href="/"><i class="fas fa-home"></i> Home</a>
-        <a href="/history.html"><i class="fas fa-history"></i> History</a>
-        <a href="/guide.html"><i class="fas fa-book"></i> Guide</a>
-        <a href="/logout" class="btn btn-sm"><i class="fas fa-sign-out-alt"></i> Logout</a>
-      </nav>
-    </header>
+    <h1><i class="fas fa-cog"></i> Settings</h1>
 
+    <!-- API KEYS -->
+    <div class="card" id="keys-card">
+      <h2><i class="fas fa-key"></i> API Keys</h2>
+      <div class="form-group">
+        <input type="text" id="new-key" placeholder="Paste new API key…" />
+      </div>
+      <button class="btn" onclick="addKey()">
+        <i class="fas fa-plus"></i> Add Key
+      </button>
+      <div id="key-list" style="margin-top:1rem"></div>
+    </div>
+
+    <!-- DEFAULT LLM -->
     <div class="card">
-      <h3 class="card-title"><i class="fas fa-cog"></i> Settings</h3>
-
-      <div class="form-group">
-        <h4>Clear History</h4>
-        <p style="color: var(--text-muted); margin-bottom: 10px;">Remove all past tasks from your history.</p>
-        <button id="clear-history" class="btn btn-danger btn-sm btn-icon"><i class="fas fa-trash"></i> Clear History</button>
+      <h2><i class="fas fa-robot"></i> Default LLM</h2>
+      <div class="radio-group" id="engine-list">
+        <!-- radios injected here -->
       </div>
+    </div>
 
+    <!-- PRIVACY MODE -->
+    <div class="card">
+      <h2><i class="fas fa-shield-alt"></i> Privacy Mode</h2>
+      <label class="toggle-switch">
+        <input type="checkbox" id="privacy-toggle" />
+        <span class="slider"></span>
+      </label>
+      <span style="margin-left: 0.5rem; vertical-align: middle;">
+        Safe Puppeteer
+      </span>
+    </div>
+
+    <!-- PASSWORD -->
+    <div class="card">
+      <h2><i class="fas fa-lock"></i> Change Password</h2>
       <div class="form-group">
-        <h4>Custom URLs</h4>
-        <p style="color: var(--text-muted); margin-bottom: 10px;">Add default URLs that O.P.E.R.A.T.O.R can use for tasks.</p>
-        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-          <input type="url" id="custom-url-input" placeholder="Enter URL (e.g., https://example.com)">
-          <button id="add-custom-url" class="btn btn-sm btn-icon"><i class="fas fa-plus"></i> Add URL</button>
-        </div>
-        <div id="custom-url-list"></div>
+        <label>Current Password</label>
+        <input type="password" id="curr-pass" />
       </div>
+      <div class="form-group">
+        <label>New Password</label>
+        <input type="password" id="new-pass" />
+      </div>
+      <div class="form-group">
+        <label>Confirm New</label>
+        <input type="password" id="conf-pass" />
+      </div>
+      <button class="btn btn-danger" onclick="changePassword()">
+        <i class="fas fa-key"></i> Update Password
+      </button>
     </div>
   </div>
 
-  <div class="notification" id="notification">
+  <div id="notification" class="notification">
     <i class="fas fa-check-circle"></i>
-    <span id="notification-message">Settings updated successfully!</span>
+    <span id="notif-text"></span>
   </div>
 
   <script>
-    function showNotification(message, type = 'success') {
-      const notification = document.getElementById('notification');
-      if (!notification) {
-        const notifDiv = document.createElement('div');
-        notifDiv.id = 'notification';
-        notifDiv.className = 'notification';
-        notifDiv.innerHTML = `<i class="fas fa-check-circle"></i> <span id="notification-message"></span>`;
-        document.body.appendChild(notifDiv);
-      }
-
-      const notificationElement = document.getElementById('notification');
-      const notificationMessage = document.getElementById('notification-message');
-      notificationElement.style.background = type === 'success' ? 'var(--success)' : 'var(--danger)';
-      notificationMessage.textContent = message;
-      notificationElement.classList.add('show');
-      setTimeout(() => { notificationElement.classList.remove('show'); }, 3000);
+    const engines = [
+      { id: 'gpt-4o-mini', name: 'GPT‑4o Mini' },
+      { id: 'gpt-4o',      name: 'GPT‑4o' },
+      { id: 'UITars',      name: 'UI‑Tars' },
+      { id: 'qwen-vl-max-latest', name: 'Qwen‑VL‑Max‑Latest' },
+    ];
+    
+    function showNotif(msg, ok = true) {
+      const n = document.getElementById('notification');
+      const t = document.getElementById('notif-text');
+      n.style.background = ok ? 'var(--success)' : 'var(--danger)';
+      t.textContent = msg;
+      n.classList.add('show');
+      setTimeout(() => n.classList.remove('show'), 3000);
     }
-
-    async function loadCustomUrls() {
-      try {
-        const response = await fetch('/custom-urls', { credentials: 'same-origin' });
-        if (!response.ok) throw new Error('Failed to load custom URLs');
-        const customUrls = await response.json();
-        const urlList = document.getElementById('custom-url-list');
-        urlList.innerHTML = '';
-        if (customUrls.length === 0) {
-          urlList.innerHTML = '<p style="color: var(--text-muted);">No custom URLs added yet.</p>';
-          return;
-        }
-        customUrls.forEach(url => {
-          const urlItem = document.createElement('div');
-          urlItem.className = 'custom-url-item';
-          urlItem.innerHTML = `
-            <span>${url}</span>
-            <button onclick="deleteCustomUrl('${url}')"><i class="fas fa-trash"></i></button>
-          `;
-          urlList.appendChild(urlItem);
-        });
-      } catch (error) {
-        showNotification('Error loading custom URLs', 'error');
-        console.error(error);
-      }
+    
+    async function loadSettings() {
+      const res = await fetch('/settings', { credentials: 'include' });
+      const body = await res.json();
+      const s = body.settings;
+      
+      // Render API keys
+      renderKeys(s.apiKeys || []);
+    
+      // Render engines
+      renderEngines(s.preferredEngine);
+    
+      // Privacy mode
+      document.getElementById('privacy-toggle').checked = !!s.privacyMode;
     }
-
-    async function addCustomUrl() {
-      const url = document.getElementById('custom-url-input').value.trim();
-      if (!url) {
-        showNotification('Please enter a valid URL', 'error');
-        return;
-      }
-      try {
-        const response = await fetch('/custom-urls', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({ url })
-        });
-        if (!response.ok) throw new Error('Failed to add custom URL');
-        document.getElementById('custom-url-input').value = '';
-        loadCustomUrls();
-        showNotification('Custom URL added successfully!');
-      } catch (error) {
-        showNotification('Error adding custom URL', 'error');
-        console.error(error);
-      }
-    }
-
-    async function deleteCustomUrl(url) {
-      try {
-        const response = await fetch(`/custom-urls/${encodeURIComponent(url)}`, {
-          method: 'DELETE',
-          credentials: 'same-origin'
-        });
-        if (!response.ok) throw new Error('Failed to delete custom URL');
-        loadCustomUrls();
-        showNotification('Custom URL deleted successfully!');
-      } catch (error) {
-        showNotification('Error deleting custom URL', 'error');
-        console.error(error);
-      }
-    }
-
-    document.addEventListener('DOMContentLoaded', () => {
-      loadCustomUrls();
-      document.getElementById('add-custom-url').addEventListener('click', addCustomUrl);
-      document.getElementById('clear-history').addEventListener('click', async () => {
-        try {
-          const response = await fetch('/history', {
-            method: 'DELETE',
-            credentials: 'same-origin'
-          });
-          if (!response.ok) throw new Error('Failed to clear history');
-          showNotification('History cleared successfully!');
-        } catch (error) {
-          showNotification('Error clearing history', 'error');
-          console.error(error);
-        }
+    
+    function renderKeys(keys) {
+      const list = document.getElementById('key-list');
+      list.innerHTML = '';
+      keys.forEach(k => {
+        const div = document.createElement('div');
+        div.style = 'display:flex;align-items:center;gap:10px;margin:0.5rem 0;';
+        div.innerHTML = `
+          <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+            ${k.engine}: ${k.key.slice(0,6)}…${k.key.slice(-4)}
+          </span>
+          <button onclick="deleteKey('${k.key}')" class="btn btn-danger btn-sm">
+            <i class="fas fa-trash-alt"></i>
+          </button>`;
+        list.appendChild(div);
       });
-    });
-  </script>
+    }
+    
+    function renderEngines(selected) {
+      const container = document.getElementById('engine-list');
+      container.innerHTML='';
+      engines.forEach(e=>{
+        const lbl = document.createElement('label');
+        lbl.innerHTML = `
+          <input type="radio" name="engine" 
+                 ${e.id===selected?'checked':''}
+                 onchange="setEngine('${e.id}')"/>
+          ${e.name}`;
+        container.appendChild(lbl);
+      });
+    }
+    
+    async function addKey(){
+      const k = document.getElementById('new-key').value.trim();
+      if(!k){ return showNotif('Enter a key', false); }
+    
+      const engine = prompt('Enter the engine name for this API key (e.g., gpt-4o-mini):');
+      if(!engine) return showNotif('Engine name required', false);
+    
+      const res = await fetch('/settings/api-keys', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        credentials:'include',
+        body: JSON.stringify({ engine, key: k })
+      });
+      if(res.ok){ 
+        document.getElementById('new-key').value=''; 
+        loadSettings(); 
+        showNotif('Key added'); 
+      }
+      else showNotif('Failed to add', false);
+    }
+    
+    async function deleteKey(key){
+      const res = await fetch(`/settings/api-keys/${encodeURIComponent(key)}`, {
+        method:'DELETE', credentials:'include'
+      });
+      if(res.ok){ loadSettings(); showNotif('Key deleted'); }
+      else showNotif('Failed to delete', false);
+    }
+    
+    async function setEngine(id){
+      await fetch('/settings', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        credentials:'include',
+        body: JSON.stringify({ preferredEngine: id })
+      });
+      showNotif('LLM updated');
+    }
+    
+    document
+      .getElementById('privacy-toggle')
+      .addEventListener('change', async e=>{
+        await fetch('/settings', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          credentials:'include',
+          body: JSON.stringify({ privacyMode: e.target.checked })
+        });
+        showNotif('Privacy mode '+ (e.target.checked?'ON':'OFF'));
+      });
+    
+    async function changePassword(){
+      const curr = document.getElementById('curr-pass').value,
+            nw   = document.getElementById('new-pass').value,
+            cf   = document.getElementById('conf-pass').value;
+      if(!curr||!nw||nw!==cf){
+        return showNotif('Passwords invalid', false);
+      }
+      const res = await fetch('/settings/password', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        credentials:'include',
+        body: JSON.stringify({ currentPassword: curr, newPassword: nw })
+      });
+      if(res.ok) showNotif('Password changed');
+      else {
+        const body = await res.json();
+        showNotif(body.error || 'Failed to change', false);
+      }
+    }
+    
+    document.addEventListener('DOMContentLoaded', loadSettings);
+    </script>
+    
 </body>
 </html>

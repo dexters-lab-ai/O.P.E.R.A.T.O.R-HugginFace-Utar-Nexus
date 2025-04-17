@@ -1,149 +1,248 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Login - O.P.E.R.A.T.O.R</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="icon" type="image/png" sizes="36x36" href="/assets/images/dail-fav.png">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Login – O.P.E.R.A.T.O.R</title>
+  <link
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    crossorigin="anonymous"
+    referrerpolicy="no-referrer"
+  />
   <style>
+    /* ----------- ROOT & RESET ----------- */
     :root {
-      --primary: #6e3eff;
-      --dark: #0a0e17;
-      --dark-light: #181c28;
-      --text: #e0e0ff;
-      --text-muted: #a0a0b8;
-      --success: #00e5e6;
-      --danger: #ff3d71;
+      --purple: #6e3eff;
+      --purple-dark: #522ddb;
+      --bg: #121417;
+      --card: #1f2028;
+      --text: #ececf1;
+      --text-muted: #8f8fa1;
+      --error: #ff3d71;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
     }
     body {
-      background: var(--dark);
+      background: radial-gradient(circle at top left,
+                  rgba(110, 62, 255, 0.2), transparent),
+                  var(--bg);
       color: var(--text);
-      font-family: 'Inter', sans-serif;
+      font-family: 'Nunito', sans-serif;
       display: flex;
-      justify-content: center;
       align-items: center;
-      height: 100vh;
-      margin: 0;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 1rem;
     }
-    .login-box {
-      background: var(--dark-light);
-      padding: 30px;
-      border-radius: 8px;
-      box-shadow: 0 5px 20px rgba(0,0,0,0.4);
-      width: 320px;
-      animation: fadeIn 0.5s ease;
+
+    /* ----------- CARD ----------- */
+    .card {
+      background: var(--card);
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+      width: 100%;
+      max-width: 360px;
+      padding: 2rem;
+      position: relative;
+      overflow: hidden;
     }
-    .login-box h2 {
+    .card::before {
+      content: '';
+      position: absolute;
+      top: -40%;
+      left: -40%;
+      width: 200%;
+      height: 200%;
+      background: conic-gradient(from 180deg at 50% 50%,
+        transparent 0%, transparent 60%,
+        rgba(110, 62, 255, 0.4) 60%, rgba(110, 62, 255, 0.4) 90%,
+        transparent 90%);
+      animation: rotate 6s linear infinite;
+    }
+    @keyframes rotate {
+      to { transform: rotate(1turn); }
+    }
+    .card-content {
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ----------- TITLE ----------- */
+    .card h2 {
       text-align: center;
-      margin-bottom: 20px;
-      background: linear-gradient(90deg, var(--primary), var(--text-muted));
+      font-size: 1.8rem;
+      margin-bottom: 1.5rem;
+      background: linear-gradient(90deg, var(--purple), var(--purple-dark));
       -webkit-background-clip: text;
       color: transparent;
-      font-size: 24px;
-      font-weight: bold;
     }
-    .login-box input {
-      width: 100%;
-      padding: 12px;
-      margin: 10px 0;
-      border: 1px solid rgba(255,255,255,0.2);
-      border-radius: 5px;
-      background: var(--dark);
-      color: var(--text);
+
+    /* ----------- FORM ----------- */
+    .form-group {
+      position: relative;
+      margin-bottom: 1.5rem;
     }
-    .login-box button {
+    .form-group input {
       width: 100%;
-      padding: 12px;
-      background: var(--primary);
-      color: white;
+      padding: 0.75rem 2.5rem 0.75rem 2.5rem;
       border: none;
-      border-radius: 5px;
-      cursor: pointer;
-      margin-top: 10px;
-      transition: all 0.2s;
+      border-radius: 6px;
+      background: #2a2b32;
+      color: var(--text);
+      font-size: 1rem;
+      transition: border 0.2s;
     }
-    .login-box button:hover {
-      background: var(--primary-dark);
+    .form-group input:focus {
+      outline: none;
+      border: 2px solid var(--purple);
+    }
+    .form-group label {
+      position: absolute;
+      top: 50%;
+      left: 2.5rem;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      pointer-events: none;
+      transition: top 0.2s, font-size 0.2s, color 0.2s;
+    }
+    .form-group input:focus + label,
+    .form-group input:not(:placeholder-shown) + label {
+      top: 0.2rem;
+      font-size: 0.75rem;
+      color: var(--purple);
+    }
+    .form-group .fa-icon {
+      position: absolute;
+      top: 50%;
+      left: 1rem;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      font-size: 1.1rem;
+    }
+
+    /* ----------- BUTTON ----------- */
+    .btn {
+      width: 100%;
+      padding: 0.75rem;
+      background: var(--purple);
+      border: none;
+      border-radius: 6px;
+      color: white;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.3s, transform 0.2s;
+    }
+    .btn:hover {
+      background: var(--purple-dark);
       transform: translateY(-2px);
     }
+
+    /* ----------- TOGGLE & ERROR ----------- */
     .toggle {
       text-align: center;
-      margin-top: 15px;
+      margin-top: 1rem;
+      font-size: 0.9rem;
     }
     .toggle a {
-      color: var(--text-muted);
+      color: var(--purple);
       text-decoration: none;
       transition: color 0.2s;
     }
     .toggle a:hover {
-      color: var(--text);
+      color: var(--purple-dark);
     }
     .error-message {
-      color: var(--danger);
-      font-size: 14px;
-      margin-top: 5px;
+      color: var(--error);
+      font-size: 0.85rem;
+      margin-top: 0.5rem;
+      text-align: center;
       display: none;
-    }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
     }
   </style>
 </head>
 <body>
-  <div class="login-box">
-    <h2 id="form-title">Login</h2>
-    <input type="email" id="email" placeholder="Email">
-    <input type="password" id="password" placeholder="Password">
-    <div class="error-message" id="error-message"></div>
-    <button onclick="submitForm()">Login</button>
-    <div class="toggle">
-      <a href="#" onclick="toggleForm()">Switch to Register</a>
+  <div class="card">
+    <div class="card-content">
+      <h2 id="form-title">Login</h2>
+
+      <div class="form-group">
+        <i class="fa fa-envelope fa-icon"></i>
+        <input type="email" id="email" placeholder=" " autocomplete="username" />
+        <label for="email">Email</label>
+      </div>
+
+      <div class="form-group">
+        <i class="fa fa-lock fa-icon"></i>
+        <input
+          type="password"
+          id="password"
+          placeholder=" "
+          autocomplete="current-password"
+        />
+        <label for="password">Password</label>
+      </div>
+
+      <div class="error-message" id="error-message"></div>
+
+      <button class="btn" onclick="submitForm()">Login</button>
+
+      <div class="toggle">
+        <a href="#" onclick="toggleForm()">Switch to Register</a>
+      </div>
     </div>
   </div>
-  
+
   <script>
     let isLogin = true;
-
     function toggleForm() {
       isLogin = !isLogin;
-      document.getElementById('form-title').textContent = isLogin ? 'Login' : 'Register';
-      document.querySelector('button').textContent = isLogin ? 'Login' : 'Register';
-      document.querySelector('.toggle a').textContent = isLogin ? 'Switch to Register' : 'Switch to Login';
+      document.getElementById('form-title').textContent = isLogin
+        ? 'Login'
+        : 'Register';
+      document.querySelector('.btn').textContent = isLogin
+        ? 'Login'
+        : 'Register';
+      document.querySelector('.toggle a').textContent = isLogin
+        ? 'Switch to Register'
+        : 'Switch to Login';
       document.getElementById('error-message').style.display = 'none';
     }
 
     async function submitForm() {
       const email = document.getElementById('email').value.trim();
       const password = document.getElementById('password').value.trim();
-      const errorMessage = document.getElementById('error-message');
+      const errEl = document.getElementById('error-message');
       if (!email || !password) {
-        errorMessage.textContent = 'Please enter both email and password.';
-        errorMessage.style.display = 'block';
-        return;
+        errEl.textContent = 'Please fill out both fields.';
+        return (errEl.style.display = 'block');
       }
-      const url = isLogin ? '/login' : '/register';
+
+      const url = isLogin ? '/auth/login' : '/auth/register';
       try {
-        const response = await fetch(url, {
+        const res = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({ email, password })
+          credentials: 'include',
+          headers: { 
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: JSON.stringify({ email, password }),
         });
-        const data = await response.json();
+        const data = await res.json();
         if (data.success) {
-          // Store the userId (email) in localStorage
-          localStorage.setItem('userId', data.userId);
-          window.location.href = '/';
-        } else {
-          errorMessage.textContent = data.error;
-          errorMessage.style.display = 'block';
+          return (window.location.href = '/');
         }
-      } catch (err) {
-        errorMessage.textContent = 'An error occurred. Please try again.';
-        errorMessage.style.display = 'block';
+        errEl.textContent = data.error;
+      } catch {
+        errEl.textContent = 'Network error, please try again.';
       }
+      errEl.style.display = 'block';
     }
   </script>
 </body>

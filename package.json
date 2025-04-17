@@ -4,7 +4,7 @@
     "type": "module",
     "scripts": {
         "start": "pm2 start ecosystem.config.yaml --no-daemon",
-        "dev": "concurrently \"node --max-old-space-size=4096 node_modules/vite/bin/vite.js\" \"node --max-old-space-size=4096 server.js\"",
+        "dev": "concurrently --names \"VITE,SERVER\" --prefix-colors \"green,blue\" --raw \"node --max-old-space-size=4096 node_modules/vite/bin/vite.js\" \"node --max-old-space-size=4096 server.js\"",
         "build": "vite build",
         "serve": "node --max-old-space-size=4096 server.js"
     },
@@ -37,6 +37,7 @@
     },
     "devDependencies": {
         "concurrently": "^9.1.2",
+        "nodemon": "^3.1.9",
         "pm2": "^6.0.5",
         "vite": "^6.2.2"
     }

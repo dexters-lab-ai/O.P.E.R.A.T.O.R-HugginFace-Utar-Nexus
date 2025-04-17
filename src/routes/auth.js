@@ -27,7 +27,10 @@ router.post('/login', async (req, res) => {
     if (!user || !await bcrypt.compare(password, user.password)) {
       throw new Error('Invalid email or password');
     }
-    req.session.user = user._id;
+    
+    console.log('User logged in:', user.email); // Log user email on successful login
+    req.session.user = user._id;    
+    console.log('Session user ID set:', req.session.user); // Log session user ID
     res.json({ success: true, userId: user._id.toString() });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });

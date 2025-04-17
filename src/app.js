@@ -341,8 +341,12 @@ window.addEventListener('beforeunload', () => {
 async function loadChatHistory() {
   console.log('Loading chat history');
   try {
-    const response = await fetch('/chat-history', { credentials: 'include' });
-    if (!response.ok) throw new Error('Failed to load chat history');
+    const response = await fetch('/chat-history', { credentials: 'include', headers: { 'Content-Type': 'application/json','X-Requested-With': 'XMLHttpRequest' }, });
+    if (!response.ok) {
+      // could be a 302→login.html or a 401 JSON
+      console.error('Auth failure or network error:', await response.text());
+      return []; // or handle logout
+    }
     const data = await response.json();
     const nliResults = document.getElementById('nli-results');
     nliResults.innerHTML = '';
@@ -439,10 +443,19 @@ document.addEventListener('DOMContentLoaded', () => {
       console.log('Sending fetch request');
       const response = await fetch('/nli', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
         credentials: 'include',
         body: JSON.stringify({ prompt }),
       });
+      
+      if (!response.ok) {
+        // could be a 302→login.html or a 401 JSON
+        console.error('Auth failure or network error:', await response.text());
+        return []; // or handle logout
+      }
       console.log('Response received');
       const contentType = response.headers.get('content-type') || 'unknown';
       console.log('Content-Type:', contentType);
@@ -911,10 +924,15 @@ async function executeTask(url, command) {
     try {
       const res = await fetch('/automate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
+        credentials: 'include', headers: { 'Content-Type': 'application/json','X-Requested-With': 'XMLHttpRequest' },
         body: JSON.stringify({ url, command })
       });
+
+      if (!res.ok) {
+        // could be a 302→login.html or a 401 JSON
+        console.error('Auth failure or network error:', await res.text());
+        return []; // or handle logout
+      }
 
       const data = await res.json();
       if (!data.success) throw new Error(data.error || 'Task execution failed');
@@ -980,8 +998,12 @@ async function executeTask(url, command) {
 // Helper to fetch history item
 async function fetchHistoryItem(taskId) {
   try {
-    const res = await fetch(`/history/${taskId}`, { credentials: 'same-origin' });
-    if (!res.ok) throw new Error('Failed to fetch history item');
+    const res = await fetch(`/history/${taskId}`, { credentials: 'include', headers: { 'Content-Type': 'application/json','X-Requested-With': 'XMLHttpRequest' }, });
+    if (!res.ok) {
+      // could be a 302→login.html or a 401 JSON
+      console.error('Auth failure or network error:', await res.text());
+      return []; // or handle logout
+    }
     const data = await res.json();
     return data;
   } catch (err) {
@@ -1313,14 +1335,11 @@ function addTaskResult(result) {
 async function loadActiveTasks() {
   const tasksContainer = document.getElementById('active-tasks-container');
   try {
-    const response = await fetch('/tasks/active', { credentials: 'same-origin' });
-    
+    const response = await fetch('/tasks/active', { credentials: 'include', headers: { 'Content-Type': 'application/json','X-Requested-With': 'XMLHttpRequest' }, });
     if (!response.ok) {
-      if (response.status === 401) {
-        window.location.href = '/login.html';
-        return;
-      }
-      throw new Error(`Failed to load active tasks: ${response.status} ${response.statusText}`);
+      // could be a 302→login.html or a 401 JSON
+      console.error('Auth failure or network error:', await response.text());
+      return []; // or handle logout
     }
     
     const tasks = await response.json();
@@ -1431,7 +1450,12 @@ function createTaskElement(task) {
   } else {
     element.querySelector('.cancel-task-btn').addEventListener('click', async () => {
       try {
-        const response = await fetch(`/tasks/${task._id}/cancel`, { method: 'POST', credentials: 'same-origin' });
+        const response = await fetch(`/tasks/${task._id}/cancel`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json','X-Requested-With': 'XMLHttpRequest' }, });
+        if (!response.ok) {
+          // could be a 302→login.html or a 401 JSON
+          console.error('Auth failure or network error:', await response.text());
+          return []; // or handle logout
+        }
         const result = await response.json();
         if (result.success) {
           showNotification('Task canceled successfully!');
@@ -1662,12 +1686,12 @@ async function loadHistory(page = 1) {
 
   try {
     console.log(`Fetching history for page ${page}`); // Debug log
-    const response = await fetch(`/history?page=${page}&limit=${limit}`, { credentials: 'same-origin' });
+    const response = await fetch(`/history?page=${page}&limit=${limit}`, { credentials: 'include', headers: { 'Content-Type': 'application/json','X-Requested-With': 'XMLHttpRequest' }, });
 
-    // Handle redirects (e.g., to login page)
-    if (response.redirected || response.status === 401) {
-      window.location.href = '/login.html';
-      return;
+    if (!response.ok) {
+      // could be a 302→login.html or a 401 JSON
+      console.error('Auth failure or network error:', await response.text());
+      return []; // or handle logout
     }
 
     // Check content type
@@ -1778,7 +1802,7 @@ function handleHistoryCardClick(e) {
     return;
   }
 
-  fetch(`/history/${taskId}`, { credentials: 'include' })
+  fetch(`/history/${taskId}`, { credentials: 'include', headers: { 'Content-Type': 'application/json','X-Requested-With': 'XMLHttpRequest' }, })
     .then(res => {
       if (!res.ok) {
         if (res.status === 401) {
@@ -1971,10 +1995,14 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         const response = await fetch('/history', {
           method: 'DELETE',
-          credentials: 'include',
+          credentials: 'include', headers: { 'Content-Type': 'application/json','X-Requested-With': 'XMLHttpRequest' },
         });
         
-        if (!response.ok) throw new Error('Failed to clear history');
+        if (!response.ok) {
+          // could be a 302→login.html or a 401 JSON
+          console.error('Auth failure or network error:', await response.text());
+          return []; // or handle logout
+        }
         
         // Clear loaded history IDs
         loadedHistoryIds.clear();
@@ -2034,7 +2062,7 @@ window.rerunHistoryTask = function(taskId, url, command) {
 
 window.deleteHistoryTask = async function(taskId) {
   try {
-    await fetch(`/history/${taskId}`, { method: 'DELETE', credentials: 'include' });
+    await fetch(`/history/${taskId}`, { method: 'DELETE', credentials: 'include', headers: { 'Content-Type': 'application/json','X-Requested-With': 'XMLHttpRequest' }, });
     const item = document.querySelector(`.output-card[data-task-id="${taskId}"]`);
     if (item) item.remove();
     if (document.getElementById('history-list').children.length === 0) {

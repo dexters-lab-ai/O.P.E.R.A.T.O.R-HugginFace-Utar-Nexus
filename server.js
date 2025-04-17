@@ -1,166 +1,166 @@
+// ======================================
+// 1) ENV & CORE LIBRARIES
+// ======================================
 import dotenv from 'dotenv';
 dotenv.config();
 
-import express          from 'express';
-import { createServer } from 'http';
-import { WebSocketServer, WebSocket } from 'ws';
-import mongoose         from 'mongoose';
-import session          from 'express-session';
-import MongoStore       from 'connect-mongo';
-import winston          from 'winston';
-import puppeteerExtra   from 'puppeteer-extra';
-import StealthPlugin    from 'puppeteer-extra-plugin-stealth';
-import { PuppeteerAgent } from '@midscene/web/puppeteer';
 import path             from 'path';
 import fs               from 'fs';
 import { fileURLToPath } from 'url';
+import { dirname }      from 'path';
+
+import express          from 'express';
+import { createServer } from 'http';
+import session          from 'express-session';
+import MongoStore       from 'connect-mongo';
+import mongoose         from 'mongoose';
+import winston          from 'winston';
+import { WebSocketServer, WebSocket } from 'ws';
 import pRetry           from 'p-retry';
 import { v4 as uuidv4 } from 'uuid';
-import { dirname }      from 'path';
 import { Semaphore }    from 'async-mutex';
-import OpenAI           from 'openai';
 
-// Routes
+// Puppeteer extras
+import puppeteerExtra   from 'puppeteer-extra';
+import StealthPlugin    from 'puppeteer-extra-plugin-stealth';
+import { PuppeteerAgent } from '@midscene/web/puppeteer';
+
+// OpenAI SDK
+import OpenAI from 'openai';
+
+// ======================================
+// 3) MODEL IMPORTS
+// ======================================
+import User        from './src/models/User.js';
+import ChatHistory from './src/models/ChatHistory.js';
+import Task        from './src/models/Task.js';
+
+// ======================================
+// 4) UTILS & REPORT GENERATORS
+// ======================================
+import { stripLargeFields }         from './src/utils/stripLargeFields.js';
+import { generateReport }           from './src/utils/reportGenerator.js';
+import { editMidsceneReport }       from './src/utils/midsceneReportEditor.js';
+
+// ======================================
+// 5) GLOBAL CONFIGURATION
+// ======================================
+mongoose.set('strictQuery', true);
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = dirname(__filename);
+
+const OPENAI_API_KAIL = process.env.OPENAI_API_KAIL;
+
+// Puppeteer concurrency limiter
+puppeteerExtra.use(StealthPlugin());
+const browserSemaphore = new Semaphore(5);
+
+// OpenAI “fallback” client (used for non‑user‑key operations)
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KAIL });
+
+// Ensure run/report directories exist
+const MIDSCENE_RUN_DIR = path.join(__dirname, 'midscene_run');
+fs.mkdirSync(MIDSCENE_RUN_DIR, { recursive: true });
+const REPORT_DIR = path.join(MIDSCENE_RUN_DIR, 'report');
+fs.mkdirSync(REPORT_DIR, { recursive: true });
+
+// ======================================
+// 6) EXPRESS + HTTP SERVER
+// ======================================
+const app    = express();
+const server = createServer(app);
+
+// ======================================
+// 7) MIDDLEWARE (ORDER MATTERS)
+// ======================================
+// 7.1 Body parsers
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// 7.2 Session store (must come before any route that reads/writes req.session)
+const MONGO_URI = process.env.MONGO_URI;
+app.use(session({
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  store: MongoStore.create({ mongoUrl: MONGO_URI, collectionName: 'sessions' }),
+  cookie: { maxAge: 24 * 60 * 60 * 1000 }
+}));
+
+// 7.3 Debug logger for sessions
+app.use((req, res, next) => {
+  console.log('👉 Session:', req.sessionID, req.session);
+  next();
+});
+
+// 7.4 Serve static assets
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'dist')));
+app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
+app.use('/images', express.static(path.join(__dirname, 'public', 'assets', 'images')));
+app.use('/src', express.static(path.join(__dirname, 'src')));
+app.use('/midscene_run', express.static(MIDSCENE_RUN_DIR));
+
+// ======================================
+// 8) ROUTES & MIDDLEWARE IMPORTS
+// ======================================
 import authRouter       from './src/routes/auth.js';
 import historyRouter    from './src/routes/history.js';
 import chatRouter       from './src/routes/chat.js';
 import tasksRouter      from './src/routes/tasks.js';
 import customUrlsRouter from './src/routes/customUrls.js';
-import settingsRouter   from './src/settings.js';
+import settingsRouter   from './src/routes/settings.js';
 import { requireAuth }  from './src/middleware/requireAuth.js';
 
-// Models
-import User             from './src/models/User.js';
-import ChatHistory      from './models/ChatHistory.js';
-import Task             from './models/Task.js';
-
-// Report Generators
-import { generateReport }     from './src/utils/reportGenerator.js';
-import { editMidsceneReport } from './src/utils/midsceneReportEditor.js';
-
-// Utility Helpers
-import { stripLargeFields } from './src/utils/stripLargeFields.js';
-
-// Set strictQuery to avoid deprecation warnings
-mongoose.set('strictQuery', true);
-
-// Set up __dirname for ESM
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-// Configure puppeteer extra with the stealth plugin
-puppeteerExtra.use(StealthPlugin());
-const browserSemaphore = new Semaphore(5); // Limit to 5 concurrent browsers
-
-// Nut.js for desktop automation, deprecated temporarily in V1.2.0
-import { keyboard, Key } from '@nut-tree-fork/nut-js';
-
-// Initialize OpenAI client using default key (only used for non-user-specific operations)
-// (When processing tasks, a new client will be instantiated with the user’s key)
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
-// Set up directories
-const MIDSCENE_RUN_DIR = path.join(__dirname, 'midscene_run');
-if (!fs.existsSync(MIDSCENE_RUN_DIR)) fs.mkdirSync(MIDSCENE_RUN_DIR, { recursive: true });
-
-const REPORT_DIR = path.join(MIDSCENE_RUN_DIR, 'report');
-if (!fs.existsSync(REPORT_DIR)) fs.mkdirSync(REPORT_DIR, { recursive: true });
-
-// Create Express app and HTTP server
-const app = express();
-const server = createServer(app);
-
-// === MIDDLEWARE SETUP (IMPORTANT ORDER) ===
-// 1. Parse JSON bodies + Expose Routes
-app.use(express.json());
+// ======================================
+// 9) ROUTERS (after session middleware)
+// ======================================
+app.use('/auth', authRouter);
 app.use('/settings', settingsRouter);
-app.use(authRouter);
-app.use(historyRouter);
-app.use(chatRouter);
-app.use(tasksRouter);
-app.use(customUrlsRouter);
 
-// 2. Register session middleware early so that every request gets a session
-const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://dailAdmin:ua5^bRNFCkU*--c@operator.smeax.mongodb.net/dail?retryWrites=true&w=majority&appName=OPERATOR";
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'your-secret-key',
-  resave: false,
-  saveUninitialized: false,
-  store: MongoStore.create({
-    mongoUrl: MONGO_URI,
-    dbName: 'dail',
-    collectionName: 'sessions',
-    ttl: 24 * 60 * 60,         // 24 hours in seconds
-    autoRemove: 'native',      // Use MongoDB's native TTL cleanup
-    touchAfter: 24 * 3600      // Only update session if older than 24 hours
-  }),
-  cookie: { maxAge: 24 * 60 * 60 * 1000 } // 24 hours in milliseconds
-}));
+app.use('/history',    requireAuth, historyRouter);
+app.use('/chat-history', requireAuth, chatRouter);
+app.use('/tasks',      requireAuth, tasksRouter);
+app.use('/custom-urls', requireAuth, customUrlsRouter);
 
-// 3. Session logging middleware (for debugging)
-app.use((req, res, next) => {
-  console.log('Session ID:', req.sessionID);
-  console.log('Session Data:', req.session);
-  next();
+// ======================================
+// 10) HTML ENDPOINTS & FALLBACK
+// ======================================
+
+// -) protect your SPA “shell” routes
+const guard = (req, res, next) => {
+  if (!req.session.user) return res.redirect('/login.html')
+  next()
+}
+
+// Loop over the other .html endpoints
+const pages = ['history', 'guide', 'settings'];
+pages.forEach(page => {
+  app.get(`/${page}.html`, guard, (req, res) => {
+    // always send the same SPA “shell” (login is served separately)
+    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  });
 });
 
-// 4. Serve static files from production build (dist) and public assets
-app.use(express.static(path.join(__dirname, 'dist')));
-app.use('/src', express.static(path.join(__dirname, 'src'), {
-  setHeaders: (res, filePath) => {
-    if (filePath.endsWith('.js')) {
-      res.setHeader('Content-Type', 'application/javascript');
-    }
-  }
-}));
-app.use('/midscene_run', express.static(MIDSCENE_RUN_DIR));
-app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
+app.get('/login.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
 
-// === WEB SOCKET SETUP ===
+// the app shell
+app.get('/', guard, (req, res) => {
+  // note: index.html is now in dist/
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'))
+})
 
+
+// ======================================
+// 11) WEBSOCKET SETUP
+// ======================================
 const userConnections = new Map();
+const unsentMessages  = new Map();
 const wss = new WebSocketServer({ server, path: '/ws' });
-const unsentMessages = new Map();
 
-function sendWebSocketUpdate(userId, data) {
-  const connections = userConnections.get(userId);
-  if (connections && connections.size > 0) {
-    connections.forEach(ws => {
-      if (ws.readyState === WebSocket.OPEN) {
-        try {
-          ws.send(JSON.stringify(data));
-        } catch (error) {
-          console.error(`[WebSocket] Failed to send to userId=${userId}:`, error);
-        }
-      } else {
-        console.warn(`[WebSocket] Skipping closed connection for userId=${userId}`);
-      }
-    });
-  } else {
-    console.warn(`[WebSocket] No active connections for userId=${userId}. Queuing message.`);
-    if (!unsentMessages.has(userId)) {
-      unsentMessages.set(userId, []);
-    }
-    unsentMessages.get(userId).push(data);
-  }
-}
-
-// === LOGGER SETUP ===
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
-  transports: [
-    new winston.transports.File({ filename: 'error.log', level: 'error' }),
-    new winston.transports.File({ filename: 'combined.log' }),
-  ],
-});
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(new winston.transports.Console({ format: winston.format.simple() }));
-}
-
-// === WEBSOCKET SETUP ===
 wss.on('connection', (ws, req) => {
   let userIdParam = req.url.split('userId=')[1]?.split('&')[0];
   const userId = decodeURIComponent(userIdParam || '');
@@ -204,34 +204,99 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-// === ROUTES ===
-app.get('/', (req, res) => {
-  if (!req.session.user) return res.redirect('/login.html');
-  res.sendFile(path.join(__dirname, '/public/index.html'));
+// ======================================
+// 12) LOGGER
+// ======================================
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
+  transports: [
+    new winston.transports.File({ filename: 'error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'combined.log' })
+  ]
+});
+if (process.env.NODE_ENV !== 'production') {
+  logger.add(new winston.transports.Console({ format: winston.format.simple() }));
+}
+
+// ======================================
+// 13) STARTUP: DB CONNECT & SERVER LISTEN
+// ======================================
+async function startApp() {
+  try {
+    await pRetry(connectToMongoDB, {
+      retries: 5,
+      minTimeout: 2000,
+      onFailedAttempt: error => {
+        console.log(`MongoDB connection attempt ${error.attemptNumber} failed. Retrying...`);
+      }
+    });
+    console.log('✅ MongoDB connected');
+    // await clearDatabaseOnce();
+    await ensureIndexes();
+    
+    const PORT = process.env.PORT || 3400;
+    server.listen(PORT, () => console.log(`🚀 Server on http://localhost:${PORT}`));
+    console.log('✅ Application started successfully');
+  } catch (err) {
+    console.error('Failed to start application:', err);
+    process.exit(1);
+  }
+}
+
+await startApp();
+
+// Graceful shutdown on SIGINT.
+process.on('SIGINT', async () => {
+  console.log('SIGINT received. Shutting down gracefully...');
+  try {
+    server.close(() => {
+      console.log('HTTP server closed.');
+    });
+    await mongoose.connection.close();
+    console.log('Mongoose connection closed.');
+  } catch (error) {
+    console.error('Error during shutdown:', error);
+  } finally {
+    process.exit(0);
+  }
 });
 
-app.get('/history.html', (req, res) => {
-  if (!req.session.user) return res.redirect('/login.html');
-  const filePath = path.join(__dirname, 'public', 'history.html');
-  fs.existsSync(filePath) ? res.sendFile(filePath) : res.status(404).send('History page not found');
+process.on('uncaughtException', (err) => { 
+  console.error('Uncaught Exception:', err); 
+  process.exit(1); 
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-app.get('/guide.html', (req, res) => {
-  if (!req.session.user) return res.redirect('/login.html');
-  const filePath = path.join(__dirname, 'public', 'guide.html');
-  fs.existsSync(filePath) ? res.sendFile(filePath) : res.status(404).send('Guide page not found');
-});
+// Utility sleep function.
+async function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
-app.get('/settings.html', (req, res) => {
-  if (!req.session.user) return res.redirect('/login.html');
-  const filePath = path.join(__dirname, 'public', 'settings.html');
-  fs.existsSync(filePath) ? res.sendFile(filePath) : res.status(404).send('Settings page not found');
-});
-
-// Fallback route for client-side routing.
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-});
+function sendWebSocketUpdate(userId, data) {
+  const connections = userConnections.get(userId);
+  if (connections && connections.size > 0) {
+    connections.forEach(ws => {
+      if (ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify(data));
+        } catch (error) {
+          console.error(`[WebSocket] Failed to send to userId=${userId}:`, error);
+        }
+      } else {
+        console.warn(`[WebSocket] Skipping closed connection for userId=${userId}`);
+      }
+    });
+  } else {
+    console.warn(`[WebSocket] No active connections for userId=${userId}. Queuing message.`);
+    if (!unsentMessages.has(userId)) {
+      unsentMessages.set(userId, []);
+    }
+    unsentMessages.get(userId).push(data);
+  }
+}
 
 /**
  * Clear the database once.
@@ -281,61 +346,6 @@ async function ensureIndexes() {
   } catch (err) {
     console.error('Error ensuring indexes:', err);
   }
-}
-
-async function startApp() {
-  try {
-    await pRetry(connectToMongoDB, {
-      retries: 5,
-      minTimeout: 2000,
-      onFailedAttempt: error => {
-        console.log(`MongoDB connection attempt ${error.attemptNumber} failed. Retrying...`);
-      }
-    });
-    // await clearDatabaseOnce();
-    await ensureIndexes();
-    console.log('Application started successfully');
-  } catch (err) {
-    console.error('Failed to start application:', err);
-    process.exit(1);
-  }
-}
-await startApp();
-
-// === START THE SERVER ===
-
-const PORT = process.env.PORT || 3400;
-server.listen(PORT, () => {
-  console.log(`Server started on http://localhost:${PORT}`);
-});
-
-// Graceful shutdown on SIGINT.
-process.on('SIGINT', async () => {
-  console.log('SIGINT received. Shutting down gracefully...');
-  try {
-    server.close(() => {
-      console.log('HTTP server closed.');
-    });
-    await mongoose.connection.close();
-    console.log('Mongoose connection closed.');
-  } catch (error) {
-    console.error('Error during shutdown:', error);
-  } finally {
-    process.exit(0);
-  }
-});
-
-process.on('uncaughtException', (err) => { 
-  console.error('Uncaught Exception:', err); 
-  process.exit(1); 
-});
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-// Utility sleep function.
-async function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**
@@ -908,7 +918,7 @@ class PlanStep {
  * they haven't yet saved their own key.
  */
 async function getUserOpenAiClient(userId) {
-  const DEFAULT_OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+  const DEFAULT_OPENAI_API_KEY = process.env.OPENAI_API_KAIL;
   const user = await User
     .findById(userId)
     .select('openaiApiKey')
@@ -1019,6 +1029,8 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       logAction(`Creating new browser session and navigating to URL: ${effectiveUrl}`);
       release = await browserSemaphore.acquire();
       logAction("Acquired browser semaphore");
+      
+      process.env.OPENAI_API_KEY = OPENAI_API_KAIL;
       browser = await puppeteerExtra.launch({ 
         headless: false, 
         args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-web-security"],
@@ -1271,6 +1283,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
       const session = activeBrowsers.get(taskKey);
       if (!session || !session.browser) {
         logQuery("Browser session not valid, creating a new one.");
+        process.env.OPENAI_API_KEY = OPENAI_API_KAIL;
         browser = await puppeteerExtra.launch({ 
           headless: false,
           args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-web-security"],
@@ -1293,6 +1306,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
       logQuery(`Creating new browser session for URL: ${providedUrl}`);
       release = await browserSemaphore.acquire();
       logQuery("Acquired browser semaphore");
+      process.env.OPENAI_API_KEY = OPENAI_API_KAIL;
       browser = await puppeteerExtra.launch({ 
         headless: false,
         args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-web-security"],

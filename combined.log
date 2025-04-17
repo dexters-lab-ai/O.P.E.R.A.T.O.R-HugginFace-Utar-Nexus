@@ -3074,3 +3074,159 @@
 {"classification":"task","level":"info","message":"Prompt classified","prompt":"i need some trending tokens from dextools, Solana network","timestamp":"2025-04-15T09:55:59.655Z"}
 {"level":"info","message":"Processing as task","timestamp":"2025-04-15T09:55:59.659Z"}
 {"level":"info","message":"Task created","runId":"855452bd-b94c-49cc-b976-e74f69e63cef","taskId":"67fe2d2f07d4a58a9205493f","timestamp":"2025-04-15T09:55:59.724Z"}
+{"code":"insufficient_quota","error":{"code":"insufficient_quota","message":"You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors.","param":null,"type":"insufficient_quota"},"headers":{"alt-svc":"h3=\":443\"; ma=86400","cf-cache-status":"DYNAMIC","cf-ray":"930d5201fd1593d0-JNB","connection":"keep-alive","content-length":"337","content-type":"application/json; charset=utf-8","date":"Tue, 15 Apr 2025 17:56:34 GMT","server":"cloudflare","set-cookie":"__cf_bm=JznAoGHuj6j4lATRzmHDMfTyxsyTZEYT_024z_gTeSY-1744739794-1.0.1.1-waKU9J9BpJQ7xNb5T1la8Q7xUAOZmo1x7pf10qdS09yZn4kM0ajeMTjxfU8OwfjNomkT0mJNJ3RIHjSNu67vTEP4InfzamDhqNtix14Bcs0; path=/; expires=Tue, 15-Apr-25 18:26:34 GMT; domain=.api.openai.com; HttpOnly; Secure; SameSite=None, _cfuvid=18FJuaMNJx8.wjtWJB81Gz_9S.rL.ug3lKI5s4TWWLU-1744739794478-0.0.1.1-604800000; path=/; domain=.api.openai.com; HttpOnly; Secure; SameSite=None","strict-transport-security":"max-age=31536000; includeSubDomains; preload","vary":"Origin","x-content-type-options":"nosniff","x-request-id":"req_70057e2c5ec6c6f9090904c1c00eb99b"},"level":"error","message":"Classification error, defaulting to task 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors.","param":null,"request_id":"req_70057e2c5ec6c6f9090904c1c00eb99b","stack":"Error: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors.\n    at APIError.generate (file:///C:/Users/cosyc/OPERATOR-stable/node_modules/openai/error.mjs:59:20)\n    at OpenAI.makeStatusError (file:///C:/Users/cosyc/OPERATOR-stable/node_modules/openai/core.mjs:293:25)\n    at OpenAI.makeRequest (file:///C:/Users/cosyc/OPERATOR-stable/node_modules/openai/core.mjs:337:30)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async openaiClassifyPrompt (file:///C:/Users/cosyc/OPERATOR-stable/server.js:2244:26)\n    at async file:///C:/Users/cosyc/OPERATOR-stable/server.js:2279:22","status":429,"timestamp":"2025-04-15T17:56:39.366Z","type":"insufficient_quota"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-15T17:56:39.373Z"}
+{"level":"info","message":"Task created","runId":"84dc3073-4060-4969-a5f5-c15b1e42335b","taskId":"67fe9dd707d4a58a9205497a","timestamp":"2025-04-15T17:56:40.031Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Dextools, open the Solana network","timestamp":"2025-04-15T18:43:39.636Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-15T18:43:39.637Z"}
+{"level":"info","message":"Task created","runId":"ca9ce570-a3c0-45f3-a5f3-0f9c12180fca","taskId":"67fea8db07d4a58a9205498b","timestamp":"2025-04-15T18:43:39.736Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Dextools, open the Solana network","timestamp":"2025-04-15T20:00:31.090Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-15T20:00:31.092Z"}
+{"level":"info","message":"Task created","runId":"a59b9f03-b192-4f47-bae3-1e68cb9615e7","taskId":"67febadf0298206b4cc319bb","timestamp":"2025-04-15T20:00:31.871Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Dextools, open the Solana network","timestamp":"2025-04-15T20:14:47.743Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-15T20:14:47.745Z"}
+{"level":"info","message":"Task created","runId":"8f2d0f3d-8327-4fed-a786-04790eca2a56","taskId":"67febe3897ec3cf4b52d45c3","timestamp":"2025-04-15T20:14:48.517Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Dextools, open the Solana network","timestamp":"2025-04-15T20:18:26.557Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-15T20:18:26.562Z"}
+{"level":"info","message":"Task created","runId":"ccd708d8-7e83-4a39-af86-31ed7033eff3","taskId":"67febf13686d19cc00bfdc9c","timestamp":"2025-04-15T20:18:27.363Z"}
+{"code":"invalid_api_key","error":{"code":"invalid_api_key","message":"Incorrect API key provided: shf_xdnT**************************unHP. You can find your API key at https://platform.openai.com/account/api-keys.","param":null,"type":"invalid_request_error"},"headers":{"alt-svc":"h3=\":443\"; ma=86400","cf-cache-status":"DYNAMIC","cf-ray":"930e2ce7c99673b9-JNB","connection":"keep-alive","content-length":"288","content-type":"application/json; charset=utf-8","date":"Tue, 15 Apr 2025 20:26:00 GMT","server":"cloudflare","set-cookie":"__cf_bm=n1ksZZkUeDhMICizAbiDr_tyy0MCcZzZ5IGmXhSlwfg-1744748760-1.0.1.1-F0Dj2nV_2BbYjO5pXIO6iEgt7WffM9caNh4MIRogR4glhl0OdigC3pXSK1bRD1Gd1W18dBszKEFeChb8TBGv7BSEMCtQJLoCZJFDE0_foUY; path=/; expires=Tue, 15-Apr-25 20:56:00 GMT; domain=.api.openai.com; HttpOnly; Secure; SameSite=None, _cfuvid=fNr_EaLilF3.h0H.tWYUn99EUKJoK0cfxrFbYHyZ2B4-1744748760643-0.0.1.1-604800000; path=/; domain=.api.openai.com; HttpOnly; Secure; SameSite=None","strict-transport-security":"max-age=31536000; includeSubDomains; preload","vary":"Origin","x-content-type-options":"nosniff","x-request-id":"req_0d5c2829a93cabdffde224b6b476b706"},"level":"error","message":"Classification error, defaulting to task 401 Incorrect API key provided: shf_xdnT**************************unHP. You can find your API key at https://platform.openai.com/account/api-keys.","param":null,"request_id":"req_0d5c2829a93cabdffde224b6b476b706","stack":"Error: 401 Incorrect API key provided: shf_xdnT**************************unHP. You can find your API key at https://platform.openai.com/account/api-keys.\n    at APIError.generate (file:///C:/Users/cosyc/OPERATOR-stable/node_modules/openai/error.mjs:44:20)\n    at OpenAI.makeStatusError (file:///C:/Users/cosyc/OPERATOR-stable/node_modules/openai/core.mjs:293:25)\n    at OpenAI.makeRequest (file:///C:/Users/cosyc/OPERATOR-stable/node_modules/openai/core.mjs:337:30)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async openaiClassifyPrompt (file:///C:/Users/cosyc/OPERATOR-stable/server.js:2212:26)\n    at async file:///C:/Users/cosyc/OPERATOR-stable/server.js:2248:22","status":401,"timestamp":"2025-04-15T20:26:06.388Z","type":"invalid_request_error"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-15T20:26:06.390Z"}
+{"level":"info","message":"Task created","runId":"3e6c7e71-ae88-411b-9514-b93ab5d51b5f","taskId":"67fec0df5fbfaa74e6739dee","timestamp":"2025-04-15T20:26:07.285Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Dextools, open the Solana network","timestamp":"2025-04-15T20:36:39.333Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-15T20:36:39.335Z"}
+{"level":"info","message":"Task created","runId":"0ddfc756-ecc1-4a4b-b64e-110f009f350f","taskId":"67fec35876a18df1bd93848a","timestamp":"2025-04-15T20:36:40.120Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Dextools, open the Solana network","timestamp":"2025-04-15T22:27:15.320Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-15T22:27:15.324Z"}
+{"level":"info","message":"Task created","runId":"ffdfcd5f-8f01-4ea1-84f9-88d7c9ccf89b","taskId":"67fedd44efa97d97468771a4","timestamp":"2025-04-15T22:27:16.120Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Dextools, open the Solana network","timestamp":"2025-04-15T22:32:08.522Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-15T22:32:08.525Z"}
+{"level":"info","message":"Task created","runId":"f9e6828d-dea1-4e16-82fb-d0e5975bcabf","taskId":"67fede69c7d67729755fd108","timestamp":"2025-04-15T22:32:09.288Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Dextools, open the Solana network","timestamp":"2025-04-16T00:32:54.225Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T00:32:54.227Z"}
+{"level":"info","message":"Task created","runId":"17ef36e9-b74f-42e3-bf2c-15b4210d095f","taskId":"67fefab7789e1e0ad8ccdc6c","timestamp":"2025-04-16T00:32:55.094Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Dextools, open the Solana network","timestamp":"2025-04-16T01:22:08.963Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T01:22:08.967Z"}
+{"level":"info","message":"Task created","runId":"cbd51c29-c940-4c2b-b8db-2ec9e70612e1","taskId":"67ff06412960d40c8ba0b237","timestamp":"2025-04-16T01:22:09.786Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Dextools, open the Solana network","timestamp":"2025-04-16T01:44:16.293Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T01:44:16.295Z"}
+{"level":"info","message":"Task created","runId":"67a8b993-fa93-411d-8e30-19cb0b91e422","taskId":"67ff0b71fcd43515bd15eab4","timestamp":"2025-04-16T01:44:17.067Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Ebay and find me a Humanoid Robot, list 3 based on reviews, open the best rated one","timestamp":"2025-04-16T01:54:49.791Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T01:54:49.794Z"}
+{"level":"info","message":"Task created","runId":"c07749f2-f4ae-4036-84a5-7403f47eee59","taskId":"67ff0deafcd43515bd15eb96","timestamp":"2025-04-16T01:54:50.535Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Ebay and find me a Humanoid Robot, list 3 based on reviews, open the best rated one","timestamp":"2025-04-16T02:16:26.348Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T02:16:26.350Z"}
+{"level":"info","message":"Task created","runId":"aa0b2462-499d-4ed6-a0c4-6d0a8659392e","taskId":"67ff12fbc61d58e1190456d7","timestamp":"2025-04-16T02:16:27.162Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Ebay and find me a Humanoid Robot, list 3 based on reviews, open the best rated one","timestamp":"2025-04-16T02:21:40.913Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T02:21:40.918Z"}
+{"level":"info","message":"Task created","runId":"e6a5a026-87dd-4151-b2bd-3231bf420c10","taskId":"67ff14358e4a930c4c62bd7c","timestamp":"2025-04-16T02:21:42.147Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Ebay and find me a Humanoid Robot, list 3 based on reviews, open the best rated one","timestamp":"2025-04-16T02:23:10.226Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T02:23:10.228Z"}
+{"level":"info","message":"Task created","runId":"8f2c5c6e-1474-4388-a09e-3d6f33dcaf6b","taskId":"67ff148e55eca67d49e6718a","timestamp":"2025-04-16T02:23:11.056Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Ebay and find me a Humanoid Robot, list 3 based on reviews, open the best rated one","timestamp":"2025-04-16T03:40:19.652Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T03:40:19.654Z"}
+{"level":"info","message":"Task created","runId":"c3ffc96b-28b1-4cf5-800e-97f4eaec550e","taskId":"67ff26a42ad6fffc3be10f26","timestamp":"2025-04-16T03:40:20.488Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Ebay and find me a Humanoid Robot, list 3 based on reviews, open the best rated one","timestamp":"2025-04-16T03:48:05.997Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T03:48:06.000Z"}
+{"level":"info","message":"Task created","runId":"f7797370-0e51-4d6f-9e26-c95b02aabc41","taskId":"67ff2876d0ccb5d9a5a31895","timestamp":"2025-04-16T03:48:06.791Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Ebay and find me a Humanoid Robot, list 3 based on reviews, open the best rated one","timestamp":"2025-04-16T03:56:24.413Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T03:56:24.418Z"}
+{"level":"info","message":"Task created","runId":"75cfb5c9-b469-444a-809d-05e4b672bb15","taskId":"67ff2a69753260e8522aa9e3","timestamp":"2025-04-16T03:56:25.266Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Ebay and find me a Humanoid Robot, list 3 based on reviews, open the best rated one","timestamp":"2025-04-16T03:59:38.548Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T03:59:38.551Z"}
+{"level":"info","message":"Task created","runId":"3dd86b31-dfdb-443c-a93f-14dda8c88712","taskId":"67ff2b2b19398da1f0d1f70d","timestamp":"2025-04-16T03:59:39.391Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Ebay and find me a Humanoid Robot, list 3 based on reviews, open the best rated one","timestamp":"2025-04-16T04:08:15.323Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T04:08:15.326Z"}
+{"level":"info","message":"Task created","runId":"8097d8ee-e478-4f43-ab70-a3cab9dd1a50","taskId":"67ff2d307543915ffe9e2327","timestamp":"2025-04-16T04:08:16.167Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Dextools, open the Solana network","timestamp":"2025-04-16T04:16:12.057Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T04:16:12.059Z"}
+{"level":"info","message":"Task created","runId":"3f9116a1-f5df-4b6d-bc69-10ca79ea4670","taskId":"67ff2f0c152232e25796abc4","timestamp":"2025-04-16T04:16:12.890Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Dextools, open the Solana network","timestamp":"2025-04-16T04:37:53.226Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T04:37:53.231Z"}
+{"level":"info","message":"Task created","runId":"a9c9e9a6-5877-47ac-88e2-3f0ec4b9402b","taskId":"67ff342240548d7886583f52","timestamp":"2025-04-16T04:37:54.452Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Dextools, open the Solana network","timestamp":"2025-04-16T04:52:22.771Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T04:52:22.773Z"}
+{"level":"info","message":"Task created","runId":"7a727a3e-d57e-4a88-8973-ad57166171f1","taskId":"67ff37881498400e82da40b3","timestamp":"2025-04-16T04:52:24.132Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Dextools, open the Solana network","timestamp":"2025-04-16T04:58:12.253Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T04:58:12.259Z"}
+{"level":"info","message":"Task created","runId":"936a9476-8fbb-4295-b5c7-721de55a961d","taskId":"67ff38e51498400e82da419d","timestamp":"2025-04-16T04:58:13.083Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Dextools, open the Solana network","timestamp":"2025-04-16T05:01:03.186Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T05:01:03.189Z"}
+{"level":"info","message":"Task created","runId":"ca21c12c-5b91-4a11-8e0b-027ca3686138","taskId":"67ff398f6c9d5db930c2dc32","timestamp":"2025-04-16T05:01:03.960Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Dextools, open the Solana network","timestamp":"2025-04-16T05:10:33.164Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T05:10:33.166Z"}
+{"level":"info","message":"Task created","runId":"94d7e6da-bd29-4429-9213-25a70d25de17","taskId":"67ff3bcab5278a87c99c3306","timestamp":"2025-04-16T05:10:34.092Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Dextools, open the Solana network","timestamp":"2025-04-16T05:13:51.258Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T05:13:51.261Z"}
+{"level":"info","message":"Task created","runId":"2f2eaa0c-6a24-49b8-9f7a-8008f1af3479","taskId":"67ff3c90b5278a87c99c33fc","timestamp":"2025-04-16T05:13:52.092Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Dextools, open the Solana network","timestamp":"2025-04-16T05:35:14.118Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T05:35:14.121Z"}
+{"level":"info","message":"Task created","runId":"c7c79d92-1c3d-403e-b315-e96b3561be43","taskId":"67ff4192f43edfe7016c09fe","timestamp":"2025-04-16T05:35:14.921Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Dextools, open the Solana network","timestamp":"2025-04-16T08:43:33.810Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T08:43:33.815Z"}
+{"level":"info","message":"Task created","runId":"b01a2e6f-5f4a-4130-9c3a-20d01b2d0f80","taskId":"67ff6db6bec6dddfa663c827","timestamp":"2025-04-16T08:43:34.770Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Dextools, open the Solana network","timestamp":"2025-04-16T09:42:48.582Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T09:42:48.585Z"}
+{"level":"info","message":"Task created","runId":"c5b4d7ae-5bd2-4240-851e-e7290c91aef4","taskId":"67ff7b99ce244123f3210cc7","timestamp":"2025-04-16T09:42:49.432Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Dextools, open the Solana network","timestamp":"2025-04-16T10:39:51.600Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T10:39:51.603Z"}
+{"level":"info","message":"Task created","runId":"97e2dd75-9889-4ca6-8910-6e50f97657fd","taskId":"67ff88f8b6cea1e15ebf5147","timestamp":"2025-04-16T10:39:52.550Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"you went to the wronfg url we dont neean accoount for the task of accesing solana on dextools","timestamp":"2025-04-16T10:44:37.631Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T10:44:37.635Z"}
+{"level":"info","message":"Task created","runId":"fcb8b363-dd05-47cf-8444-da3a7673edaa","taskId":"67ff8a16b6cea1e15ebf5227","timestamp":"2025-04-16T10:44:38.454Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Go to Dextools. Navigate to solana pairs","timestamp":"2025-04-16T10:48:03.921Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T10:48:03.925Z"}
+{"level":"info","message":"Task created","runId":"fa897c94-dc8f-452f-b509-52d2e0575789","taskId":"67ff8ae4dee4a2b141d0a83b","timestamp":"2025-04-16T10:48:04.747Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Open the Bitcoin chart on coinbase. Zoom out to 3M. Switch to bar chart","timestamp":"2025-04-16T10:55:09.839Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T10:55:09.841Z"}
+{"level":"info","message":"Task created","runId":"ca3b7950-4639-4a48-afe9-56063e3361a7","taskId":"67ff8c8e00793148b27e9bd8","timestamp":"2025-04-16T10:55:10.672Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Open the Bitcoin chart on coinbase. Zoom out to 3M. Switch to bar chart","timestamp":"2025-04-16T11:32:35.174Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T11:32:35.176Z"}
+{"level":"info","message":"Task created","runId":"fe28a6ee-3e15-4f41-a022-9f5b635c850b","taskId":"67ff95533cff03374eb3fcf5","timestamp":"2025-04-16T11:32:36.054Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Open the Bitcoin chart on coinbase. Zoom out to 3M. Switch to bar chart","timestamp":"2025-04-16T12:28:56.863Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T12:28:56.864Z"}
+{"level":"info","message":"Task created","runId":"c3750983-d97e-47e7-ba53-c099ebfc8371","taskId":"67ffa28915069c5abf84f4c0","timestamp":"2025-04-16T12:28:57.852Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Open the Bitcoin chart on coinbase. Zoom out to 3M. Switch to bar chart","timestamp":"2025-04-16T12:48:41.299Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T12:48:41.301Z"}
+{"level":"info","message":"Task created","runId":"5962a0b4-6b04-422e-bfbf-089eb6d95a4f","taskId":"67ffa72a77dcb4ad6c29ae5b","timestamp":"2025-04-16T12:48:42.107Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Open the Bitcoin chart on coinbase. Zoom out to 3M. Switch to bar chart","timestamp":"2025-04-16T13:00:24.502Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T13:00:24.505Z"}
+{"level":"info","message":"Task created","runId":"2b71b0a1-af6a-4f6e-b564-3054a196c6dc","taskId":"67ffa9e91f4fed6cfb60ceda","timestamp":"2025-04-16T13:00:25.898Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Open the Bitcoin chart on coinbase. Zoom out to 3M. Switch to bar chart","timestamp":"2025-04-16T13:02:28.748Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T13:02:28.753Z"}
+{"level":"info","message":"Task created","runId":"a3ff46aa-a867-4814-881a-1eac007023d0","taskId":"67ffaa651f4fed6cfb60d087","timestamp":"2025-04-16T13:02:29.899Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Open the Bitcoin chart on coinbase. Click bitcoin. Zoom out to 3M. Switch to bar chart","timestamp":"2025-04-16T13:14:42.288Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T13:14:42.291Z"}
+{"level":"info","message":"Task created","runId":"49da3c51-8b38-470c-9fab-40cde840330f","taskId":"67ffad43ba936ac9dad6d81f","timestamp":"2025-04-16T13:14:43.913Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Open the Bitcoin chart on coinbase. Click bitcoin. Zoom out to 3M. Switch to bar chart","timestamp":"2025-04-16T13:18:55.159Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T13:18:55.161Z"}
+{"level":"info","message":"Task created","runId":"fe57adf0-07da-461d-a013-b80da278087b","taskId":"67ffae4061615f004b9f2ebd","timestamp":"2025-04-16T13:18:56.057Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Open the Bitcoin chart on coinbase. Click bitcoin. Zoom out to 3M. Switch to bar chart","timestamp":"2025-04-16T13:33:02.762Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T13:33:02.764Z"}
+{"level":"info","message":"Task created","runId":"73c930af-7ae3-45c0-a253-a3b10aa0f0cd","taskId":"67ffb190e124cf431a8d0504","timestamp":"2025-04-16T13:33:04.628Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Open the Bitcoin chart on coinbase. Click bitcoin. Zoom out to 3M. Switch to bar chart","timestamp":"2025-04-16T13:49:41.367Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T13:49:41.372Z"}
+{"level":"info","message":"Task created","runId":"70c78cd1-709e-4b3b-a19d-882b74b92812","taskId":"67ffb5769c4b5fc35ad32661","timestamp":"2025-04-16T13:49:42.262Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Open the Bitcoin chart on coinbase. Click bitcoin. Zoom out to 3M. Switch to bar chart","timestamp":"2025-04-16T13:52:03.368Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T13:52:03.370Z"}
+{"level":"info","message":"Task created","runId":"89eed52c-b583-492a-bf74-97bca05fd50e","taskId":"67ffb604a2a5d6c409329923","timestamp":"2025-04-16T13:52:04.567Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Open the Bitcoin chart on coinbase. Click bitcoin. Zoom out to 3M. Switch to bar chart","timestamp":"2025-04-16T13:58:53.111Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T13:58:53.114Z"}
+{"level":"info","message":"Task created","runId":"ad781371-ef39-4d15-b106-4eed17ad9a5d","taskId":"67ffb79d9f1fa767488c632f","timestamp":"2025-04-16T13:58:54.045Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Open the Bitcoin chart on coinbase. Click bitcoin. Zoom out to 3M. Switch to bar chart","timestamp":"2025-04-16T14:02:22.494Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T14:02:22.497Z"}
+{"level":"info","message":"Task created","runId":"dc0f6c0e-c013-49d8-9f63-7c7be4b912e0","taskId":"67ffb86fc4c29dae6d09465d","timestamp":"2025-04-16T14:02:23.941Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Open the Bitcoin chart on coinbase. Click bitcoin. Zoom out to 3M. Switch to bar chart","timestamp":"2025-04-16T14:05:36.399Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T14:05:36.401Z"}
+{"level":"info","message":"Task created","runId":"976f1f5f-2446-450d-ae56-2f983d20d4c2","taskId":"67ffb9319bf99ceb89015098","timestamp":"2025-04-16T14:05:37.599Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Open the Bitcoin chart on coinbase. Click bitcoin. Zoom out to 3M. Switch to bar chart","timestamp":"2025-04-16T14:18:55.546Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T14:18:55.548Z"}
+{"level":"info","message":"Task created","runId":"c0c96c9a-a8d2-4d9f-a057-29ac9d6d1731","taskId":"67ffbc509ce62d4037914613","timestamp":"2025-04-16T14:18:56.413Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Open the Bitcoin chart on coinmarketcap. Zoom out to 3M. Switch to bar chart","timestamp":"2025-04-16T14:40:13.321Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T14:40:13.325Z"}
+{"level":"info","message":"Task created","runId":"cb1e0165-7fe5-4fb1-9cb6-69a2fc90f983","taskId":"67ffc14e9ce62d4037914722","timestamp":"2025-04-16T14:40:14.674Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Open the Bitcoin chart on coinmarketcap. Zoom out to 1M. Switch to bar chart","timestamp":"2025-04-16T15:12:45.383Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T15:12:45.385Z"}
+{"level":"info","message":"Task created","runId":"f66c3d26-3f53-46fe-955e-23155566b0bf","taskId":"67ffc8ee8f2837ab692faf71","timestamp":"2025-04-16T15:12:46.258Z"}
+{"classification":"task","level":"info","message":"Prompt classified","prompt":"Open the Bitcoin chart on coinmarketcap. Zoom out to 1M. Switch to bar chart","timestamp":"2025-04-16T15:59:05.872Z"}
+{"level":"info","message":"Processing as task","timestamp":"2025-04-16T15:59:05.874Z"}
+{"level":"info","message":"Task created","runId":"8f5c0dc2-23e1-4765-b5c1-acdc832e055c","taskId":"67ffd3ca713e201c358537b6","timestamp":"2025-04-16T15:59:06.741Z"}
