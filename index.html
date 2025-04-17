@@ -100,22 +100,23 @@
               <button class="tab-btn" data-task-type="manual" id="manual-tab">General Task</button>
               <button class="tab-btn" data-task-type="repetitive" id="repetitive-tab">Repetitive</button>
               <button class="tab-btn" data-task-type="scheduled" id="scheduled-tab">Scheduled</button>
-              <button class="tab-btn" data-task-type="sonic" id="sonic-tab">Sonic Chain</button>
+              
             </div>
 
             <!-- Task Sections -->
             <div id="task-sections">
-              <!-- Chat (NLI) Section -->
-              <div class="task-section active" id="nli-section">
-                <form id="nli-form">
-                  <div class="command-input">
-                    <textarea class="command-textarea" id="nli-prompt" placeholder="Enter your natural language command here..."></textarea>
-                    <button type="submit" class="btn btn-icon" id="run-nli-task">
-                      <i class="fas fa-play"></i> Run Task
+              <!-- Unified Input Section -->
+              <div class="task-section active" id="unified-input-section">
+                <form id="unified-input-form" autocomplete="off">
+                  <div class="unified-input-bar">
+                    <textarea id="unified-input" class="unified-input-textarea" rows="2" placeholder="Type your message, command, or task..." required></textarea>
+                    <button type="submit" class="btn btn-unified-send" id="unified-send-btn" title="Send">
+                      <i class="fas fa-paper-plane"></i>
                     </button>
                   </div>
+                  <!-- Optional: Attachments or file upload -->
+                  <!--<input type="file" id="unified-attachment" style="display:none;">-->
                 </form>
-                <div id="nli-results"></div>
               </div>
 
               <!-- Manual Task Section -->
@@ -183,7 +184,7 @@
                       </button>
                     </div>
                   </div>
-                  <div id="repetitive-tasks-container"></div>
+                  <div id="repetitive-tasks-container-2"></div>
                 </form>
               </div>
 
@@ -207,7 +208,7 @@
                       <i class="fas fa-calendar-plus"></i> Schedule Task
                     </button>
                   </div>
-                  <div id="scheduled-tasks-container"></div>
+                  <div id="scheduled-tasks-container-2"></div>
                 </form>
               </div>
 
@@ -301,5 +302,6 @@
 
   <!-- Include your app.js -->  
   <script type="module" src="/src/app.js"></script>
+    </div>
 </body>
 </html>

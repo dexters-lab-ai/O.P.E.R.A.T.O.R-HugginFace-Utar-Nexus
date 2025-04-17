@@ -328,29 +328,13 @@ async function loadUnifiedMessageTimeline(page = 1, limit = 50) {
     showNotification('Failed to load message history', 'error');
     return;
   }
+  renderTimelineFilters();
   const timelineContainer = document.getElementById('message-timeline');
   if (!timelineContainer) return;
   timelineContainer.innerHTML = '';
-  data.items.forEach(msg => {
-    const msgDiv = document.createElement('div');
-    msgDiv.className = `msg-item msg-${msg.role} msg-${msg.type}`;
-    msgDiv.innerHTML = `
-      <div class="msg-meta">
-        <span class="msg-role">${msg.role === 'user' ? '🧑' : '🤖'}</span>
-        <span class="msg-type">${msg.type}</span>
-        <span class="msg-time">${new Date(msg.timestamp).toLocaleTimeString()}</span>
-      </div>
-      <div class="msg-content">${escapeHTML(msg.content)}</div>
-      ${msg.type === 'command' && msg.meta && msg.meta.error ? `<div class="msg-error">Error: ${escapeHTML(msg.meta.error)}</div>` : ''}
-    `;
-    timelineContainer.appendChild(msgDiv);
-  });
-}
-function escapeHTML(str) {
-  return String(str).replace(/[&<>'"]/g, tag => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
-  }[tag]));
-}
+  let filtered = data.items;
+  if (timelineFilter !== 'all') {
+    filtered = filtered.filter(msg => msg.type === timelineFilter);
 
 document.addEventListener('DOMContentLoaded', async () => {
   console.log('DOMContentLoaded fired');
@@ -900,17 +884,44 @@ document.addEventListener('DOMContentLoaded', () => {
     updateScheduledTasksList();
     checkScheduledTasks();
   }
+
+  // Unified Input Handler
+  const unifiedForm = document.getElementById('unified-input-form');
+  if (unifiedForm) {
+    unifiedForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = document.getElementById('unified-input');
+      const prompt = input.value.trim();
+      if (!prompt) return;
+      input.value = '';
+      // Optionally show a spinner or disable input here
+      try {
+        const response = await fetch('/nli', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt })
+        });
+        const data = await response.json();
+        if (data.success) {
+          // No need to append manually, timeline will reload
+          await loadUnifiedMessageTimeline();
+        } else {
+          showNotification(data.error || 'Unknown error', 'error');
+        }
+      } catch (err) {
+        showNotification(err.message, 'error');
+      }
+    });
+  }
 });
 
 /******************** Helper: Toggle Task Tab ********************/
 function toggleTaskTab(taskType) {
   document.querySelectorAll('.task-section').forEach(section => section.classList.remove('active'));
-  if (taskType === 'nli') { document.getElementById('nli-section').classList.add('active'); }
-  else if (taskType === 'manual') { document.getElementById('manual-section').classList.add('active'); }
+  if (taskType === 'manual') { document.getElementById('manual-section').classList.add('active'); }
   else if (taskType === 'active-tasks') { document.getElementById('active-tasks-section').classList.add('active'); }
   else if (taskType === 'repetitive') { document.getElementById('repetitive-section').classList.add('active'); }
   else if (taskType === 'scheduled') { document.getElementById('scheduled-section').classList.add('active'); }
-  else if (taskType === 'sonic') { document.getElementById('sonic-section').classList.add('active'); }
 }
 
 /******************** Task Execution Functions ********************/
