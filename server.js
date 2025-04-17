@@ -32,7 +32,7 @@ import OpenAI from 'openai';
 // 3) MODEL IMPORTS
 // ======================================
 import User        from './src/models/User.js';
-import ChatHistory from './src/models/ChatHistory.js';
+import Message from './src/models/Message.js';
 import Task        from './src/models/Task.js';
 
 // ======================================
@@ -120,7 +120,8 @@ app.use('/auth', authRouter);
 app.use('/settings', settingsRouter);
 
 app.use('/history',    requireAuth, historyRouter);
-app.use('/chat-history', requireAuth, chatRouter);
+import messagesRouter from './src/routes/messages.js';
+app.use('/messages', requireAuth, messagesRouter);
 app.use('/tasks',      requireAuth, tasksRouter);
 app.use('/custom-urls', requireAuth, customUrlsRouter);
 
@@ -431,20 +432,25 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
     const summary = intermediateResults[intermediateResults.length - 1]?.result?.actionOutput ||
       `Task execution completed for: ${originalPrompt}`;
 
+    // Compose a full result object for success (all fields, nulls for missing)
     const finalResult = {
       success: true,
       taskId,
-      raw: { 
-        pageText: rawPageText, 
-        url: currentUrl 
+      raw: {
+        pageText: rawPageText,
+        url: currentUrl
       },
-      aiPrepared: { 
-        summary: summary 
+      aiPrepared: {
+        summary: summary
       },
       screenshot: finalScreenshotUrl,
       steps: intermediateResults.map(step => step.getSummary ? step.getSummary() : step),
       landingReportUrl: landingReportPath ? `/midscene_run/report/${path.basename(landingReportPath)}` : null,
-      midsceneReportUrl: midsceneReportUrl || null
+      midsceneReportUrl: midsceneReportUrl || null,
+      runReport: landingReportPath ? `/midscene_run/report/${path.basename(landingReportPath)}` : null, // alias for frontend
+      intermediateResults: intermediateResults || [],
+      error: null,
+      reportUrl: null // for error compatibility
     };
 
     return finalResult;
@@ -453,9 +459,18 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
     const errorReportFile = `error-report-${Date.now()}.html`;
     const errorReportPath = path.join(REPORT_DIR, errorReportFile);
     fs.writeFileSync(errorReportPath, `Error Report: ${error.message}`);
+    // Compose a full result object for error (all fields, nulls for missing, error fields set)
     return {
       success: false,
       taskId,
+      raw: { pageText: null, url: null },
+      aiPrepared: { summary: null },
+      screenshot: null,
+      steps: [],
+      landingReportUrl: null,
+      midsceneReportUrl: null,
+      runReport: null,
+      intermediateResults: [],
       error: error.message,
       reportUrl: `/midscene_run/report/${errorReportFile}`
     };
@@ -1571,7 +1586,7 @@ app.post('/nli', requireAuth, async (req, res) => {
     chatHistory.messages.push({ role: 'user', content: prompt, timestamp: new Date() });
     await chatHistory.save();
 
-    const lastMessages = chatHistory.messages.filter(m => ['user','assistant'].includes(m.role)).slice(-10);
+    const lastMessages = await Message.find({ userId, role: { $in: ['user', 'assistant'] } }).sort({ timestamp: -1 }).limit(20).lean();
     const openaiClient = await getUserOpenAiClient(userId);
 
     try {
@@ -1581,10 +1596,9 @@ app.post('/nli', requireAuth, async (req, res) => {
         temperature: 0.7
       });
       const assistantReply = completion.choices[0].message.content;
-      chatHistory.messages.push({ role:'assistant', content:assistantReply, timestamp:new Date() });
-      await chatHistory.save();
+      await Message.create({ userId, role: 'assistant', type: 'chat', content: assistantReply, timestamp: new Date() });
 
-      return res.json({ success: true, assistantReply });
+      return res.json({ success: true, assistantReply }); // Message already saved above.
     } catch (err) {
       console.error('Chat error', err);
       return res.status(500).json({ success:false, error: err.message });
@@ -1603,6 +1617,8 @@ app.post('/nli', requireAuth, async (req, res) => {
  * @param {string} url - Starting URL
  */
 async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url) {
+  // --- Unified message persistence: save user command as message ---
+  await Message.create({ userId, role: 'user', type: 'command', content: prompt, taskId, timestamp: new Date() });
   console.log(`[ProcessTask] Starting ${taskId}: "${prompt}"`);
   const openaiClient = await getUserOpenAiClient(userId);
 
@@ -1912,6 +1928,25 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
         { $set: { status: 'completed', progress: 100, result: finalResult, endTime: new Date(), summary } }
       );
       
+      // --- Save final assistant message to chat history (max steps case) ---
+      let taskChatHistory = await ChatHistory.findOne({ userId });
+      if (!taskChatHistory) taskChatHistory = new ChatHistory({ userId, messages: [] });
+      taskChatHistory.messages.push({
+        role: 'assistant',
+        content: summary,
+        timestamp: new Date()
+      });
+      await taskChatHistory.save();
+      await Message.create({
+        userId,
+        role: 'assistant',
+        type: 'command',
+        content: summary,
+        taskId,
+        timestamp: new Date(),
+        meta: { summary }
+      });
+      // ---------------------------------------------------------------
       sendWebSocketUpdate(userId, {
         event: 'taskComplete',
         taskId,
@@ -1933,6 +1968,25 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
       { _id: taskId },
       { $set: { status: 'error', error: error.message, endTime: new Date() } }
     );
+    // --- Save error message as assistant message to chat history ---
+    let taskChatHistory = await ChatHistory.findOne({ userId });
+    if (!taskChatHistory) taskChatHistory = new ChatHistory({ userId, messages: [] });
+    taskChatHistory.messages.push({
+      role: 'assistant',
+      content: `Error: ${error.message}`,
+      timestamp: new Date()
+    });
+    await taskChatHistory.save();
+    await Message.create({
+      userId,
+      role: 'assistant',
+      type: 'command',
+      content: `Error: ${error.message}`,
+      taskId,
+      timestamp: new Date(),
+      meta: { error: error.message }
+    });
+    // -------------------------------------------------------------
   } finally {
     if (plan.browserSession) {
       try {
