@@ -48,8 +48,8 @@ function initWebSocket(userId) {
             handleTaskCompletion(data.taskId, data.status, data.result || {});
           } else if (data.assistantReply) {
             // Otherwise, if an assistantReply is provided, treat it as a chat message.
-            const nliResults = document.getElementById('nli-results');
-            appendChatMessage(nliResults, 'assistant', data.assistantReply);
+            const timelineContainer = document.getElementById('message-timeline');
+            // Optionally, use a function to render assistant messages in the timeline if needed.
           } else {
             console.warn('Received taskComplete event with insufficient data:', data);
           }
@@ -102,7 +102,7 @@ function updateFunctionCallPartial(taskId, partialArgs) {
     partialElement = document.createElement('div');
     partialElement.id = `functionCall-${taskId}`;
     partialElement.className = 'function-call-partial';
-    document.getElementById('nli-results').prepend(partialElement);
+    document.getElementById('').prepend(partialElement);
   }
   partialElement.textContent = partialArgs;
 }
@@ -110,7 +110,7 @@ function updateFunctionCallPartial(taskId, partialArgs) {
 function handleTaskError(taskId, error) {
   console.log(`Task ${taskId} errored: ${error}`);
   const convertedHtml = marked.parse(error);
-  const nliResults = document.getElementById('nli-results');
+  const nliResults = document.getElementById('');
   const errorMessage = document.createElement('div');
   errorMessage.className = 'chat-message ai-message animate-in';
   errorMessage.innerHTML = `
@@ -255,7 +255,7 @@ function updateThoughtBubble(taskId, newChunk) {
         <span class="timestamp">${new Date().toLocaleTimeString()}</span>
       </div>
     `;
-    document.getElementById('nli-results').prepend(thoughtElement);
+    document.getElementById('').prepend(thoughtElement);
   }
   
   // Append the new text chunk with a typing effect.
@@ -321,98 +321,118 @@ function hideSplashScreen() {
   });
 }
 
-async function loadUnifiedMessageTimeline(page = 1, limit = 50) {
-  const res = await fetch(`/messages/history?page=${page}&limit=${limit}`);
-  const data = await res.json();
-  if (!data.success) {
-    showNotification('Failed to load message history', 'error');
-    return;
-  }
-  renderTimelineFilters();
+// Unified Timeline Filter State
+let timelineFilter = 'all'; // 'all', 'chat', 'command'
+
+// Render filter buttons above the timeline
+function renderTimelineFilters() {
+  let filtersDiv = document.getElementById('timeline-filters');
   const timelineContainer = document.getElementById('message-timeline');
-  if (!timelineContainer) return;
-  timelineContainer.innerHTML = '';
-  let filtered = data.items;
-  if (timelineFilter !== 'all') {
-    filtered = filtered.filter(msg => msg.type === timelineFilter);
+  if (!filtersDiv && timelineContainer) {
+    filtersDiv = document.createElement('div');
+    filtersDiv.className = 'timeline-filters';
+    filtersDiv.id = 'timeline-filters';
+    timelineContainer.parentNode.insertBefore(filtersDiv, timelineContainer);
+  }
+  if (filtersDiv) {
+    filtersDiv.innerHTML = `
+      <button class="timeline-filter-btn${timelineFilter==='all' ? ' active' : ''}" data-filter="all">All</button>
+      <button class="timeline-filter-btn${timelineFilter==='chat' ? ' active' : ''}" data-filter="chat">Chat</button>
+      <button class="timeline-filter-btn${timelineFilter==='command' ? ' active' : ''}" data-filter="command">Command</button>
+    `;
+    filtersDiv.querySelectorAll('button').forEach(btn => {
+      btn.onclick = () => {
+        timelineFilter = btn.getAttribute('data-filter');
+        loadUnifiedMessageTimeline();
+      };
+    });
+  }
+}
+
+// Escape HTML to prevent XSS
+function escapeHTML(str) {
+  return String(str).replace(/[&<>'"]/g, tag => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+  }[tag]));
+}
+
+// Main unified timeline loader
+async function loadUnifiedMessageTimeline(page = 1, limit = 50) {
+  try {
+    const res = await fetch(`/messages/history?page=${page}&limit=${limit}`, {
+      credentials: 'include',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok) {
+      const text = await res.text();
+      console.error('Failed to fetch message history:', text);
+      showNotification('Failed to load message history', 'error');
+      return;
+    }
+    if (!contentType.includes('application/json')) {
+      const text = await res.text();
+      console.error('Expected JSON for message history, got:', text);
+      showNotification('Unexpected server response when loading message history.', 'error');
+      return;
+    }
+    const data = await res.json();
+    if (!data.success) {
+      showNotification('Failed to load message history', 'error');
+      return;
+    }
+    renderTimelineFilters();
+    const timelineContainer = document.getElementById('message-timeline');
+    if (!timelineContainer) return;
+    timelineContainer.innerHTML = '';
+    let filtered = data.items;
+    if (timelineFilter !== 'all') {
+      filtered = filtered.filter(msg => msg.type === timelineFilter);
+    }
+    filtered.forEach(msg => {
+      const msgDiv = document.createElement('div');
+      msgDiv.className = `msg-item msg-${msg.role} msg-${msg.type}`;
+      msgDiv.innerHTML = `
+        <div class="msg-meta">
+          <span class="msg-role">${msg.role === 'user' ? '🧑' : '🤖'}</span>
+          <span class="msg-type">${msg.type}</span>
+          <span class="msg-time">${new Date(msg.timestamp).toLocaleTimeString()}</span>
+        </div>
+        <div class="msg-content">${escapeHTML(msg.content)}</div>
+        ${msg.type === 'command' && msg.meta && msg.meta.error ? `<div class="msg-error">Error: ${escapeHTML(msg.meta.error)}</div>` : ''}
+      `;
+      timelineContainer.appendChild(msgDiv);
+    });
+    // Auto-scroll to bottom
+    timelineContainer.scrollTop = timelineContainer.scrollHeight;
+  } catch (err) {
+    console.error('Error loading message history:', err);
+    showNotification('Error loading message history.', 'error');
+  }
+}
 
 document.addEventListener('DOMContentLoaded', async () => {
   console.log('DOMContentLoaded fired');
+  // Start splash animation
+  const splashPromise = startSplashAnimation();
   try {
-    const splashPromise = startSplashAnimation();
+    // Load essential data
     await loadUnifiedMessageTimeline();
-    loadActiveTasks();
-    loadHistory();
-    await splashPromise;
-    await hideSplashScreen();
+    await loadActiveTasks();
+    await loadHistory();
   } catch (error) {
     console.error('Error during initial load:', error);
+    showNotification('Error initializing application. Some data may be missing.', 'error');
+  } finally {
+    // Ensure splash screen always hides
+    await splashPromise;
+    await hideSplashScreen();
   }
 });
 
 window.addEventListener('beforeunload', () => {
   // cleanup();
 });
-
-async function loadChatHistory() {
-  console.log('Loading chat history');
-  try {
-    const response = await fetch('/chat-history', { credentials: 'include', headers: { 'Content-Type': 'application/json','X-Requested-With': 'XMLHttpRequest' }, });
-    if (!response.ok) {
-      // could be a 302→login.html or a 401 JSON
-      console.error('Auth failure or network error:', await response.text());
-      return []; // or handle logout
-    }
-    const data = await response.json();
-    const nliResults = document.getElementById('nli-results');
-    nliResults.innerHTML = '';
-
-    const messages = data.messages || data.items || [];
-    if (messages.length === 0) {
-      nliResults.innerHTML = '<p id="no-history" class="text-muted">No chat history available.</p>';
-      return;
-    }
-
-    const reversedMessages = messages.reverse();
-    reversedMessages.forEach(message => {
-      const convertedHtml = marked.parse(message.content);
-      const messageDiv = document.createElement('div');
-      messageDiv.className = `chat-message ${message.role}-message animate-in`;
-      messageDiv.innerHTML = `
-        <div class="message-content">
-          <p class="summary-text ${message.role === 'assistant' && convertedHtml.startsWith('Error:') ? 'error' : ''}">
-            ${convertedHtml}
-          </p>
-          <span class="timestamp">${new Date(message.timestamp).toLocaleTimeString()}</span>
-        </div>
-      `;
-      nliResults.prepend(messageDiv);
-    });
-    nliResults.scrollTop = 0;
-  } catch (err) {
-    console.error('Error loading chat history:', err);
-    const savedMessages = JSON.parse(localStorage.getItem('chatHistory') || '[]');
-    const nliResults = document.getElementById('nli-results');
-    nliResults.innerHTML = '';
-
-    const reversedSavedMessages = savedMessages.reverse();
-    reversedSavedMessages.forEach(message => {
-      const convertedHtml = marked.parse(message.content);
-      const messageDiv = document.createElement('div');
-      messageDiv.className = `chat-message ${message.role}-message animate-in`;
-      messageDiv.innerHTML = `
-        <div class="message-content">
-          <p style="white-space: pre-wrap;" class="summary-text ${message.role === 'assistant' && convertedHtml.startsWith('Error:') ? 'error' : ''}">
-            ${convertedHtml}
-          </p>
-          <span class="timestamp">${new Date(message.timestamp).toLocaleTimeString()}</span>
-        </div>
-      `;
-      nliResults.prepend(messageDiv);
-    });
-    nliResults.scrollTop = 0;
-  }
-}
 
 function saveChatMessage(role, content) {
   const savedMessages = JSON.parse(localStorage.getItem('chatHistory') || '[]');
@@ -424,19 +444,28 @@ function saveChatMessage(role, content) {
 // NLI & CHAT: Single Submit Handler (No Streaming Approach)
 // =====================================
 document.addEventListener('DOMContentLoaded', () => {
-  console.log('Second DOMContentLoaded fired');
-  loadChatHistory();
+  console.log('Unified DOMContentLoaded fired');
   logger.info('DOM content loaded, chat history initialized');
 
-  const nliForm = document.getElementById('nli-form');
-  if (!nliForm) {
-    logger.error('NLI form not found in DOM');
+  // Use the unified input form
+  const unifiedForm = document.getElementById('unified-input-form');
+  if (!unifiedForm) {
+    logger.error('Unified input form (id="unified-input-form") not found in DOM');
+    showNotification('Command input form not found. Please refresh or contact support.', 'error');
     return;
   }
 
-  nliForm.addEventListener('submit', async (e) => {
+  // Find the input or textarea inside the unified form
+  const promptInput = unifiedForm.querySelector('input[type="text"], textarea');
+  if (!promptInput) {
+    logger.error('Prompt input not found in unified input form');
+    showNotification('Prompt input not found. Please refresh or contact support.', 'error');
+    return;
+  }
+
+  unifiedForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const prompt = document.getElementById('nli-prompt')?.value.trim();
+    const prompt = promptInput.value.trim();
     logger.info('Form submitted at', new Date().toISOString(), 'Prompt:', prompt);
 
     if (!prompt) {
@@ -445,51 +474,44 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const submitButton = nliForm.querySelector('button[type="submit"]');
-    submitButton.disabled = true;
+    const submitButton = unifiedForm.querySelector('button[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
 
-    const nliResults = document.getElementById('nli-results');
-    appendChatMessage(nliResults, 'user', prompt);
-    saveChatMessage('user', prompt);
     showNotification('Executing command...', 'success');
     document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: true } }));
 
-    let taskId;
+    const nliResults = document.getElementById('message-timeline');
     try {
       console.log('Sending fetch request');
       const response = await fetch('/nli', {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'X-Requested-With': 'XMLHttpRequest'
         },
         credentials: 'include',
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt })
       });
-      
+
+      const contentType = response.headers.get('content-type') || '';
       if (!response.ok) {
         // could be a 302→login.html or a 401 JSON
         console.error('Auth failure or network error:', await response.text());
         return []; // or handle logout
       }
-      console.log('Response received');
-      const contentType = response.headers.get('content-type') || 'unknown';
-      console.log('Content-Type:', contentType);
-      logger.info('Response received, Content-Type:', contentType);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Server error: ${errorText}`);
+      if (!contentType.includes('application/json')) {
+        const text = await response.text();
+        logger.error('Expected JSON but got:', text);
+        showNotification('Unexpected server response. Please try again.', 'error');
+        return;
       }
-
-      // Since we're no longer streaming, always handle as a full JSON response.
       await handleTaskResponse(response, nliResults, prompt);
     } catch (err) {
       console.error('Caught error:', err.message);
       logger.error('Error processing NLI request:', err.message);
-      handleError(nliResults, prompt, err, taskId);
+      handleError(nliResults, prompt, err);
     } finally {
-      submitButton.disabled = false;
+      if (submitButton) submitButton.disabled = false;
       document.dispatchEvent(new CustomEvent('taskStateChange', { detail: { running: false } }));
       logger.info('Form submission completed');
     }
@@ -1106,7 +1128,7 @@ function updateTaskProgress(taskId, progress, status, error, milestone, subTask)
   // Display subtask updates in chatbox
   if (subTask && milestone) {    
     const convertedHtml = marked.parse(milestone);
-    const nliResults = document.getElementById('nli-results');
+    const nliResults = document.getElementById('');
     const subTaskMessage = document.createElement('div');
     subTaskMessage.className = 'chat-message subtask-message animate-in';
     subTaskMessage.innerHTML = `
@@ -1294,7 +1316,7 @@ function handleTaskCompletion(taskId, status, result = {}) {
   setupToggleButtons(resultCard);
   
   // Also insert a final AI message in the chat box
-  const nliResults = document.getElementById('nli-results');
+  const nliResults = document.getElementById('');
   const aiMessage = document.createElement('div');
   aiMessage.className = 'chat-message ai-message animate-in';
   aiMessage.innerHTML = `
@@ -1784,7 +1806,6 @@ async function loadHistory(page = 1) {
           </div>
         </div>
       `;
-
       historyItem.addEventListener('click', handleHistoryCardClick); // Use the function directly
       historyList.appendChild(historyItem);
     });

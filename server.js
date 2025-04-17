@@ -102,6 +102,11 @@ app.use('/images', express.static(path.join(__dirname, 'public', 'assets', 'imag
 app.use('/src', express.static(path.join(__dirname, 'src')));
 app.use('/midscene_run', express.static(MIDSCENE_RUN_DIR));
 
+// Serve default favicon
+app.get('/favicon.ico', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public/assets/images/dail-fav.png'));
+});
+
 // ======================================
 // 8) ROUTES & MIDDLEWARE IMPORTS
 // ======================================
@@ -124,6 +129,14 @@ import messagesRouter from './src/routes/messages.js';
 app.use('/messages', requireAuth, messagesRouter);
 app.use('/tasks',      requireAuth, tasksRouter);
 app.use('/custom-urls', requireAuth, customUrlsRouter);
+
+// Support legacy /logout path
+app.get('/logout', (req, res) => {
+  req.session.destroy(err => {
+    if (err) console.error('Logout error:', err);
+    res.redirect('/login.html');
+  });
+});
 
 // ======================================
 // 10) HTML ENDPOINTS & FALLBACK
@@ -340,8 +353,7 @@ async function ensureIndexes() {
   try {
     await User.ensureIndexes();
     console.log('User indexes ensured');
-    await ChatHistory.ensureIndexes();
-    console.log('ChatHistory indexes ensured');
+
     await Task.ensureIndexes();
     console.log('Task indexes ensured');
   } catch (err) {
@@ -993,13 +1005,6 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       throw new Error("URL required for new tasks");
     }
 
-    // Update task status in database.
-    await updateTaskInDatabase(taskId, {
-      status: 'processing',
-      progress: 50,
-      lastAction: command
-    });
-
     // Browser session management.
     if (existingSession) {
       logAction("Using existing browser session");
@@ -1287,9 +1292,9 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
         logQuery("Page is invalid or closed, creating a new one");
         page = await browser.newPage();
         await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
-        agent = new PuppeteerAgent(page, { 
-          provider: 'huggingface', 
-          apiKey: process.env.HF_API_KEY, 
+        agent = new PuppeteerAgent(page, {
+          provider: 'huggingface',
+          apiKey: process.env.HF_API_KEY,
           model: 'bytedance/ui-tars-72b'
         });
         activeBrowsers.set(taskKey, { browser, agent, page, release, closed: false, hasReleased: false });
