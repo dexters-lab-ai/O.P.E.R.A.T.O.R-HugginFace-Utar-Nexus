@@ -321,10 +321,42 @@ function hideSplashScreen() {
   });
 }
 
+async function loadUnifiedMessageTimeline(page = 1, limit = 50) {
+  const res = await fetch(`/messages/history?page=${page}&limit=${limit}`);
+  const data = await res.json();
+  if (!data.success) {
+    showNotification('Failed to load message history', 'error');
+    return;
+  }
+  const timelineContainer = document.getElementById('message-timeline');
+  if (!timelineContainer) return;
+  timelineContainer.innerHTML = '';
+  data.items.forEach(msg => {
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `msg-item msg-${msg.role} msg-${msg.type}`;
+    msgDiv.innerHTML = `
+      <div class="msg-meta">
+        <span class="msg-role">${msg.role === 'user' ? '🧑' : '🤖'}</span>
+        <span class="msg-type">${msg.type}</span>
+        <span class="msg-time">${new Date(msg.timestamp).toLocaleTimeString()}</span>
+      </div>
+      <div class="msg-content">${escapeHTML(msg.content)}</div>
+      ${msg.type === 'command' && msg.meta && msg.meta.error ? `<div class="msg-error">Error: ${escapeHTML(msg.meta.error)}</div>` : ''}
+    `;
+    timelineContainer.appendChild(msgDiv);
+  });
+}
+function escapeHTML(str) {
+  return String(str).replace(/[&<>'"]/g, tag => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+  }[tag]));
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   console.log('DOMContentLoaded fired');
   try {
     const splashPromise = startSplashAnimation();
+    await loadUnifiedMessageTimeline();
     loadActiveTasks();
     loadHistory();
     await splashPromise;
@@ -1819,79 +1851,106 @@ function handleHistoryCardClick(e) {
         return;
       }
 
-      const { command, url, timestamp, result = {}, intermediateResults = [] } = item;
-      const {
-        aiPrepared = {},
-        raw = {},
-        runReport,
-        landingReportUrl,
-        midsceneReportUrl,
-        screenshot,
-        finalScreenshotPath,
-        screenshotPath,
-        // Already in "result"
-      } = result;
+      const { command, url, timestamp, result = {}, intermediateResults = [], landingReportUrl: topLanding, midsceneReportUrl: topMidscene, runReport: topRun, errorReportUrl } = item;
+      console.log('DEBUG: Full fetched history item:', item);
+      const { aiPrepared = {}, raw = {}, runReport = topRun } = result;
 
       // Summaries
-      const summary = aiPrepared.summary || 'No summary available';
+      const summary = aiPrepared.summary 
+  || (result && result.error ? `<span style='color: var(--danger);'>${result.error}</span>` : 'No summary available');
       const rawOutput = raw.pageText || 'No raw output available.';
 
-      // Screenshots
+      // Screenshots gallery
       let screenshotsHtml = '';
+      const allScreenshots = [];
       if (Array.isArray(intermediateResults)) {
-        const screenshotResults = intermediateResults.filter(r => r.screenshotPath);
-        if (screenshotResults.length > 0) {
-          screenshotsHtml = screenshotResults
-            .map(r => `<img src="${r.screenshotPath}" alt="Screenshot" style="max-width: 100%; border-radius: 5px; margin: 10px 0;">`)
-            .join('');
-        }
+        intermediateResults.forEach(r => {
+          if (r.screenshotPath) allScreenshots.push(r.screenshotPath);
+        });
       }
-      if (!screenshotsHtml) {
-        const finalShot = finalScreenshotPath || screenshot || screenshotPath;
-        if (finalShot) {
-          screenshotsHtml = `<img src="${finalShot}" alt="Screenshot" style="max-width: 100%; border-radius: 5px; margin: 10px 0;">`;
-        }
-      }
-      if (!screenshotsHtml) {
+      [result.finalScreenshotPath, result.screenshot, result.screenshotPath].forEach(p => {
+        if (p) allScreenshots.push(p);
+      });
+      if (allScreenshots.length > 0) {
+        screenshotsHtml = `<div class="screenshot-gallery">${allScreenshots.map(src => `<img src="${src}" class="screenshot-thumb" alt="Screenshot">`).join('')}</div>`;
+      } else {
         screenshotsHtml = '<p>No screenshots available.</p>';
       }
 
-      // Reports
+      // Reports (success or error)
       let reportLinksHtml = '';
-      if (landingReportUrl) {
+      if (topLanding) {
         reportLinksHtml += `
-          <a href="${landingReportUrl}" target="_blank" 
-             class="btn btn-primary btn-sm" 
-             style="display: inline-block; margin-top: 10px; padding: 8px 16px; background: #007bff; color: #fff; text-decoration: none; border-radius: 5px;">
-            View Landing Report
-          </a>
+          <a href="${topLanding}" target="_blank" class="btn btn-primary btn-sm">View Landing Report</a>
         `;
       }
-      if (midsceneReportUrl) {
+      if (topMidscene) {
         reportLinksHtml += `
-          <a href="${midsceneReportUrl}" target="_blank"
-             class="btn btn-primary btn-sm"
-             style="display: inline-block; margin-top: 10px; margin-left: 10px; padding: 8px 16px; background: #007bff; color: #fff; text-decoration: none; border-radius: 5px;">
-            View Midscene Report
-          </a>
+          <a href="${topMidscene}" target="_blank" class="btn btn-primary btn-sm">View Midscene Report</a>
         `;
       }
-      if (runReport) {
+      if (topRun) {
         reportLinksHtml += `
-          <a href="${runReport}" target="_blank"
-             class="btn btn-primary btn-sm"
-             style="display: inline-block; margin-top: 10px; margin-left: 10px; padding: 8px 16px; background: #007bff; color: #fff; text-decoration: none; border-radius: 5px;">
-            View Run Report
-          </a>
+          <a href="${topRun}" target="_blank" class="btn btn-primary btn-sm">View Run Report</a>
+        `;
+      }
+      if (errorReportUrl) {
+        reportLinksHtml += `
+          <a href="${errorReportUrl}" target="_blank" class="btn btn-danger btn-sm">View Error Report</a>
         `;
       }
       if (!reportLinksHtml) {
         reportLinksHtml = '<p>No report available.</p>';
       }
 
+      // Collapsible intermediateResults
+      let intermediateHtml = '';
+      if (Array.isArray(intermediateResults) && intermediateResults.length) {
+        intermediateHtml = `
+          <div class="collapsible-section">
+            <button class="collapsible-btn">Show Intermediate Results (${intermediateResults.length})</button>
+            <div class="collapsible-content" style="display:none;">
+              <pre style="white-space: pre-wrap; color: #eee;">${JSON.stringify(intermediateResults, null, 2)}</pre>
+            </div>
+          </div>`;
+      }
+
+      // Status badge
+      let statusBadge = '';
+      if (item.status === 'completed') {
+        statusBadge = '<span class="badge badge-success" style="background: #28a745; color: #fff; padding: 4px 10px; border-radius: 4px;">Success</span>';
+      } else if (item.status === 'error' || result.error) {
+        statusBadge = '<span class="badge badge-danger" style="background: #dc3545; color: #fff; padding: 4px 10px; border-radius: 4px;">Error</span>';
+      } else {
+        statusBadge = `<span class="badge badge-secondary" style="background: #6c757d; color: #fff; padding: 4px 10px; border-radius: 4px;">${item.status ? item.status.charAt(0).toUpperCase() + item.status.slice(1) : 'Unknown'}</span>`;
+      }
+
       // Insert into popup
+      // Extra error details if present
+      let errorSection = '';
+      if (item.status === 'error' || result.error) {
+        errorSection = `
+          <h4 style="color: #ff6b6b; margin-top: 20px; margin-bottom: 10px;">Error Details</h4>
+          <div style="color: #ff6b6b; background: #2d1c1c; padding: 10px; border-radius: 5px; margin: 5px 0; white-space: pre-wrap;">
+            <strong>Error:</strong> ${item.error || result.error || 'Unknown error'}
+          </div>
+        `;
+      }
+      // Subtasks if present
+      let subTasksSection = '';
+      if (item.subTasks && Array.isArray(item.subTasks) && item.subTasks.length > 0) {
+        subTasksSection = `
+          <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 10px;">Subtasks</h4>
+          <div style="background: #222; padding: 10px; border-radius: 5px; max-height: 200px; overflow-y: auto;">
+            <pre style="color: #eee;">${JSON.stringify(item.subTasks, null, 2)}</pre>
+          </div>
+        `;
+      }
       details.innerHTML = `
-        <h4 style="color: #e8e8e8; margin-bottom: 15px;">Task Details</h4>
+        <div class="history-popup-header">
+          ${statusBadge}
+          <h4 style="color: #e8e8e8; margin-bottom: 15px; display:inline-block; margin-left: 12px;">Task Details</h4>
+        </div>
         <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0;">
           <strong>Command:</strong> ${command}
         </p>
@@ -1899,30 +1958,56 @@ function handleHistoryCardClick(e) {
           <strong>URL:</strong> ${url || 'Unknown URL'}
         </p>
         <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0;">
-          <strong>Timestamp:</strong> ${new Date(timestamp).toLocaleString()}
+          <strong>Timestamp:</strong> ${timestamp ? new Date(timestamp).toLocaleString() : 'N/A'}
         </p>
-
+        ${errorSection}
         <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">AI Summary</h4>
-        <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0;
-                  white-space: pre-wrap; max-height: 200px; overflow-y: auto;">
+        <p style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; margin: 5px 0; white-space: pre-wrap; max-height: 200px; overflow-y: auto;">
           ${summary}
         </p>
-
+        ${subTasksSection}
         <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">Screenshots</h4>
         <div style="background: #222; padding: 10px; border-radius: 5px;">
           ${screenshotsHtml}
         </div>
-
         <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">Raw Output</h4>
         <div style="color: #e8e8e8; background: #222; padding: 10px; border-radius: 5px; max-height: 200px; overflow-y: auto; white-space: pre-wrap;">
           ${rawOutput}
         </div>
-
         <h4 style="color: #e8e8e8; margin-top: 20px; margin-bottom: 15px;">Reports</h4>
         <div>
           ${reportLinksHtml}
         </div>
+        ${intermediateHtml}
       `;
+
+      // Collapsible logic for intermediateResults
+      const collBtn = details.querySelector('.collapsible-btn');
+      if (collBtn) {
+        collBtn.onclick = function() {
+          const content = details.querySelector('.collapsible-content');
+          if (content.style.display === 'none') {
+            content.style.display = 'block';
+            collBtn.textContent = 'Hide Intermediate Results';
+          } else {
+            content.style.display = 'none';
+            collBtn.textContent = `Show Intermediate Results (${intermediateResults.length})`;
+          }
+        };
+      }
+
+      // Screenshot gallery click to expand
+      details.querySelectorAll('.screenshot-thumb').forEach(img => {
+        img.onclick = function() {
+          const src = img.src;
+          const overlay = document.createElement('div');
+          overlay.className = 'screenshot-overlay';
+          overlay.style = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;';
+          overlay.innerHTML = `<img src='${src}' style='max-width:90vw;max-height:90vh;border-radius:12px;box-shadow:0 8px 32px #000;'>`;
+          overlay.onclick = () => document.body.removeChild(overlay);
+          document.body.appendChild(overlay);
+        };
+      });
 
       popup.classList.add('active');
 

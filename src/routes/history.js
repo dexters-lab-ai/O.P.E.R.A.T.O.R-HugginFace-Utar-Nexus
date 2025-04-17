@@ -65,7 +65,11 @@ router.get('/:id', requireAuth, async (req, res) => {
       error: task.error,
       subTasks: task.subTasks,
       intermediateResults: task.intermediateResults || [],
-      result: task.result || {}
+      result: task.result || {},
+      landingReportUrl: task.result?.landingReportUrl || null,
+      midsceneReportUrl: task.result?.midsceneReportUrl || null,
+      runReport: task.result?.runReport || null,
+      errorReportUrl: task.result?.errorReportUrl || null
     });
   } catch (err) {
     console.error('History item error:', err);
