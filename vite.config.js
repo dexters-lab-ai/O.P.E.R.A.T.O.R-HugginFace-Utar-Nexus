@@ -11,8 +11,12 @@ export default defineConfig({
   server: {
     port: 3000,
     strictPort: true,
+    watch: {
+      usePolling: true,
+      interval: 100
+    },
     headers: {
-      'Content-Type': 'text/javascript'
+      'Cache-Control': 'no-store'
     },
     proxy: {
       '/api': {
@@ -22,6 +26,8 @@ export default defineConfig({
       }
     }
   },
+  clearScreen: false,
+  cacheDir: '.vite-cache',
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),
@@ -37,7 +43,17 @@ export default defineConfig({
     outDir: '../dist',
     emptyOutDir: true,
     rollupOptions: {
-      input: path.resolve(__dirname, 'public/modern.html')
+      input: path.resolve(__dirname, 'public/modern.html'),
+      output: {
+        assetFileNames: (assetInfo) => {
+          if (assetInfo.name.includes('Room') || 
+              assetInfo.name.includes('3d') ||
+              assetInfo.name.match(/\.(glb|gltf)$/)) {
+            return 'assets/[name].[hash][extname]';
+          }
+          return 'assets/[name][extname]';
+        }
+      }
     }
   }
 })

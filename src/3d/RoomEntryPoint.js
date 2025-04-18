@@ -98,28 +98,34 @@ export function RoomEntryPoint(props = {}) {
    * Initialize the room experience
    */
   function initialize() {
-    console.group('[3D Room] Initialization');
-    console.log('1. Checking container:', container);
+    console.group('[RoomEntry] Initialization');
     
-    if (!container) {
-      console.error('Container element not found!');
+    if (!container || !container.appendChild) {
+      console.error('Invalid container element:', container);
       console.groupEnd();
       return;
     }
     
-    console.log('2. Creating canvas container');
-    const canvasContainer = document.createElement('div');
-    canvasContainer.className = 'room-canvas-container';
-    container.appendChild(canvasContainer);
-    
-    console.log('3. Creating render canvas');
-    const canvas = document.createElement('canvas');
-    canvasContainer.appendChild(canvas);
-    
-    console.log('4. Initializing Three.js scene');
-    initScene();
-    
-    console.groupEnd();
+    try {
+      console.log('Creating canvas container');
+      const canvasContainer = document.createElement('div');
+      
+      console.log('Appending to DOM');
+      container.appendChild(canvasContainer);
+      
+      console.log('Creating RoomExperience');
+      roomExperience = RoomExperience({
+        container: canvasContainer,
+        modelPath
+      });
+      
+      console.log('Starting animation');
+      roomExperience.init();
+    } catch (error) {
+      console.error('Initialization failed:', error);
+    } finally {
+      console.groupEnd();
+    }
   }
   
   /**

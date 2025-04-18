@@ -20,6 +20,38 @@ import { stores } from '../store/index.js';
  * @returns {Object} Room experience instance with methods to control the experience
  */
 export function RoomExperience(props = {}) {
+  console.group('[Room] Constructor Verification');
+  try {
+    console.log('Container:', props.container);
+    console.log('Options:', JSON.stringify(props));
+    
+    if (!props.container) {
+      console.error('No container element provided');
+      throw new Error('Container element required');
+    }
+    
+    if (typeof props.container === 'string') {
+      props.container = document.querySelector(props.container);
+      if (!props.container) {
+        console.error(`Container selector "${props.container}" not found`);
+        throw new Error('Container selector not found');
+      }
+    } else if (!props.container.appendChild) {
+      console.error('Invalid container element - missing appendChild method');
+      throw new Error('Invalid container element');
+    }
+    
+    console.log('Constructor validation passed');
+  } finally {
+    console.groupEnd();
+  }
+  
+  console.group('[Room] Constructor');
+  console.log('Initial props:', props);
+  console.log('Container element:', props.container);
+  console.log('Model path:', props.modelPath);
+  console.groupEnd();
+
   const {
     container = document.body,
     modelPath = '/models/room.glb',
@@ -134,24 +166,38 @@ export function RoomExperience(props = {}) {
   }
 
   async function loadModel() {
-    console.log('Attempting to load model from:', modelPath);
-    
+    console.group('[Room] Model Loading');
     try {
-      const gltf = await new Promise((resolve, reject) => {
-        const loader = new GLTFLoader();
-        loader.load(
-          modelPath,
-          resolve,
-          (xhr) => console.log(`Loading ${(xhr.loaded/xhr.total*100).toFixed(0)}%`),
-          reject
-        );
-      });
+      console.log('Starting model load from:', this.modelPath);
       
-      console.log('Model successfully loaded:', gltf);
-      return gltf;
-    } catch (error) {
-      console.error('Model loading failed:', error);
-      throw error;
+      if (!this.modelPath) {
+        console.error('No model path specified');
+        return;
+      }
+      
+      const version = Date.now();
+      const modelUrl = `${this.modelPath}?v=${version}`;
+      console.log('Loading model from:', modelUrl);
+      
+      try {
+        const gltf = await new Promise((resolve, reject) => {
+          const loader = new GLTFLoader();
+          loader.load(
+            modelUrl,
+            resolve,
+            (xhr) => console.log(`Loading ${(xhr.loaded/xhr.total*100).toFixed(0)}%`),
+            reject
+          );
+        });
+        
+        console.log('Model successfully loaded:', gltf);
+        return gltf;
+      } catch (error) {
+        console.error('Model loading failed:', error);
+        throw error;
+      }
+    } finally {
+      console.groupEnd();
     }
   }
   
@@ -163,63 +209,70 @@ export function RoomExperience(props = {}) {
    * Initialize the 3D experience
    */
   function init() {
-    if (isInitialized) return;
-    
-    // Notify loading start
-    eventBus.emit('room-loading-start');
-    
-    // Create a visible HTML container if provided as a selector
-    let canvasContainer = container;
-    if (typeof container === 'string') {
-      canvasContainer = document.querySelector(container);
+    console.group('[Room] Initialization');
+    try {
+      if (isInitialized) return;
+      
+      // Notify loading start
+      eventBus.emit('room-loading-start');
+      
+      // Create a visible HTML container if provided as a selector
+      let canvasContainer = container;
+      if (typeof container === 'string') {
+        canvasContainer = document.querySelector(container);
+      }
+      
+      if (!canvasContainer) {
+        console.error('Container not found');
+        return;
+      }
+      
+      // Setup scene
+      console.log('Creating Three.js scene');
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x111122);
+      
+      // Setup clock
+      clock = new THREE.Clock();
+      
+      // Setup camera
+      console.log('Setting up camera');
+      const aspectRatio = window.innerWidth / window.innerHeight;
+      camera = new THREE.PerspectiveCamera(75, aspectRatio, 0.1, 100);
+      camera.position.copy(cameraPositions.initial);
+      scene.add(camera);
+      
+      // Setup renderer
+      setupRenderer();
+      
+      // Setup controls
+      if (enableOrbitControls) {
+        controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.screenSpacePanning = false;
+        controls.minDistance = 1;
+        controls.maxDistance = 5;
+        controls.maxPolarAngle = Math.PI / 2;
+        controls.target.set(0, 1, 0);
+      }
+      
+      // Add lights
+      setupLights();
+      
+      // Load room model
+      loadRoomModel();
+      
+      // Setup resize handler
+      window.addEventListener('resize', handleResize);
+      
+      // Start animation loop
+      renderer.setAnimationLoop(animate);
+      
+      isInitialized = true;
+    } finally {
+      console.groupEnd();
     }
-    
-    if (!canvasContainer) {
-      console.error('Container not found');
-      return;
-    }
-    
-    // Setup scene
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x111122);
-    
-    // Setup clock
-    clock = new THREE.Clock();
-    
-    // Setup camera
-    const aspectRatio = window.innerWidth / window.innerHeight;
-    camera = new THREE.PerspectiveCamera(75, aspectRatio, 0.1, 100);
-    camera.position.copy(cameraPositions.initial);
-    scene.add(camera);
-    
-    // Setup renderer
-    setupRenderer();
-    
-    // Setup controls
-    if (enableOrbitControls) {
-      controls = new OrbitControls(camera, renderer.domElement);
-      controls.enableDamping = true;
-      controls.dampingFactor = 0.05;
-      controls.screenSpacePanning = false;
-      controls.minDistance = 1;
-      controls.maxDistance = 5;
-      controls.maxPolarAngle = Math.PI / 2;
-      controls.target.set(0, 1, 0);
-    }
-    
-    // Add lights
-    setupLights();
-    
-    // Load room model
-    loadRoomModel();
-    
-    // Setup resize handler
-    window.addEventListener('resize', handleResize);
-    
-    // Start animation loop
-    renderer.setAnimationLoop(animate);
-    
-    isInitialized = true;
   }
   
   function setupRenderer() {
@@ -470,39 +523,44 @@ export function RoomExperience(props = {}) {
    * @param {Function} callback - Callback function when animation completes
    */
   function animateCamera(targetPosition, targetLookAt, duration, callback) {
-    const startPosition = camera.position.clone();
-    const startLookAt = currentCameraTarget.clone();
-    
-    const startTime = Date.now();
-    
-    function updateCamera() {
-      const elapsedTime = Date.now() - startTime;
-      const progress = Math.min(elapsedTime / duration, 1);
+    console.group('[Room] Camera Animation');
+    try {
+      const startPosition = camera.position.clone();
+      const startLookAt = currentCameraTarget.clone();
       
-      // Use an easing function for smoother animation
-      const easedProgress = easeInOutCubic(progress);
+      const startTime = Date.now();
       
-      // Interpolate camera position
-      camera.position.lerpVectors(startPosition, targetPosition, easedProgress);
-      
-      // Interpolate look at point
-      currentCameraTarget.lerpVectors(startLookAt, targetLookAt, easedProgress);
-      camera.lookAt(currentCameraTarget);
-      
-      if (controls) {
-        controls.target.copy(currentCameraTarget);
-        controls.update();
+      function updateCamera() {
+        const elapsedTime = Date.now() - startTime;
+        const progress = Math.min(elapsedTime / duration, 1);
+        
+        // Use an easing function for smoother animation
+        const easedProgress = easeInOutCubic(progress);
+        
+        // Interpolate camera position
+        camera.position.lerpVectors(startPosition, targetPosition, easedProgress);
+        
+        // Interpolate look at point
+        currentCameraTarget.lerpVectors(startLookAt, targetLookAt, easedProgress);
+        camera.lookAt(currentCameraTarget);
+        
+        if (controls) {
+          controls.target.copy(currentCameraTarget);
+          controls.update();
+        }
+        
+        // Continue animation if not complete
+        if (progress < 1) {
+          requestAnimationFrame(updateCamera);
+        } else {
+          if (callback) callback();
+        }
       }
       
-      // Continue animation if not complete
-      if (progress < 1) {
-        requestAnimationFrame(updateCamera);
-      } else {
-        if (callback) callback();
-      }
+      updateCamera();
+    } finally {
+      console.groupEnd();
     }
-    
-    updateCamera();
   }
   
   /**
@@ -593,30 +651,35 @@ export function RoomExperience(props = {}) {
    * @param {Function} callback - Callback function when fade completes
    */
   function fadeOut(callback) {
-    const fadeOverlay = document.createElement('div');
-    fadeOverlay.className = 'fade-overlay';
-    fadeOverlay.style.position = 'absolute';
-    fadeOverlay.style.top = '0';
-    fadeOverlay.style.left = '0';
-    fadeOverlay.style.width = '100%';
-    fadeOverlay.style.height = '100%';
-    fadeOverlay.style.backgroundColor = '#000';
-    fadeOverlay.style.opacity = '0';
-    fadeOverlay.style.transition = `opacity ${transitionDuration / 1000}s ease`;
-    fadeOverlay.style.zIndex = '1000';
-    
-    document.body.appendChild(fadeOverlay);
-    
-    // Trigger reflow
-    void fadeOverlay.offsetWidth;
-    
-    // Fade in the overlay
-    fadeOverlay.style.opacity = '1';
-    
-    // Call callback after animation completes
-    setTimeout(() => {
-      if (callback) callback();
-    }, transitionDuration);
+    console.group('[Room] Fade Out');
+    try {
+      const fadeOverlay = document.createElement('div');
+      fadeOverlay.className = 'fade-overlay';
+      fadeOverlay.style.position = 'absolute';
+      fadeOverlay.style.top = '0';
+      fadeOverlay.style.left = '0';
+      fadeOverlay.style.width = '100%';
+      fadeOverlay.style.height = '100%';
+      fadeOverlay.style.backgroundColor = '#000';
+      fadeOverlay.style.opacity = '0';
+      fadeOverlay.style.transition = `opacity ${transitionDuration / 1000}s ease`;
+      fadeOverlay.style.zIndex = '1000';
+      
+      document.body.appendChild(fadeOverlay);
+      
+      // Trigger reflow
+      void fadeOverlay.offsetWidth;
+      
+      // Fade in the overlay
+      fadeOverlay.style.opacity = '1';
+      
+      // Call callback after animation completes
+      setTimeout(() => {
+        if (callback) callback();
+      }, transitionDuration);
+    } finally {
+      console.groupEnd();
+    }
   }
   
   /**
@@ -624,19 +687,24 @@ export function RoomExperience(props = {}) {
    * @param {Function} callback - Callback function when fade completes
    */
   function fadeIn(callback) {
-    const fadeOverlay = document.querySelector('.fade-overlay');
-    
-    if (fadeOverlay) {
-      // Fade out the overlay
-      fadeOverlay.style.opacity = '0';
+    console.group('[Room] Fade In');
+    try {
+      const fadeOverlay = document.querySelector('.fade-overlay');
       
-      // Remove the overlay after animation completes
-      setTimeout(() => {
-        fadeOverlay.remove();
-        if (callback) callback();
-      }, transitionDuration);
-    } else if (callback) {
-      callback();
+      if (fadeOverlay) {
+        // Fade out the overlay
+        fadeOverlay.style.opacity = '0';
+        
+        // Remove the overlay after animation completes
+        setTimeout(() => {
+          fadeOverlay.remove();
+          if (callback) callback();
+        }, transitionDuration);
+      } else if (callback) {
+        callback();
+      }
+    } finally {
+      console.groupEnd();
     }
   }
   
@@ -644,16 +712,21 @@ export function RoomExperience(props = {}) {
    * Handle window resize
    */
   function handleResize() {
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-    
-    // Update camera
-    camera.aspect = width / height;
-    camera.updateProjectionMatrix();
-    
-    // Update renderer
-    renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    console.group('[Room] Resize');
+    try {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      
+      // Update camera
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      
+      // Update renderer
+      renderer.setSize(width, height);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    } finally {
+      console.groupEnd();
+    }
   }
   
   /**
@@ -678,16 +751,20 @@ export function RoomExperience(props = {}) {
    * Animation loop
    */
   function animate() {
-    requestAnimationFrame(() => {
-      console.log('[Render Loop] Frame requested');
-      this.animate();
-    });
-    
+    console.group('[Room] Render Loop');
     try {
-      console.log('[Render Loop] Rendering frame');
-      this.renderer.render(this.scene, this.camera);
-    } catch (error) {
-      console.error('[Render Loop] Error:', error);
+      console.log('Starting animation frame request');
+      requestAnimationFrame(() => animate());
+      
+      if (!scene || !camera || !renderer) {
+        console.error('Missing required Three.js components');
+        return;
+      }
+      
+      renderer.render(scene, camera);
+      console.log('Frame rendered');
+    } finally {
+      console.groupEnd();
     }
   }
   
@@ -695,34 +772,39 @@ export function RoomExperience(props = {}) {
    * Dispose of all resources
    */
   function dispose() {
-    // Stop animation loop
-    renderer.setAnimationLoop(null);
-    
-    // Remove event listeners
-    window.removeEventListener('resize', handleResize);
-    
-    // Dispose of Three.js resources
-    if (scene) {
-      scene.traverse((object) => {
-        if (object.isMesh) {
-          object.geometry.dispose();
-          
-          if (object.material.map) {
-            object.material.map.dispose();
+    console.group('[Room] Dispose');
+    try {
+      // Stop animation loop
+      renderer.setAnimationLoop(null);
+      
+      // Remove event listeners
+      window.removeEventListener('resize', handleResize);
+      
+      // Dispose of Three.js resources
+      if (scene) {
+        scene.traverse((object) => {
+          if (object.isMesh) {
+            object.geometry.dispose();
+            
+            if (object.material.map) {
+              object.material.map.dispose();
+            }
+            object.material.dispose();
           }
-          object.material.dispose();
-        }
-      });
-    }
-    
-    // Remove canvas from DOM
-    if (renderer && renderer.domElement && renderer.domElement.parentNode) {
-      renderer.domElement.parentNode.removeChild(renderer.domElement);
-    }
-    
-    // Dispose of renderer
-    if (renderer) {
-      renderer.dispose();
+        });
+      }
+      
+      // Remove canvas from DOM
+      if (renderer && renderer.domElement && renderer.domElement.parentNode) {
+        renderer.domElement.parentNode.removeChild(renderer.domElement);
+      }
+      
+      // Dispose of renderer
+      if (renderer) {
+        renderer.dispose();
+      }
+    } finally {
+      console.groupEnd();
     }
   }
   
