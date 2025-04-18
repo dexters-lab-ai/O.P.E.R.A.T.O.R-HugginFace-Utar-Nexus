@@ -1,0 +1,55 @@
+/* OPERATOR Modern UI - Variables */
+
+:root {
+  /* Core Colors - Enhanced with slightly more vibrant tones */
+  --primary: #7B4DFF;
+  --primary-dark: #5C2EE5;
+  --primary-light: rgba(123, 77, 255, 0.1);
+  --primary-glow: rgba(123, 77, 255, 0.4);
+  
+  --secondary: #00E5FF;
+  --secondary-light: rgba(0, 229, 255, 0.1);
+  --secondary-glow: rgba(0, 229, 255, 0.4);
+  
+  /* Background Colors - More depth with subtle gradients */
+  --dark: #0a0e17;
+  --dark-light: #161A26;
+  --dark-medium: #1E2432;
+  --dark-border: rgba(255, 255, 255, 0.06);
+  
+  /* Text Colors - Better contrast and readability */
+  --text: #F0F0FF;
+  --text-muted: #A0A0C8;
+  --text-dim: #727290;
+  
+  /* Functional Colors - Clear visual signals */
+  --success: #00E676;
+  --success-dark: #00C853;
+  --success-light: rgba(0, 230, 118, 0.12);
+  
+  --warning: #FFCC00;
+  --warning-dark: #FFB300;
+  --warning-light: rgba(255, 204, 0, 0.12);
+  
+  --danger: #FF4081;
+  --danger-dark: #F50057;
+  --danger-light: rgba(255, 64, 129, 0.12);
+  
+  /* Accent Colors */
+  --sonic: #5CBAFD;
+  --neon-blue: #00DDEB;
+  --neon-pink: #FF00CC;
+  
+  /* UI Dimensions */
+  --border-radius-sm: 6px;
+  --border-radius-md: 10px;
+  --border-radius-lg: 16px;
+  --header-height: 70px;
+  --shadow-subtle: 0 4px 20px rgba(0, 0, 0, 0.2);
+  --shadow-elevated: 0 8px 30px rgba(0, 0, 0, 0.4);
+  
+  /* Transitions */
+  --transition-fast: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-bounce: all 0.5s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+}

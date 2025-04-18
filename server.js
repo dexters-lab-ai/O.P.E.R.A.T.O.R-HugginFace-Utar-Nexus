@@ -1587,10 +1587,16 @@ app.post('/nli', requireAuth, async (req, res) => {
     return res.json({ success: true, taskId: taskId.toString(), runId });
   } else {
     // --- Chat branch (non-streaming) ---
-    let chatHistory = await ChatHistory.findOne({ userId }) || new ChatHistory({ userId, messages: [] });
-    chatHistory.messages.push({ role: 'user', content: prompt, timestamp: new Date() });
-    await chatHistory.save();
+    // Save user message to the unified Message collection
+    await new Message({
+      userId,
+      role: 'user',
+      type: 'chat',
+      content: prompt,
+      timestamp: new Date()
+    }).save();
 
+    // Get last 20 messages for context
     const lastMessages = await Message.find({ userId, role: { $in: ['user', 'assistant'] } }).sort({ timestamp: -1 }).limit(20).lean();
     const openaiClient = await getUserOpenAiClient(userId);
 

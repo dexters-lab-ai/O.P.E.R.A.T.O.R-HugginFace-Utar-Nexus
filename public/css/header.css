@@ -1,0 +1,156 @@
+/* OPERATOR Modern UI - Header and Navigation */
+
+header {
+  position: fixed;
+  width: 100%;
+  top: 0;
+  left: 0;
+  height: var(--header-height);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 30px;
+  backdrop-filter: blur(10px);
+  background: rgba(10, 14, 23, 0.85);
+  border-bottom: 1px solid var(--dark-border);
+  z-index: 100;
+  transition: var(--transition-normal);
+  box-shadow: var(--shadow-subtle);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo h1 {
+  font-size: 24px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--primary), var(--secondary));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  letter-spacing: 1px;
+  position: relative;
+  transition: var(--transition-fast);
+}
+
+.logo h1:hover {
+  transform: scale(1.02);
+  letter-spacing: 1.2px;
+}
+
+.logo h1::after {
+  content: '';
+  position: absolute;
+  bottom: -3px;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, var(--primary), transparent);
+  transform-origin: left;
+  transform: scaleX(0);
+  transition: transform 0.3s ease;
+}
+
+.logo h1:hover::after {
+  transform: scaleX(1);
+}
+
+nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+nav a {
+  color: var(--text-muted);
+  text-decoration: none;
+  padding: 8px 16px;
+  border-radius: var(--border-radius-md);
+  font-weight: 500;
+  font-size: 15px;
+  transition: var(--transition-fast);
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+nav a:hover {
+  color: var(--text);
+  background: var(--dark-light);
+}
+
+nav a.active {
+  color: var(--text);
+  background: var(--dark-medium);
+}
+
+nav a.btn {
+  background: var(--primary);
+  color: white;
+}
+
+nav a.btn:hover {
+  background: var(--primary-dark);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-subtle);
+}
+
+nav a i {
+  font-size: 16px;
+}
+
+#mode-toggle {
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 8px;
+}
+
+#mode-toggle:hover {
+  background: var(--dark-light);
+  color: var(--text);
+}
+
+@media (max-width: 768px) {
+  header {
+    padding: 0 15px;
+  }
+  
+  .logo h1 {
+    font-size: 20px;
+  }
+  
+  nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(10, 14, 23, 0.95);
+    backdrop-filter: blur(10px);
+    height: 60px;
+    justify-content: space-around;
+    border-top: 1px solid var(--dark-border);
+    padding: 0 15px;
+  }
+  
+  nav a {
+    flex-direction: column;
+    font-size: 12px;
+    padding: 8px 12px;
+    gap: 4px;
+  }
+  
+  nav a i {
+    font-size: 18px;
+  }
+}

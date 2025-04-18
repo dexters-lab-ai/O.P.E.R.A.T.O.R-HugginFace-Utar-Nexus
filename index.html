@@ -6,7 +6,7 @@
   <title>O.P.E.R.A.T.O.R | Powered by HugginFace</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="stylesheet" href="/public/styles.css">
+  <link rel="stylesheet" href="/public/css/index.css">
   <link rel="icon" type="image/png" sizes="36x36" href="/assets/images/dail-fav.png">
 </head>
 <body>
@@ -49,12 +49,25 @@
     </div>
   </div>
 
-  <!-- History Popup -->
-  <div class="history-popup" id="history-popup">
-    <div class="history-modal">
-      <button class="close-popup" id="close-history-popup"><i class="fas fa-times"></i></button>
-      <h3><i class="fas fa-history"></i> Task Details</h3>
-      <div id="history-details-content"></div>
+  <!-- Enhanced History Overlay -->
+  <div class="history-overlay" id="history-overlay">
+    <div class="history-overlay-header">
+      <h2 class="history-overlay-title"><i class="fas fa-history"></i> Command History</h2>
+      <button class="history-overlay-close" id="history-overlay-close"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="history-cards-container" id="history-cards-container">
+      <!-- History cards will be inserted here via JS -->
+    </div>
+    <div class="history-overlay-footer">
+      <a href="/history.html" class="view-all-history"><i class="fas fa-external-link-alt"></i> View Complete History</a>
+    </div>
+  </div>
+  
+  <!-- History Details Modal -->
+  <div class="modal" id="history-details-modal">
+    <div class="modal-content">
+      <button class="close-modal" id="close-details-modal"><i class="fas fa-times"></i></button>
+      <!-- Details content will be inserted here via JS -->
     </div>
   </div>
 
@@ -303,5 +316,8 @@
   <!-- Include your app.js -->  
   <script type="module" src="/src/app.js"></script>
     </div>
+  <!-- Advanced UI Animation Script -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script type="module" src="/public/js/ui-animations.js"></script>
 </body>
 </html>
