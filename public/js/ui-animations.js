@@ -249,115 +249,51 @@ function setupActiveTasksAnimations() {
 
 // ThreeJS Background
 function setupThreeJSBackground() {
-  // Check if Three.js is loaded
-  if (typeof THREE === 'undefined') {
-    console.warn('Three.js not loaded, skipping background');
+  const { THREE, GLTFLoader } = window;
+  
+  if (!THREE) {
+    console.error('Three.js not loaded');
     return;
   }
   
-  const canvas = document.getElementById('bg-canvas');
+  const canvas = document.getElementById('three-canvas');
   if (!canvas) return;
-  
-  // Initialize Three.js scene
+
+  // Scene setup
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+  const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(window.devicePixelRatio);
+  // Lighting
+  const light = new THREE.AmbientLight(0xffffff, 0.5);
+  scene.add(light);
   
-  // Create particles
-  const particlesGeometry = new THREE.BufferGeometry();
-  const particlesCount = 2000;
-  
-  const posArray = new Float32Array(particlesCount * 3);
-  const scaleArray = new Float32Array(particlesCount);
-  
-  for (let i = 0; i < particlesCount * 3; i += 3) {
-    // Position
-    posArray[i] = (Math.random() - 0.5) * 10;
-    posArray[i + 1] = (Math.random() - 0.5) * 10;
-    posArray[i + 2] = (Math.random() - 0.5) * 10;
+  // Load room model
+  try {
+    const dracoLoader = new THREE.DRACOLoader();
+    dracoLoader.setDecoderPath('/draco/');
     
-    // Scale
-    scaleArray[i / 3] = Math.random();
+    const loader = new GLTFLoader();
+    loader.setDRACOLoader(dracoLoader);
+    
+    const modelPath = '/models/room.glb';
+    
+    loader.load(
+      modelPath,
+      (gltf) => {
+        if (!gltf?.scene) {
+          console.warn(`Model loaded but invalid at ${modelPath}`);
+          return;
+        }
+        scene.add(gltf.scene);
+      },
+      undefined,
+      (error) => console.error(`Failed to load model at ${modelPath}:`, error)
+    );
+  } catch (error) {
+    console.error('3D initialization failed:', error);
   }
-  
-  particlesGeometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
-  particlesGeometry.setAttribute('scale', new THREE.BufferAttribute(scaleArray, 1));
-  
-  // Material with custom shader
-  const particlesMaterial = new THREE.ShaderMaterial({
-    vertexShader: `
-      attribute float scale;
-      varying vec3 vColor;
-      
-      void main() {
-        vColor = mix(
-          vec3(0.435, 0.243, 1.0), // Primary color
-          vec3(0.0, 0.9, 1.0),      // Secondary color
-          position.z * 0.1 + 0.5
-        );
-        
-        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = scale * (300.0 / -mvPosition.z);
-        gl_Position = projectionMatrix * mvPosition;
-      }
-    `,
-    fragmentShader: `
-      varying vec3 vColor;
-      
-      void main() {
-        float strength = distance(gl_PointCoord, vec2(0.5));
-        strength = 1.0 - strength;
-        strength = pow(strength, 3.0);
-        
-        vec3 color = vColor;
-        gl_FragColor = vec4(color, strength);
-      }
-    `,
-    transparent: true,
-    blending: THREE.AdditiveBlending
-  });
-  
-  const particlesMesh = new THREE.Points(particlesGeometry, particlesMaterial);
-  scene.add(particlesMesh);
-  
-  camera.position.z = 5;
-  
-  // Mouse movement effect
-  let mouseX = 0;
-  let mouseY = 0;
-  
-  document.addEventListener('mousemove', (event) => {
-    mouseX = (event.clientX / window.innerWidth) * 2 - 1;
-    mouseY = -(event.clientY / window.innerHeight) * 2 + 1;
-  });
-  
-  // Animation loop
-  function animate() {
-    requestAnimationFrame(animate);
-    
-    // Rotate particles
-    particlesMesh.rotation.x += 0.0003;
-    particlesMesh.rotation.y += 0.0005;
-    
-    // Mouse follow effect
-    particlesMesh.rotation.x += mouseY * 0.0005;
-    particlesMesh.rotation.y += mouseX * 0.0005;
-    
-    renderer.render(scene, camera);
-  }
-  
-  // Handle window resize
-  window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  });
-  
-  animate();
-}
+};
 
 // Collapsible sections
 document.addEventListener('DOMContentLoaded', () => {

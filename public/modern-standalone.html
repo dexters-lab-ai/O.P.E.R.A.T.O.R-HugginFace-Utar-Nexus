@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OPERATOR - Modern Interface</title>
+  
+  <!-- Local Font Awesome for icons - replacing CDN to avoid content blocking -->
+  <style>
+    /* Basic icon font replacement */
+    .fas {
+      font-family: sans-serif;
+      display: inline-block;
+      margin-right: 5px;
+    }
+    
+    /* Common icons */
+    .fa-check:before { content: "✓"; }
+    .fa-times:before { content: "✕"; }
+    .fa-info-circle:before { content: "ℹ"; }
+    .fa-exclamation-triangle:before { content: "⚠"; }
+    .fa-cog:before { content: "⚙"; }
+    .fa-user:before { content: "👤"; }
+    .fa-moon:before { content: "🌙"; }
+    .fa-sun:before { content: "☀"; }
+    .fa-bars:before { content: "≡"; }
+    .fa-chevron-left:before { content: "←"; }
+    .fa-chevron-right:before { content: "→"; }
+    .fa-ellipsis-v:before { content: "⋮"; }
+    .fa-columns:before { content: "⯐"; }
+    .fa-tachometer-alt:before { content: "🔌"; }
+    .fa-terminal:before { content: ">_"; }
+    .fa-history:before { content: "⟲"; }
+    .fa-book:before { content: "📖"; }
+    .fa-puzzle-piece:before { content: "🧩"; }
+  </style>
+  
+  <!-- Base CSS -->
+  <style>
+    :root {
+      /* Dark theme */
+      --background-color: #121212;
+      --card-background: #1e1e1e;
+      --text-color: #e0e0e0;
+      --text-muted: #888888;
+      --primary-color: #3498db;
+      --primary-color-hover: #2980b9;
+      --border-color: #333333;
+      --header-height: 60px;
+      --footer-height: 40px;
+      --border-radius: 4px;
+    }
+    
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--background-color);
+      color: var(--text-color);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+    
+    a {
+      color: var(--primary-color);
+      text-decoration: none;
+    }
+    
+    a:hover {
+      text-decoration: underline;
+    }
+    
+    /* Basic layout components */
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.5rem 1rem;
+      border-radius: var(--border-radius);
+      font-weight: 500;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      border: 1px solid transparent;
+      background-color: var(--primary-color);
+      color: white;
+    }
+    
+    .button:hover {
+      background-color: var(--primary-color-hover);
+    }
+    
+    .card {
+      background-color: var(--card-background);
+      border-radius: var(--border-radius);
+      padding: 1rem;
+      margin-bottom: 1rem;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    
+    .card-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+    
+    /* Splash screen styles */
+    #splash-screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: var(--background-color);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      transition: opacity 0.5s ease;
+    }
+    
+    .splash-logo {
+      font-size: 2.5rem;
+      font-weight: 700;
+      color: var(--primary-color);
+      margin-bottom: 2rem;
+      letter-spacing: 2px;
+    }
+    
+    .loading-container {
+      width: 300px;
+      height: 6px;
+      background-color: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    
+    #loading-progress {
+      height: 100%;
+      width: 0%;
+      background-color: var(--primary-color);
+      border-radius: 3px;
+      transition: width 0.3s ease;
+    }
+    
+    .loading-text {
+      margin-top: 1rem;
+      font-size: 0.875rem;
+      color: var(--text-muted);
+    }
+    
+    /* App container */
+    #app-container {
+      position: relative;
+      width: 100%;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      visibility: hidden;
+    }
+    
+    /* Navigation bar */
+    .navigation-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 1rem;
+      height: var(--header-height);
+      background-color: var(--card-background);
+      border-bottom: 1px solid var(--border-color);
+    }
+    
+    .nav-branding {
+      display: flex;
+      align-items: center;
+      font-size: 1.5rem;
+      font-weight: 700;
+    }
+    
+    .nav-tools {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    
+    /* Main content */
+    .main-container {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+    
+    .sidebar {
+      width: 250px;
+      background-color: var(--card-background);
+      border-right: 1px solid var(--border-color);
+      overflow-y: auto;
+    }
+    
+    .sidebar-link {
+      display: flex;
+      align-items: center;
+      padding: 0.75rem 1rem;
+      color: var(--text-color);
+      transition: background-color 0.2s;
+    }
+    
+    .sidebar-link:hover {
+      background-color: rgba(255, 255, 255, 0.05);
+      text-decoration: none;
+    }
+    
+    .content-area {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .message-timeline {
+      flex: 1;
+      padding: 1rem;
+      overflow-y: auto;
+    }
+    
+    .command-center {
+      padding: 1rem;
+      background-color: var(--card-background);
+      border-top: 1px solid var(--border-color);
+    }
+    
+    /* Task bar */
+    .task-bar {
+      height: var(--footer-height);
+      background-color: var(--card-background);
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      padding: 0 1rem;
+      justify-content: space-between;
+    }
+  </style>
+</head>
+<body>
+  <!-- Splash Screen -->
+  <div id="splash-screen">
+    <div class="splash-logo">O.P.E.R.A.T.O.R</div>
+    <div class="loading-container">
+      <div id="loading-progress" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+    </div>
+    <div class="loading-text">Initializing system...</div>
+  </div>
+  
+  <!-- Main App Container -->
+  <div id="app-container">
+    <!-- Navigation Bar -->
+    <div class="navigation-bar">
+      <div class="nav-branding">O.P.E.R.A.T.O.R</div>
+      <div class="nav-tools">
+        <button class="button" id="theme-toggle"><span class="fas fa-moon"></span></button>
+        <button class="button" id="settings-button"><span class="fas fa-cog"></span></button>
+      </div>
+    </div>
+    
+    <!-- Main Content -->
+    <div class="main-container">
+      <!-- Sidebar -->
+      <div class="sidebar">
+        <a href="#" class="sidebar-link"><span class="fas fa-tachometer-alt"></span> Dashboard</a>
+        <a href="#" class="sidebar-link"><span class="fas fa-terminal"></span> Commands</a>
+        <a href="#" class="sidebar-link"><span class="fas fa-history"></span> History</a>
+        <a href="#" class="sidebar-link"><span class="fas fa-book"></span> Documentation</a>
+      </div>
+      
+      <!-- Content Area -->
+      <div class="content-area">
+        <div class="message-timeline" id="message-timeline">
+          <!-- Message timeline content -->
+          <div class="card">
+            <div class="card-title">Welcome to OPERATOR</div>
+            <div class="card-content">
+              This is a fallback static version of the interface. The actual dynamic content would load here.
+            </div>
+          </div>
+        </div>
+        
+        <div class="command-center">
+          <!-- Command input area -->
+          <input type="text" placeholder="Type a command..." style="width: 100%; padding: 0.5rem; background-color: var(--background-color); color: var(--text-color); border: 1px solid var(--border-color); border-radius: var(--border-radius);">
+        </div>
+      </div>
+    </div>
+    
+    <!-- Task Bar -->
+    <div class="task-bar">
+      <div>Status: Ready</div>
+      <div>© 2025 OPERATOR</div>
+    </div>
+  </div>
+  
+  <!-- Main Script (Inline to avoid MIME type issues) -->
+  <script>
+    // Variables
+    let splashScreen = document.getElementById('splash-screen');
+    let appContainer = document.getElementById('app-container');
+    let loadingProgress = document.getElementById('loading-progress');
+    let themeToggle = document.getElementById('theme-toggle');
+    let settingsButton = document.getElementById('settings-button');
+    
+    // Initialize app
+    document.addEventListener('DOMContentLoaded', () => {
+      console.log('Initializing static OPERATOR interface...');
+      initApp();
+    });
+    
+    // Initialize application
+    async function initApp() {
+      try {
+        // Simulate loading steps
+        await updateProgress(20, 'Loading modules...');
+        await sleep(500);
+        
+        await updateProgress(40, 'Preparing interface...');
+        await sleep(500);
+        
+        await updateProgress(70, 'Loading configuration...');
+        await sleep(500);
+        
+        await updateProgress(90, 'Almost ready...');
+        await sleep(500);
+        
+        await updateProgress(100, 'Launching...');
+        await sleep(500);
+        
+        // Show app
+        hideSplashScreen();
+      } catch (error) {
+        console.error('Error initializing app:', error);
+        document.querySelector('.loading-text').textContent = 'Error loading interface';
+      }
+    }
+    
+    // Update progress indicator
+    async function updateProgress(percentage, message) {
+      if (loadingProgress) {
+        loadingProgress.style.width = `${percentage}%`;
+        loadingProgress.setAttribute('aria-valuenow', percentage);
+      }
+      
+      if (message) {
+        document.querySelector('.loading-text').textContent = message;
+      }
+      
+      return new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    // Hide splash screen and show app
+    function hideSplashScreen() {
+      if (splashScreen) {
+        splashScreen.style.opacity = '0';
+        setTimeout(() => {
+          splashScreen.style.display = 'none';
+          showApp();
+        }, 500);
+      }
+    }
+    
+    // Show application
+    function showApp() {
+      if (appContainer) {
+        appContainer.style.visibility = 'visible';
+        appContainer.style.opacity = '1';
+      }
+    }
+    
+    // Event listeners
+    if (themeToggle) {
+      themeToggle.addEventListener('click', toggleTheme);
+    }
+    
+    if (settingsButton) {
+      settingsButton.addEventListener('click', showSettings);
+    }
+    
+    // Toggle between dark and light theme
+    function toggleTheme() {
+      const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      
+      document.documentElement.setAttribute('data-theme', newTheme);
+      
+      // Update theme icon
+      if (themeToggle) {
+        themeToggle.innerHTML = newTheme === 'dark' ? 
+          '<span class="fas fa-moon"></span>' : 
+          '<span class="fas fa-sun"></span>';
+      }
+    }
+    
+    // Show settings panel
+    function showSettings() {
+      alert('Settings panel would open here');
+    }
+    
+    // Helper function for sleep
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+  </script>
+</body>
+</html>

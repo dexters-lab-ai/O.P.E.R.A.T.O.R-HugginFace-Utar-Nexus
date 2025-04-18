@@ -319,5 +319,22 @@
   <!-- Advanced UI Animation Script -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script type="module" src="/public/js/ui-animations.js"></script>
+  
+  <!-- Modern Integration - Component System -->
+  <script type="module">
+    import modernIntegration from '/src/modern-integration.js';
+    
+    // Initialize modern integration when document is ready
+    document.addEventListener('DOMContentLoaded', () => {
+      // Initialize the bridge and component mounting system
+      modernIntegration.initialize();
+      
+      // Comment out this line to disable modern components during development
+      // modernIntegration.setFeatureFlag('USE_MODERN_COMMAND_CENTER', true);
+      // modernIntegration.setFeatureFlag('USE_MODERN_TIMELINE', true);
+      // modernIntegration.setFeatureFlag('USE_MODERN_TASK_RESULTS', true);
+      // modernIntegration.setFeatureFlag('USE_MODERN_LAYOUT', true);
+    });
+  </script>
 </body>
 </html>

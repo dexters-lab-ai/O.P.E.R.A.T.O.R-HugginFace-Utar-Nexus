@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.module.js",
+      "three/": "https://cdn.jsdelivr.net/npm/three@0.132.2/"
+    }
+  }
+  </script>
+  <link rel="icon" href="data:,">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OPERATOR - Modern Interface</title>
+  
+  <!-- All CSS assets wired up for production reliability -->
+  <link rel="stylesheet" href="/css/variables.css">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="preload" href="/css/components.css" as="style" onload="this.rel='stylesheet'">
+  <noscript><link rel="stylesheet" href="/css/components.css"></noscript>
+  <link rel="stylesheet" href="/css/animations.css">
+  <link rel="stylesheet" href="/css/command-center.css">
+  <link rel="stylesheet" href="/css/header.css">
+  <link rel="stylesheet" href="/css/index.css">
+  <link rel="stylesheet" href="/css/task-results.css">
+  <link rel="stylesheet" href="/css/timeline.css">
+  <link rel="stylesheet" href="/css/3d-experience.css">
+  <link rel="stylesheet" href="/css/futuristic.css">
+  <link rel="stylesheet" href="/css/layouts.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous">
+  
+  <!-- Preload assets for the 3D room (production robust) -->
+  <link rel="preload" href="/models/room.glb" as="fetch" type="model/gltf-binary" crossorigin>
+  <link rel="preload" href="/draco/draco_decoder.js" as="script" crossorigin>
+  <link rel="preload" href="/draco/draco_decoder.wasm" as="fetch" type="application/wasm" crossorigin>
+  
+  <!-- Three.js Production Setup -->
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+    // Other Three.js module imports...
+  </script>
+  <script>
+    // Remove preload timing warnings
+    setTimeout(() => {
+      if (window.THREE && window.THREE.DRACOLoader) {
+        const dracoLoader = new THREE.DRACOLoader();
+        dracoLoader.setDecoderPath('/draco/');
+        THREE.GLTFLoader.setDRACOLoader(dracoLoader);
+        console.log('Three.js system ready');
+      }
+    }, 500);
+  </script>
+  <script>
+    window.OrbitControls = window.OrbitControls || {
+      create: function(camera, domElement) {
+        return new THREE.OrbitControls(camera, domElement);
+      }
+    };
+  </script>
+  
+  <style>
+    :root {
+      --primary-color: #3498db;
+      --primary-dark: #2980b9;
+      --primary-light: #5dade2;
+      --secondary-color: #e74c3c;
+      --bg-dark: #121212;
+      --bg-medium: #1f1f1f;
+      --bg-light: #2a2a2a;
+      --text-primary: #ffffff;
+      --text-secondary: #aaaaaa;
+      --text-muted: #777777;
+      --success-color: #2ecc71;
+      --warning-color: #f39c12;
+      --danger-color: #e74c3c;
+      --info-color: #3498db;
+      --border-radius: 4px;
+      --transition-fast: 0.2s ease;
+      --transition-normal: 0.3s ease;
+      --shadow-small: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+      --shadow-medium: 0 3px 6px rgba(0, 0, 0, 0.16), 0 3px 6px rgba(0, 0, 0, 0.23);
+      --shadow-large: 0 10px 20px rgba(0, 0, 0, 0.19), 0 6px 6px rgba(0, 0, 0, 0.23);
+    }
+
+    body {
+      margin: 0;
+      font-family: 'Roboto', 'Segoe UI', Arial, sans-serif;
+      background-color: var(--bg-dark);
+      color: var(--text-primary);
+      overflow: hidden;
+    }
+    
+    .splash-screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background-color: var(--bg-dark);
+      z-index: 9999;
+      transition: opacity 0.5s ease;
+    }
+    
+    .logo {
+      font-size: 2.5rem;
+      font-weight: bold;
+      letter-spacing: 0.5rem;
+      margin-bottom: 2rem;
+      color: var(--primary-color);
+      text-shadow: 0 0 10px rgba(52, 152, 219, 0.5);
+    }
+    
+    .loading-bar {
+      width: 300px;
+      height: 4px;
+      background-color: var(--bg-medium);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-bottom: 1rem;
+    }
+    
+    .loading-progress {
+      height: 100%;
+      background: linear-gradient(to right, var(--primary-dark), var(--primary-light));
+      width: 0%;
+      transition: width 0.3s ease;
+      box-shadow: 0 0 5px var(--primary-color);
+    }
+    
+    .loading-text {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+    
+    .app-container {
+      opacity: 0;
+      transition: opacity 1s ease;
+      height: 100vh;
+      overflow: hidden;
+    }
+    
+    .loaded .splash-screen {
+      opacity: 0;
+      pointer-events: none;
+    }
+    
+    .loaded .app-container {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <!-- Splash Screen -->
+  <div class="splash-screen" id="splash-screen">
+    <div class="logo">O.P.E.R.A.T.O.R</div>
+    <div class="loading-bar">
+      <div class="loading-progress" id="loading-progress" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+    </div>
+    <div class="loading-text">Initializing system...</div>
+  </div>
+  
+  <!-- Main App Container -->
+  <div id="app-container">
+    <!-- Content will be dynamically inserted by javascript -->
+  </div>
+  
+  <!-- Local Font Awesome fallback (in case CDN fails) -->
+  <style>
+    /* Basic fallback icons if Font Awesome fails to load */
+    .fa, .fas {
+      font-family: sans-serif;
+      display: inline-block;
+      margin-right: 5px;
+    }
+    
+    /* Common icons */
+    .fa-check:before { content: "✓"; }
+    .fa-times:before { content: "✕"; }
+    .fa-info-circle:before { content: "ℹ"; }
+    .fa-exclamation-triangle:before { content: "⚠"; }
+    .fa-cog:before { content: "⚙"; }
+    .fa-user:before { content: "👤"; }
+    .fa-moon:before { content: "🌙"; }
+    .fa-sun:before { content: "☀"; }
+    .fa-bars:before { content: "≡"; }
+  </style>
+  
+  <!-- Component Imports -->
+  <script src="/js/app-modern.js" type="module" defer></script>
+  <script src="/js/app-modern-integration.js" type="module" defer></script>
+  <script src="/js/modern-integration.js" type="module" defer></script>
+</body>
+</html>

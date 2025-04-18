@@ -101,6 +101,8 @@ app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
 app.use('/images', express.static(path.join(__dirname, 'public', 'assets', 'images')));
 app.use('/src', express.static(path.join(__dirname, 'src')));
 app.use('/midscene_run', express.static(MIDSCENE_RUN_DIR));
+app.use('/models', express.static('public/models'));
+app.use('/draco', express.static('public/draco'));
 
 // Serve default favicon
 app.get('/favicon.ico', (req, res) => {
@@ -249,7 +251,7 @@ async function startApp() {
     // await clearDatabaseOnce();
     await ensureIndexes();
     
-    const PORT = process.env.PORT || 3400;
+    const PORT = process.env.PORT || 3420;
     server.listen(PORT, () => console.log(`🚀 Server on http://localhost:${PORT}`));
     console.log('✅ Application started successfully');
   } catch (err) {
@@ -1037,9 +1039,9 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
         logAction("Page is invalid or closed, creating a new one");
         page = await browser.newPage();
         await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
-        agent = new PuppeteerAgent(page, { 
-          provider: 'huggingface', 
-          apiKey: process.env.HF_API_KEY, 
+        agent = new PuppeteerAgent(page, {
+          provider: 'huggingface',
+          apiKey: process.env.HF_API_KEY,
           model: 'bytedance/ui-tars-72b'
         });
         activeBrowsers.set(task_id, { browser, agent, page, release, closed: false, hasReleased: false });
@@ -1310,6 +1312,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
           defaultViewport: { width: 1280, height: 720 }
         });
         page = await browser.newPage();
+        logQuery("New page created");
         await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
         agent = new PuppeteerAgent(page, {
           provider: 'huggingface',

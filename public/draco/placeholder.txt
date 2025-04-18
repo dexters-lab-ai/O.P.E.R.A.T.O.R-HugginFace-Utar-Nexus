@@ -1,0 +1,9 @@
+This directory needs to contain the Draco decoder files used for model compression.
+
+Please copy the following files from the Three.js examples folder (or from Bruno Simon's project):
+- draco_decoder.js
+- draco_decoder.wasm
+- draco_encoder.js
+- draco_wasm_wrapper.js
+
+These files are used by the DRACOLoader to efficiently load compressed 3D models.
