@@ -41,7 +41,8 @@ export function initializeModernUI(options = {}) {
   const {
     rootElement = document.body,
     skipRoomExperience = false,
-    initialLayoutPreset = 'default'
+    initialLayoutPreset = 'default',
+    modelPath = '/models/room.glb'
   } = options;
   
   // Component instances
@@ -279,14 +280,13 @@ export function initializeModernUI(options = {}) {
     
     appRoot.appendChild(roomContainer);
     
-    // Initialize room entry point
-    components.roomExperience = RoomEntryPoint({
-      container: roomContainer,
-      onEnterApp: () => {
-        // Transition from room to application
-        transition3DToApp();
-      }
-    });
+    // Mount and start room entry point
+    components.roomExperience = RoomEntryPoint.mount(
+      roomContainer,
+      { modelPath }
+    );
+    // Transition to app when room emits initialize event
+    eventBus.once('initialize-application', transition3DToApp);
   }
   
   /**
@@ -312,8 +312,16 @@ export function initializeModernUI(options = {}) {
    * Show the main application
    */
   function showApplication() {
-    // Make layout visible
-    components.layoutManager.show();
+    // Make hidden components visible
+    if (components.layoutManager?.element) {
+      components.layoutManager.element.style.display = '';
+    }
+    if (components.sidebar?.element) {
+      components.sidebar.element.style.display = '';
+    }
+    if (components.navigationBar?.element) {
+      components.navigationBar.element.style.display = '';
+    }
     
     // Emit event
     eventBus.emit('application-ready');

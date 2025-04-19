@@ -39,6 +39,10 @@ export default defineConfig({
       'three/examples/jsm/controls/OrbitControls': 'https://cdn.jsdelivr.net/npm/three@0.132.2/examples/jsm/controls/OrbitControls.js'
     }
   },
+  optimizeDeps: {
+    include: ['three/examples/jsm/loaders/DRACOLoader'],
+    exclude: ['three/examples/js/libs/draco/draco_decoder.js']
+  },
   build: {
     outDir: '../dist',
     emptyOutDir: true,

@@ -26,44 +26,26 @@ export function RoomEntryPoint(props = {}) {
   // Create container element
   const container = document.createElement('div');
   container.className = 'room-entry-container';
+  container.style.position = 'relative';
+  container.style.width = '100vw';
+  container.style.height = '100vh';
   if (containerId) container.id = containerId;
   
-  // Create loading overlay
-  const loadingOverlay = document.createElement('div');
-  loadingOverlay.className = 'room-loading-overlay';
-  
-  const loadingContent = document.createElement('div');
-  loadingContent.className = 'room-loading-content';
-  
-  const loadingTitle = document.createElement('h2');
-  loadingTitle.textContent = 'Loading OPERATOR Environment';
-  
-  const loadingProgress = document.createElement('div');
-  loadingProgress.className = 'loading-progress-container';
-  
-  const progressBar = document.createElement('div');
-  progressBar.className = 'loading-progress-bar';
-  
-  const progressText = document.createElement('div');
-  progressText.className = 'loading-progress-text';
-  progressText.textContent = '0%';
-  
-  loadingProgress.appendChild(progressBar);
-  loadingProgress.appendChild(progressText);
-  
-  loadingContent.appendChild(loadingTitle);
-  loadingContent.appendChild(loadingProgress);
-  loadingOverlay.appendChild(loadingContent);
-  
-  container.appendChild(loadingOverlay);
-  
-  // Create skip button
-  const skipButton = document.createElement('button');
-  skipButton.className = 'skip-experience-button';
-  skipButton.textContent = 'Skip';
-  skipButton.addEventListener('click', launchApplicationDirect);
-  loadingContent.appendChild(skipButton);
-  
+  // Official loading bar implementation (simple and reliable)
+  const loadingBar = document.createElement('div');
+  loadingBar.className = 'loading-bar';
+  loadingBar.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 4px;
+    background: #0078ff;
+    z-index: 1001;
+    transition: width 0.1s linear;
+  `;
+  container.appendChild(loadingBar);
+
   // Create canvas container
   const canvasContainer = document.createElement('div');
   canvasContainer.className = 'room-canvas-container';
@@ -91,15 +73,28 @@ export function RoomEntryPoint(props = {}) {
       <p>Press <strong>ESC</strong> to skip</p>
     </div>
   `;
-  
   container.appendChild(helpTooltip);
+  // Hide launch tooltip until model is ready
+  helpTooltip.style.display = 'none';
   
   /**
    * Initialize the room experience
    */
   function initialize() {
     console.group('[RoomEntry] Initialization');
+    console.log('[RoomEntryPoint] Initializing 3D room experience');
     
+    // Set failsafe timeout (10 seconds)
+    const loadingTimeout = setTimeout(() => {
+      console.warn('[ROOM] Loading timeout reached - forcing completion');
+      eventBus.emit('room-loading-complete');
+    }, 10000);
+    
+    // Clear timeout when loading completes
+    eventBus.once('room-loading-complete', () => {
+      clearTimeout(loadingTimeout);
+    });
+
     if (!container || !container.appendChild) {
       console.error('Invalid container element:', container);
       console.groupEnd();
@@ -107,20 +102,22 @@ export function RoomEntryPoint(props = {}) {
     }
     
     try {
-      console.log('Creating canvas container');
-      const canvasContainer = document.createElement('div');
-      
-      console.log('Appending to DOM');
-      container.appendChild(canvasContainer);
-      
+      const savedState = localStorage.getItem('operator_room_state');
+      const initialState = savedState ? JSON.parse(savedState) : null;
+      console.log('[RoomEntryPoint] Loaded saved state:', initialState);
       console.log('Creating RoomExperience');
       roomExperience = RoomExperience({
         container: canvasContainer,
-        modelPath
+        modelPath,
+        initialState
       });
+      
+      console.log('[RoomEntryPoint] RoomExperience instance created');
       
       console.log('Starting animation');
       roomExperience.init();
+      
+      console.log('[RoomEntryPoint] Room initialization complete');
     } catch (error) {
       console.error('Initialization failed:', error);
     } finally {
@@ -132,18 +129,26 @@ export function RoomEntryPoint(props = {}) {
    * Setup event listeners for room experience
    */
   function setupEventListeners() {
-    // Loading progress
-    eventBus.on('room-loading-progress', (data) => {
-      progressBar.style.width = `${data.progress}%`;
-      progressText.textContent = `${data.progress}%`;
+    // Debug event bus
+    console.log('[DEBUG] Setting up event listeners');
+    eventBus.on('*', (event, data) => {
+      console.log(`[EVENT] ${event}`, data);
     });
     
-    // Loading complete
-    eventBus.on('room-loading-complete', () => {
-      loadingOverlay.classList.add('fade-out');
-      setTimeout(() => {
-        loadingOverlay.style.display = 'none';
-      }, 1000);
+    // Loading progress (official pattern)
+    eventBus.on('room-loading-progress', (data) => {
+      loadingBar.style.width = `${data.progress}%`;
+      if (data.progress === 100) {
+        setTimeout(() => {
+          loadingBar.style.opacity = '0';
+          loadingBar.style.transition = 'opacity 0.5s ease';
+          loadingBar.addEventListener('transitionend', () => {
+            loadingBar.remove();
+            // Show launch tooltip for user to click
+            helpTooltip.style.display = 'block';
+          }, { once: true });
+        }, 300);
+      }
     });
     
     // Launch application
@@ -161,9 +166,24 @@ export function RoomEntryPoint(props = {}) {
    * Launch the OPERATOR application by transitioning from 3D room
    */
   function launchApplication() {
-    if (isAppLaunched) return;
+    if (isAppLaunched) {
+      console.log('[APP] Application already launched');
+      return;
+    }
     
+    console.log('[APP] Launching main application');
+    
+    // Clean up room experience
+    if (roomExperience) {
+      console.log('[APP] Cleaning up room experience');
+      roomExperience.dispose();
+    }
+    
+    // Emit application launched event
+    eventBus.emit('application-launched');
     isAppLaunched = true;
+    
+    console.log('[APP] Application launched successfully');
     
     // Show app container
     appContainer.style.display = 'block';
@@ -176,26 +196,6 @@ export function RoomEntryPoint(props = {}) {
     
     // Update state
     stores.ui.setState({ applicationLaunched: true });
-  }
-  
-  /**
-   * Launch application directly (skip 3D experience)
-   */
-  function launchApplicationDirect() {
-    if (isAppLaunched) return;
-    
-    console.log('Launching application (direct fallback)');
-    
-    // Clean up any failed 3D elements
-    if (canvasContainer) {
-      canvasContainer.remove();
-    }
-    if (loadingOverlay) {
-      loadingOverlay.remove();
-    }
-    
-    // Show main app immediately
-    showApplication();
   }
   
   /**
@@ -256,10 +256,21 @@ export function RoomEntryPoint(props = {}) {
     }
     
     // Remove event listeners
-    skipButton.removeEventListener('click', launchApplicationDirect);
     document.removeEventListener('keydown', null);
   };
 
+  setupEventListeners();
+  
+  // Launch on tooltip click or ESC key
+  helpTooltip.addEventListener('click', () => {
+    eventBus.emit('launch-application');
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      eventBus.emit('launch-application');
+    }
+  });
+  
   return container;
 }
 

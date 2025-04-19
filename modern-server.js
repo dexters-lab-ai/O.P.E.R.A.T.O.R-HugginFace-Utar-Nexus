@@ -284,12 +284,19 @@ app.get('/login.html', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
-app.get('/', guard, (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+// Support '/login' path by redirecting to login.html
+app.get('/login', (req, res) => {
+  res.redirect('/login.html');
 });
 
+// Redirect root to modern interface
+app.get('/', guard, (req, res) => {
+  res.redirect('/modern.html');
+});
+
+// Support '/modern' path by redirecting to modern.html
 app.get('/modern', guard, (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  res.redirect('/modern.html');
 });
 
 // --- 12. 404 HANDLER ---

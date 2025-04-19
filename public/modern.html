@@ -35,31 +35,6 @@
   <link rel="preload" href="/draco/draco_decoder.js" as="script" crossorigin>
   <link rel="preload" href="/draco/draco_decoder.wasm" as="fetch" type="application/wasm" crossorigin>
   
-  <!-- Three.js Production Setup -->
-  <script type="module">
-    import * as THREE from 'three';
-    import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-    // Other Three.js module imports...
-  </script>
-  <script>
-    // Remove preload timing warnings
-    setTimeout(() => {
-      if (window.THREE && window.THREE.DRACOLoader) {
-        const dracoLoader = new THREE.DRACOLoader();
-        dracoLoader.setDecoderPath('/draco/');
-        THREE.GLTFLoader.setDRACOLoader(dracoLoader);
-        console.log('Three.js system ready');
-      }
-    }, 500);
-  </script>
-  <script>
-    window.OrbitControls = window.OrbitControls || {
-      create: function(camera, domElement) {
-        return new THREE.OrbitControls(camera, domElement);
-      }
-    };
-  </script>
-  
   <style>
     :root {
       --primary-color: #3498db;

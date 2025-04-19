@@ -6,10 +6,10 @@
  * Creates an immersive 3D room entry experience for OPERATOR
  */
 
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.module.js';
-import { OrbitControls } from '/lib/OrbitControls.js';
-import { GLTFLoader } from '/lib/GLTFLoader.js';
-import { DRACOLoader } from 'https://cdn.jsdelivr.net/npm/three@0.132.2/examples/jsm/loaders/DRACOLoader.js';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { TextureLoader } from './loaders/TextureLoader.js';
 import { eventBus } from '../utils/events.js';
 import { stores } from '../store/index.js';
@@ -62,8 +62,8 @@ export function RoomExperience(props = {}) {
 
   console.log('[Room] Initializing with props:', props);
   
-  modelPath = modelPath || '/models/room.glb';
-  console.log('[Room] Model path:', modelPath);
+  let modelPathValue = modelPath || '/models/room.glb';
+  console.log('[Room] Model path:', modelPathValue);
 
   // Scene elements
   let scene;
@@ -110,197 +110,286 @@ export function RoomExperience(props = {}) {
     }
   );
   
+  // Add these progress milestones
+  const PROGRESS_STEPS = {
+    INIT: 5,
+    DRACO_LOADED: 15,
+    MODEL_FETCHED: 30,
+    TEXTURES_LOADED: 70,
+    ANIMATIONS_READY: 90,
+    COMPLETE: 100
+  };
+  
+  // Update progress emitter
+  function updateProgress(step) {
+    eventBus.emit('room-loading-progress', { 
+      progress: PROGRESS_STEPS[step],
+      step
+    });
+  }
+  
   // Loaders
   const gltfLoader = new GLTFLoader(loadingManager);
-  const dracoLoader = new THREE.DRACOLoader();
-  dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.132.2/examples/jsm/loaders/draco/');
+  const dracoLoader = new DRACOLoader();
+  // Use local DRACO decoder
+  const isDevelopmentDraco = window.location.hostname === 'localhost' ||
+                             window.location.hostname === '127.0.0.1';
+  const decoderPath = isDevelopmentDraco
+    ? '/draco/'
+    : 'https://www.gstatic.com/draco/v1/decoders/';
+  dracoLoader.setDecoderPath(decoderPath);
+  console.log(`[MODEL] Using ${isDevelopmentDraco ? 'local' : 'CDN'} DRACO decoder`);
+  dracoLoader.setDecoderConfig({ type: 'wasm' });
+  if (dracoLoader.preload) dracoLoader.preload();
   gltfLoader.setDRACOLoader(dracoLoader);
-  
-  const textureLoader = new THREE.TextureLoader(loadingManager);
+  console.log('[MODEL] DRACO loader configured');
 
-  async function loadRoomModel() {
-    console.log('Loading 3D model from:', modelPath);
-    
-    try {
-      const gltf = await loadModel();
-      console.log('Model loaded successfully');
-      roomModel = gltf.scene;
-      
-      // Scale and position the model
-      roomModel.scale.set(1, 1, 1);
-      roomModel.position.set(0, 0, 0);
-      
-      // Apply shadows
-      roomModel.traverse((child) => {
-        if (child.isMesh) {
-          child.castShadow = true;
-          child.receiveShadow = true;
-          
-          // Find computer screen
-          if (child.name.includes('Screen') || child.name.includes('Monitor')) {
-            computerScreen = child;
-          }
-        }
-      });
-      
-      scene.add(roomModel);
-      
-      // Process animations
-      if (gltf.animations && gltf.animations.length) {
-        mixer = new THREE.AnimationMixer(roomModel);
-        gltf.animations.forEach((clip) => {
-          animations.push(mixer.clipAction(clip));
-        });
-      }
-      
-      // Add launch button to computer screen
-      if (computerScreen) {
-        createLaunchButton();
-      }
-      
-      // Emit loaded event
-      eventBus.emit('room-loading-complete');
-    } catch (error) {
-      console.error('Error loading model:', error);
-    }
-  }
-
-  async function loadModel() {
-    console.group('[Room] Model Loading');
-    try {
-      console.log('Starting model load from:', this.modelPath);
-      
-      if (!this.modelPath) {
-        console.error('No model path specified');
-        return;
-      }
-      
-      const version = Date.now();
-      const modelUrl = `${this.modelPath}?v=${version}`;
-      console.log('Loading model from:', modelUrl);
-      
-      try {
-        const gltf = await new Promise((resolve, reject) => {
-          const loader = new GLTFLoader();
-          loader.load(
-            modelUrl,
-            resolve,
-            (xhr) => console.log(`Loading ${(xhr.loaded/xhr.total*100).toFixed(0)}%`),
-            reject
-          );
-        });
-        
-        console.log('Model successfully loaded:', gltf);
-        return gltf;
-      } catch (error) {
-        console.error('Model loading failed:', error);
-        throw error;
-      }
-    } finally {
-      console.groupEnd();
-    }
-  }
-  
-  function saveState() {
-    eventBus.emit('room-state-change', state);
-  }
+  const textureLoader = new TextureLoader(loadingManager);
 
   /**
-   * Initialize the 3D experience
+   * Load external textures for materials lacking embedded images.
+   * @param {THREE.Scene} scene
    */
-  function init() {
-    console.group('[Room] Initialization');
+  async function loadTextures(scene) {
+    console.group('[TEXTURES] Loading');
+    const promises = [];
+    scene.traverse(child => {
+      if (child.material) {
+        const mat = child.material;
+        ['map','normalMap','roughnessMap','metalnessMap','emissiveMap'].forEach(type => {
+          const map = mat[type];
+          if (map && (!map.image || map.image.width === undefined)) {
+            const url = map.sourceFile || `${modelPathValue.replace(/\.glb$/, '')}/${type}.jpg`;
+            promises.push(new Promise(resolve => {
+              textureLoader.load(url,
+                texture => {
+                  mat[type] = texture;
+                  mat.needsUpdate = true;
+                  console.log(`[TEXTURES] Loaded ${type} for ${child.name}`);
+                  resolve();
+                },
+                undefined,
+                error => {
+                  console.warn(`[TEXTURES] Failed ${type}:`, error);
+                  resolve();
+                }
+              );
+            }));
+          }
+        });
+      }
+    });
+    await Promise.all(promises);
+    console.log('[TEXTURES] Completed');
+    console.groupEnd();
+  }
+
+  async function verifyModelFile() {
     try {
-      if (isInitialized) return;
+      const response = await fetch(modelPathValue);
+      if (!response.ok) throw new Error('Model file missing');
       
-      // Notify loading start
-      eventBus.emit('room-loading-start');
+      const size = response.headers.get('content-length');
+      if (size < 1000000) throw new Error('Model file too small');
       
-      // Create a visible HTML container if provided as a selector
-      let canvasContainer = container;
-      if (typeof container === 'string') {
-        canvasContainer = document.querySelector(container);
-      }
-      
-      if (!canvasContainer) {
-        console.error('Container not found');
-        return;
-      }
-      
-      // Setup scene
-      console.log('Creating Three.js scene');
-      scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x111122);
-      
-      // Setup clock
-      clock = new THREE.Clock();
-      
-      // Setup camera
-      console.log('Setting up camera');
-      const aspectRatio = window.innerWidth / window.innerHeight;
-      camera = new THREE.PerspectiveCamera(75, aspectRatio, 0.1, 100);
-      camera.position.copy(cameraPositions.initial);
-      scene.add(camera);
-      
-      // Setup renderer
-      setupRenderer();
-      
-      // Setup controls
-      if (enableOrbitControls) {
-        controls = new OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
-        controls.dampingFactor = 0.05;
-        controls.screenSpacePanning = false;
-        controls.minDistance = 1;
-        controls.maxDistance = 5;
-        controls.maxPolarAngle = Math.PI / 2;
-        controls.target.set(0, 1, 0);
-      }
-      
-      // Add lights
-      setupLights();
-      
-      // Load room model
-      loadRoomModel();
-      
-      // Setup resize handler
-      window.addEventListener('resize', handleResize);
-      
-      // Start animation loop
-      renderer.setAnimationLoop(animate);
-      
-      isInitialized = true;
-    } finally {
-      console.groupEnd();
+      return true;
+    } catch (error) {
+      console.error('[MODEL] Pre-check failed:', error);
+      throw error;
     }
   }
-  
-  function setupRenderer() {
-    console.log('Setting up renderer');
+
+  // Animation setup helper
+  /**
+   * Set up animation mixer and actions.
+   * @param {import('three/examples/jsm/loaders/GLTFLoader').GLTF} gltf
+   */
+  function setupAnimations(gltf) {
+    mixer = new THREE.AnimationMixer(gltf.scene);
+    animations = gltf.animations.map(clip => mixer.clipAction(clip));
+    animations.forEach(action => action.play());
+    console.log(`[ANIMATIONS] ${animations.length} actions playing`);
+  }
+
+  async function init() {
+    try {
+      updateProgress('INIT');
+      
+      // 1. Verify model file exists
+      await verifyModelFile();
+      updateProgress('DRACO_LOADED');
+      
+      // 2. Initialize scene and load GLTF model
+      scene = new THREE.Scene();
+      scene.name = 'MainRoomScene';
+      const isDev = window.location.hostname === 'localhost' ||
+                    window.location.hostname === '127.0.0.1';
+      const modelUrl = isDev
+        ? `${modelPathValue}?v=${Date.now()}`
+        : modelPathValue;
+      console.log(`[MODEL] Loading from: ${modelUrl}`);
+      const gltf = await gltfLoader.loadAsync(modelUrl);
+      if (!gltf.scene) throw new Error('No scene in loaded model');
+      scene.add(gltf.scene);
+      console.log('[MODEL] Successfully loaded and added to scene');
+      updateProgress('MODEL_FETCHED');
+      
+      // 3. Load textures
+      if (!gltf.scene) throw new Error('No scene in loaded model');
+      await loadTextures(gltf.scene);
+      updateProgress('TEXTURES_LOADED');
+      
+      // 4. Setup animations
+      if (gltf.animations?.length > 0) {
+        mixer = new THREE.AnimationMixer(gltf.scene);
+        animations = gltf.animations.map(clip => mixer.clipAction(clip));
+        animations.forEach(action => action.play());
+        console.log(`[ANIMATIONS] ${animations.length} actions playing`);
+      }
+      updateProgress('ANIMATIONS_READY');
+      
+      // 5. Complete
+      updateProgress('COMPLETE');
+      
+    } catch (error) {
+      console.error('[ROOM] Initialization failed:', error);
+      
+      // Attempt recovery
+      if (!scene) {
+        console.warn('[RECOVERY] Reinitializing scene');
+        scene = new THREE.Scene();
+      }
+      
+      throw error; // Re-throw after recovery attempt
+    }
     
+    console.log('[Room] Initializing with container:', container);
+    console.log('[Room] WebGL support check:', hasWebGLSupport());
+    
+    if (!container) {
+      console.error('[RoomExperience] No container element provided');
+      throw new Error('Container element is required');
+    }
+    
+    // Notify loading start
+    eventBus.emit('room-loading-start');
+    
+    // Create a visible HTML container if provided as a selector
+    let canvasContainer = container;
+    if (typeof container === 'string') {
+      canvasContainer = document.querySelector(container);
+    }
+    
+    if (!canvasContainer) {
+      console.error('Container not found');
+      return;
+    }
+    
+    // Setup clock
+    clock = new THREE.Clock();
+    
+    // Setup camera
+    console.log('Setting up camera');
+    const aspectRatio = window.innerWidth / window.innerHeight;
+    camera = new THREE.PerspectiveCamera(75, aspectRatio, 0.1, 100);
+    camera.position.copy(cameraPositions.initial);
+    scene.add(camera);
+    
+    // Setup renderer
     renderer = new THREE.WebGLRenderer({
       antialias: true,
-      alpha: true,
-      powerPreference: 'high-performance'
+      alpha: true
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    container.appendChild(renderer.domElement);
+    
+    console.log('[DEBUG] Renderer context:', renderer.getContext());
+    console.log('[DEBUG] Canvas dimensions:', 
+      renderer.domElement.width, 
+      renderer.domElement.height
+    );
+    
+    // Add debug panel
+    const debugPanel = document.createElement('div');
+    debugPanel.style.position = 'fixed';
+    debugPanel.style.bottom = '20px';
+    debugPanel.style.left = '20px';
+    debugPanel.style.backgroundColor = 'rgba(0,0,0,0.7)';
+    debugPanel.style.color = 'white';
+    debugPanel.style.padding = '10px';
+    debugPanel.style.zIndex = '1000';
+    document.body.appendChild(debugPanel);
+    
+    // WebGL capability check
+    updateDebugInfo(debugPanel);
+    
+    // Setup controls
+    if (enableOrbitControls) {
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+      controls.screenSpacePanning = false;
+      controls.minDistance = 1;
+      controls.maxDistance = 5;
+      controls.maxPolarAngle = Math.PI / 2;
+      controls.target.set(0, 1, 0);
+    }
+    
+    // Add lights
+    setupLights();
+    
+    // Setup resize handler
+    window.addEventListener('resize', () => {
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
     });
     
-    renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.domElement.style.position = 'absolute';
-    renderer.domElement.style.top = '0';
-    renderer.domElement.style.left = '0';
-    renderer.domElement.style.width = '100%';
-    renderer.domElement.style.height = '100%';
+    // Start animation loop
+    let frameCount = 0;
+    function update() {
+      const delta = clock.getDelta();
+      if (mixer) {
+        mixer.update(delta);
+        animations.forEach(action => {
+          if (!action.isRunning()) action.play();
+        });
+      }
+      controls?.update();
+      frameCount++;
+      if (frameCount % 60 === 0) {
+        console.log('[DEBUG] Animation frame:', frameCount);
+      }
+      renderer.render(scene, camera);
+      console.log('[DEBUG] Scene rendered - objects visible:', scene.children.length);
+      requestAnimationFrame(update);
+    }
+    update();
     
-    console.log('Renderer dimensions:', 
-      renderer.domElement.width, renderer.domElement.height);
+    console.log('[RoomExperience] Three.js scene initialized');
     
-    container.appendChild(renderer.domElement);
+    isInitialized = true;
   }
   
-  /**
-   * Set up scene lighting
-   */
+  function updateDebugInfo(debugPanel) {
+    if (!renderer) return;
+    
+    const gl = renderer.getContext();
+    const info = {
+      'WebGL Version': gl.getParameter(gl.VERSION),
+      'Renderer': renderer.info.render,
+      'Draw Calls': renderer.info.render.calls,
+      'Geometries': renderer.info.memory.geometries,
+      'Textures': renderer.info.memory.textures
+    };
+    
+    debugPanel.innerHTML = Object.entries(info)
+      .map(([key, val]) => `${key}: ${val}`)
+      .join('<br>');
+  }
+  
   function setupLights() {
     // Ambient light
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
@@ -471,7 +560,7 @@ export function RoomExperience(props = {}) {
     // Fade out the 3D view
     fadeOut(() => {
       // Pause rendering to save resources
-      renderer.setAnimationLoop(null);
+      // renderer.setAnimationLoop(null);
     });
   }
   
@@ -482,7 +571,7 @@ export function RoomExperience(props = {}) {
     isAppLaunched = false;
     
     // Resume rendering
-    renderer.setAnimationLoop(animate);
+    // renderer.setAnimationLoop(animate);
     
     // Fade in the 3D view
     fadeIn();
@@ -748,34 +837,13 @@ export function RoomExperience(props = {}) {
   }
   
   /**
-   * Animation loop
-   */
-  function animate() {
-    console.group('[Room] Render Loop');
-    try {
-      console.log('Starting animation frame request');
-      requestAnimationFrame(() => animate());
-      
-      if (!scene || !camera || !renderer) {
-        console.error('Missing required Three.js components');
-        return;
-      }
-      
-      renderer.render(scene, camera);
-      console.log('Frame rendered');
-    } finally {
-      console.groupEnd();
-    }
-  }
-  
-  /**
    * Dispose of all resources
    */
   function dispose() {
     console.group('[Room] Dispose');
     try {
       // Stop animation loop
-      renderer.setAnimationLoop(null);
+      // renderer.setAnimationLoop(null);
       
       // Remove event listeners
       window.removeEventListener('resize', handleResize);
@@ -805,6 +873,18 @@ export function RoomExperience(props = {}) {
       }
     } finally {
       console.groupEnd();
+    }
+  }
+  
+  function hasWebGLSupport() {
+    try {
+      const canvas = document.createElement('canvas');
+      return !!(
+        window.WebGLRenderingContext && 
+        (canvas.getContext('webgl') || canvas.getContext('experimental-webgl'))
+      );
+    } catch (e) {
+      return false;
     }
   }
   

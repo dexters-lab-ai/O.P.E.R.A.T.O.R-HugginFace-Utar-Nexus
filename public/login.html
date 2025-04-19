@@ -236,7 +236,8 @@
         });
         const data = await res.json();
         if (data.success) {
-          return (window.location.href = '/');
+          // After login/register, go to modern interface
+          return (window.location.href = '/modern.html');
         }
         errEl.textContent = data.error;
       } catch {

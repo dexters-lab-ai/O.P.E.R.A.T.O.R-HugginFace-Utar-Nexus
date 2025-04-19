@@ -8,6 +8,8 @@ import { RenderPass } from 'https://cdn.jsdelivr.net/npm/three@0.132.2/examples/
 import { UnrealBloomPass } from 'https://cdn.jsdelivr.net/npm/three@0.132.2/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'https://cdn.jsdelivr.net/npm/three@0.132.2/examples/jsm/postprocessing/ShaderPass.js';
 import { GammaCorrectionShader } from 'https://cdn.jsdelivr.net/npm/three@0.132.2/examples/jsm/shaders/GammaCorrectionShader.js';
+import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.132.2/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'https://cdn.jsdelivr.net/npm/three@0.132.2/examples/jsm/loaders/DRACOLoader.js';
 
 // Global variables
 let canvas, renderer, scene, camera;
@@ -70,17 +72,65 @@ function init(containerId) {
   // Add lights
   setupLighting();
   
-  // Create the sentinel robot
-  createSentinelRobot();
-  
-  // Setup post-processing
-  setupPostProcessing();
-  
-  // Add event listeners
-  window.addEventListener('resize', onWindowResize);
-  
-  // Start animation loop
-  animate();
+  // Load sentinel robot model
+  loadModel('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/models/gltf/DamagedHelmet/DamagedHelmet.gltf')
+    .then((gltfScene) => {
+      sentinel = gltfScene;
+      scene.add(sentinel);
+      
+      // Create eye visor (horizontal laser eye like in the screenshot)
+      const eyeGeometry = new THREE.BoxGeometry(1.6, 0.15, 0.1);
+      sentinelEye = new THREE.Mesh(eyeGeometry, new THREE.MeshBasicMaterial({
+        color: 0xff2200,
+        transparent: true,
+        opacity: 0.9
+      }));
+      sentinelEye.position.set(0, 2, 0.7);
+      sentinel.add(sentinelEye);
+      
+      // Create laser beam (initially invisible)
+      const laserGeometry = new THREE.CylinderGeometry(0.05, 0.05, 100, 8);
+      const laserMaterial = new THREE.MeshBasicMaterial({
+        color: 0xff3300,
+        transparent: true,
+        opacity: 0,
+        emissive: 0xff0000,
+        emissiveIntensity: 10
+      });
+      
+      laserBeam = new THREE.Mesh(laserGeometry, laserMaterial);
+      laserBeam.position.z = 50;
+      laserBeam.rotation.x = Math.PI / 2;
+      sentinelEye.add(laserBeam);
+      
+      // Add subtle glow around the eye
+      const glowGeometry = new THREE.PlaneGeometry(2, 0.5);
+      const glowMaterial = new THREE.MeshBasicMaterial({
+        color: 0xff3300,
+        transparent: true,
+        opacity: 0.5,
+        blending: THREE.AdditiveBlending
+      });
+      
+      const eyeGlow = new THREE.Mesh(glowGeometry, glowMaterial);
+      eyeGlow.position.z = 0.71;
+      sentinelEye.add(eyeGlow);
+      
+      // Position the sentinel
+      sentinel.position.set(0, 0, 0);
+      
+      // Setup post-processing
+      setupPostProcessing();
+      
+      // Add event listeners
+      window.addEventListener('resize', onWindowResize);
+      
+      // Start animation loop
+      animate();
+    })
+    .catch((error) => {
+      console.error('Error loading sentinel model:', error);
+    });
   
   return true;
 }
@@ -189,132 +239,45 @@ function setupLighting() {
   scene.add(eyeLight);
 }
 
-// Create the sentinel robot
-function createSentinelRobot() {
-  // Create group to hold all sentinel parts
-  sentinel = new THREE.Group();
-  scene.add(sentinel);
-  
-  // Materials
-  const bodyMaterial = new THREE.MeshPhysicalMaterial({
-    color: 0x222222,
-    metalness: 0.8,
-    roughness: 0.2,
-    clearcoat: 0.5,
-    clearcoatRoughness: 0.3,
-    envMapIntensity: 1.0
+// Load model with animations
+function loadModel(modelPath) {
+  return new Promise((resolve, reject) => {
+    const loader = new GLTFLoader();
+    
+    // Set up DRACO decoder if needed
+    if (typeof DRACOLoader !== 'undefined') {
+      const dracoLoader = new DRACOLoader();
+      dracoLoader.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
+      loader.setDRACOLoader(dracoLoader);
+    }
+    
+    loader.load(
+      modelPath,
+      (gltf) => {
+        console.log('[ANIM] Model loaded with', gltf.animations?.length, 'animations');
+        
+        // Process animations
+        if (gltf.animations && gltf.animations.length) {
+          mixer = new THREE.AnimationMixer(gltf.scene);
+          
+          // Play all animations by default
+          gltf.animations.forEach((clip) => {
+            const action = mixer.clipAction(clip);
+            action.play();
+          });
+          
+          console.log('[ANIM] All animations started');
+        }
+        
+        resolve(gltf.scene);
+      },
+      undefined,
+      (error) => {
+        console.error('[ANIM] Error loading model:', error);
+        reject(error);
+      }
+    );
   });
-  
-  const eyeMaterial = new THREE.MeshBasicMaterial({
-    color: 0xff2200,
-    transparent: true,
-    opacity: 0.9
-  });
-  
-  // Create the main body
-  const bodyGeometry = new THREE.CapsuleGeometry(1, 3, 12, 24);
-  const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-  body.position.y = 0;
-  sentinel.add(body);
-  
-  // Create shoulders
-  const shoulderGeometry = new THREE.CapsuleGeometry(0.5, 1.5, 8, 12);
-  
-  const leftShoulder = new THREE.Mesh(shoulderGeometry, bodyMaterial);
-  leftShoulder.position.set(-1.2, 1, 0);
-  leftShoulder.rotation.z = Math.PI / 2;
-  sentinel.add(leftShoulder);
-  
-  const rightShoulder = new THREE.Mesh(shoulderGeometry, bodyMaterial);
-  rightShoulder.position.set(1.2, 1, 0);
-  rightShoulder.rotation.z = Math.PI / 2;
-  sentinel.add(rightShoulder);
-  
-  // Create arms
-  const armGeometry = new THREE.CapsuleGeometry(0.3, 2, 8, 12);
-  
-  const leftArm = new THREE.Mesh(armGeometry, bodyMaterial);
-  leftArm.position.set(-1.2, -0.5, 0);
-  sentinel.add(leftArm);
-  
-  const rightArm = new THREE.Mesh(armGeometry, bodyMaterial);
-  rightArm.position.set(1.2, -0.5, 0);
-  sentinel.add(rightArm);
-  
-  // Create head
-  const headGeometry = new THREE.SphereGeometry(0.8, 32, 32);
-  const head = new THREE.Mesh(headGeometry, bodyMaterial);
-  head.position.y = 2;
-  sentinel.add(head);
-  
-  // Create eye visor (horizontal laser eye like in the screenshot)
-  const eyeGeometry = new THREE.BoxGeometry(1.6, 0.15, 0.1);
-  sentinelEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
-  sentinelEye.position.set(0, 2, 0.7);
-  sentinel.add(sentinelEye);
-  
-  // Create laser beam (initially invisible)
-  const laserGeometry = new THREE.CylinderGeometry(0.05, 0.05, 100, 8);
-  const laserMaterial = new THREE.MeshBasicMaterial({
-    color: 0xff3300,
-    transparent: true,
-    opacity: 0,
-    emissive: 0xff0000,
-    emissiveIntensity: 10
-  });
-  
-  laserBeam = new THREE.Mesh(laserGeometry, laserMaterial);
-  laserBeam.position.z = 50;
-  laserBeam.rotation.x = Math.PI / 2;
-  sentinelEye.add(laserBeam);
-  
-  // Add subtle glow around the eye
-  const glowGeometry = new THREE.PlaneGeometry(2, 0.5);
-  const glowMaterial = new THREE.MeshBasicMaterial({
-    color: 0xff3300,
-    transparent: true,
-    opacity: 0.5,
-    blending: THREE.AdditiveBlending
-  });
-  
-  const eyeGlow = new THREE.Mesh(glowGeometry, glowMaterial);
-  eyeGlow.position.z = 0.71;
-  sentinelEye.add(eyeGlow);
-  
-  // Position the sentinel
-  sentinel.position.set(0, 0, 0);
-  
-  // Create animation mixer
-  mixer = new THREE.AnimationMixer(sentinel);
-  
-  // Create a "flying" animation
-  const positionKF = new THREE.VectorKeyframeTrack(
-    '.position',
-    [0, 1, 2, 3, 4],
-    [
-      0, 0, 0,
-      0, 0.2, 0,
-      0, 0, 0,
-      0, -0.2, 0,
-      0, 0, 0
-    ]
-  );
-  
-  const rotationKF = new THREE.VectorKeyframeTrack(
-    '.rotation[x]',
-    [0, 1, 2, 3, 4],
-    [
-      0,
-      0.05,
-      0,
-      -0.05,
-      0
-    ]
-  );
-  
-  const flyingClip = new THREE.AnimationClip('flying', 4, [positionKF, rotationKF]);
-  flyingAction = mixer.clipAction(flyingClip);
-  flyingAction.play();
 }
 
 // Setup post-processing effects
