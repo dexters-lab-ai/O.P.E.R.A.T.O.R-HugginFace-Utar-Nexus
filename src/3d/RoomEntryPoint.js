@@ -6,7 +6,7 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.module.js';
 import { eventBus } from '../utils/events.js';
 import { stores } from '../store/index.js';
-import { RoomExperience } from './RoomExperience.js';
+import RoomExperience from './RoomExperienceClass.js';
 
 /**
  * Create a room entry point component
@@ -14,6 +14,7 @@ import { RoomExperience } from './RoomExperience.js';
  * @returns {HTMLElement} Entry point container
  */
 export function RoomEntryPoint(props = {}) {
+  console.log('[DEBUG-ROOM] [TRACE] Entered RoomEntryPoint', props);
   const {
     containerId = 'room-entry',
     modelPath = '/models/room.glb'
@@ -80,15 +81,24 @@ export function RoomEntryPoint(props = {}) {
   /**
    * Initialize the room experience
    */
-  function initialize() {
+  async function initialize() {
+    console.log('[DEBUG-ROOM] [TRACE] Entered RoomEntryPoint.initialize');
     console.group('[RoomEntry] Initialization');
     console.log('[RoomEntryPoint] Initializing 3D room experience');
     
-    // Set failsafe timeout (10 seconds)
+    // Enhanced timeout with progress checks
+    const LOADING_TIMEOUT = 45000; // 45 seconds
+    let loadingProgress = 0;
+    const loadingManager = new THREE.LoadingManager();
+    loadingManager.onProgress = (url, loaded, total) => {
+      loadingProgress = loaded/total;
+      console.log(`[LOADING] Progress: ${(loadingProgress*100).toFixed(1)}%`);
+    };
+    
     const loadingTimeout = setTimeout(() => {
       console.warn('[ROOM] Loading timeout reached - forcing completion');
       eventBus.emit('room-loading-complete');
-    }, 10000);
+    }, LOADING_TIMEOUT);
     
     // Clear timeout when loading completes
     eventBus.once('room-loading-complete', () => {
@@ -106,16 +116,20 @@ export function RoomEntryPoint(props = {}) {
       const initialState = savedState ? JSON.parse(savedState) : null;
       console.log('[RoomEntryPoint] Loaded saved state:', initialState);
       console.log('Creating RoomExperience');
-      roomExperience = RoomExperience({
+      roomExperience = new RoomExperience({
         container: canvasContainer,
         modelPath,
-        initialState
+        initialState,
+        loadingManager
       });
       
       console.log('[RoomEntryPoint] RoomExperience instance created');
       
-      console.log('Starting animation');
-      roomExperience.init();
+      console.log('[RoomEntryPoint] Starting RoomExperience.initialize');
+      await roomExperience.initialize();
+      // Finalize loading
+      eventBus.emit('room-loading-progress', { progress: 100, step: 'COMPLETE' });
+      eventBus.emit('room-loading-complete');
       
       console.log('[RoomEntryPoint] Room initialization complete');
     } catch (error) {

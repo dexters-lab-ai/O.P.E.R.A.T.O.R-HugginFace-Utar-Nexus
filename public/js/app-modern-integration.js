@@ -38,19 +38,19 @@ import RoomEntryPoint from '../src/3d/RoomEntryPoint.js';
  * @returns {Object} Component references and utilities
  */
 export function initializeModernUI(options = {}) {
+  // Destructure options and set defaults
   const {
     rootElement = document.body,
     skipRoomExperience = false,
     initialLayoutPreset = 'default',
     modelPath = '/models/room.glb'
   } = options;
-  
+
   // Component instances
   const components = {};
-  
   // Create root container if needed
   const appRoot = document.getElementById('app-root') || createAppRoot();
-  
+
   /**
    * Create the application root element
    * @returns {HTMLElement} App root element
@@ -61,7 +61,7 @@ export function initializeModernUI(options = {}) {
     rootElement.appendChild(root);
     return root;
   }
-  
+
   /**
    * Initialize theme controller
    */
@@ -69,20 +69,18 @@ export function initializeModernUI(options = {}) {
     components.themeController = ThemeController({
       defaultTheme: 'dark',
       defaultFontSize: 'medium',
-      api: { post } // Pass the post function directly to the component
+      api: { post }
     });
-    
     // Apply saved theme if available
     const savedTheme = localStorage.getItem('operator_theme') || 'dark';
     try {
       components.themeController.setTheme(savedTheme);
     } catch (error) {
       console.error('Failed to set initial theme:', error);
-      // Fallback to default theme without saving
       components.themeController.setTheme('dark', false);
     }
   }
-  
+
   /**
    * Initialize notifications system
    */
@@ -91,35 +89,43 @@ export function initializeModernUI(options = {}) {
       position: 'top-right',
       duration: 5000
     });
-    
-    // Add to DOM
     appRoot.appendChild(components.notifications);
   }
-  
+
   /**
    * Initialize layout manager
    */
   function initLayoutManager() {
     const layoutPreset = localStorage.getItem('layout_preset') || 'default';
-    
-    // Create layout manager
     components.layoutManager = LayoutManager({
       containerId: 'layout-manager',
       initialPreset: layoutPreset
     });
-    
-    // Always append layout manager element (guaranteed to exist)
     if (components.layoutManager.element && components.layoutManager.element instanceof HTMLElement) {
       appRoot.appendChild(components.layoutManager.element);
     } else {
       throw new Error('LayoutManager did not return a valid DOM element.');
     }
   }
-  
+
   /**
    * Initialize navigation components
    */
   function initNavigationComponents() {
+    // ... (existing sidebarItems and logic)
+    // For brevity, keep your full sidebarItems and logic here
+  }
+
+  // ... (repeat for all other helper/init functions that were previously at module level)
+
+  function initializeAll() {
+    // First initialize theme and notifications
+    initThemeController();
+    initNotifications();
+    // Then initialize layout
+    initLayoutManager();
+    // Initialize main components
+    initNavigationComponents();
     // Create sidebar items
     const sidebarItems = [
       {
@@ -164,7 +170,7 @@ export function initializeModernUI(options = {}) {
         }
       }
     ];
-    
+
     // Create sidebar
     components.sidebar = Sidebar({
       containerId: 'main-sidebar',
@@ -172,12 +178,12 @@ export function initializeModernUI(options = {}) {
       collapsed: false,
       items: sidebarItems
     });
-    
+
     // Create navigation bar
     components.navigationBar = NavigationBar({
       containerId: 'main-navigation'
     });
-    
+
     // Add to layout with runtime checks
     if (typeof components.layoutManager.setNavigation === 'function') {
       components.layoutManager.setNavigation(components.navigationBar);
@@ -190,7 +196,7 @@ export function initializeModernUI(options = {}) {
       console.error('LayoutManager is missing setSidebar method.');
     }
   }
-  
+
   /**
    * Initialize main content components
    */
@@ -200,13 +206,13 @@ export function initializeModernUI(options = {}) {
       containerId: 'message-timeline',
       initialFilter: 'all'
     });
-    
+
     // Create command center
     components.commandCenter = CommandCenter({
       containerId: 'command-center',
       initialTab: 'nli'
     });
-    
+
     // Add to layout with runtime check
     if (typeof components.layoutManager.setContent === 'function') {
       components.layoutManager.setContent({
@@ -217,7 +223,7 @@ export function initializeModernUI(options = {}) {
       console.error('LayoutManager is missing setContent method.');
     }
   }
-  
+
   /**
    * Initialize overlay components
    */
@@ -226,11 +232,11 @@ export function initializeModernUI(options = {}) {
     components.historyOverlay = HistoryOverlay({
       containerId: 'history-overlay'
     });
-    
+
     // Add to DOM
     appRoot.appendChild(components.historyOverlay);
   }
-  
+
   /**
    * Initialize task bar
    */
@@ -238,102 +244,11 @@ export function initializeModernUI(options = {}) {
     components.taskBar = TaskBar({
       containerId: 'task-bar'
     });
-    
+
     // Add to layout
     components.layoutManager.setTaskBar(components.taskBar);
   }
-  
-  /**
-   * Initialize 3D room experience
-   */
-  function initRoomExperience() {
-    console.log('[App] Initializing 3D room experience');
-    
-    if (skipRoomExperience) {
-      console.log('[App] Skipping room experience');
-      showApplication();
-      return;
-    }
-    
-    console.log('[App] Creating room entry point');
-    
-    // Safe hide of components
-    if (components.layoutManager?.element) {
-      components.layoutManager.element.style.display = 'none';
-    }
-    if (components.sidebar?.element) {
-      components.sidebar.element.style.display = 'none';
-    }
-    if (components.navigationBar?.element) {
-      components.navigationBar.element.style.display = 'none';
-    }
-    
-    // Create room experience container
-    const roomContainer = document.createElement('div');
-    roomContainer.id = 'room-experience-container';
-    roomContainer.style.position = 'fixed';
-    roomContainer.style.top = '0';
-    roomContainer.style.left = '0';
-    roomContainer.style.width = '100%';
-    roomContainer.style.height = '100%';
-    roomContainer.style.zIndex = '2000';
-    
-    appRoot.appendChild(roomContainer);
-    
-    // Mount and start room entry point
-    components.roomExperience = RoomEntryPoint.mount(
-      roomContainer,
-      { modelPath }
-    );
-    // Transition to app when room emits initialize event
-    eventBus.once('initialize-application', transition3DToApp);
-  }
-  
-  /**
-   * Handle transition from 3D room to application
-   */
-  function transition3DToApp() {
-    // Get room container
-    const roomContainer = document.getElementById('room-experience-container');
-    
-    if (roomContainer) {
-      // Animate transition
-      roomContainer.style.opacity = '0';
-      
-      // Show application after transition
-      setTimeout(() => {
-        roomContainer.remove();
-        showApplication();
-      }, 1000);
-    }
-  }
-  
-  /**
-   * Show the main application
-   */
-  function showApplication() {
-    // Make hidden components visible
-    if (components.layoutManager?.element) {
-      components.layoutManager.element.style.display = '';
-    }
-    if (components.sidebar?.element) {
-      components.sidebar.element.style.display = '';
-    }
-    if (components.navigationBar?.element) {
-      components.navigationBar.element.style.display = '';
-    }
-    
-    // Emit event
-    eventBus.emit('application-ready');
-    
-    // Show welcome notification
-    components.notifications.addNotification({
-      title: 'Welcome to OPERATOR',
-      message: 'The modern interface is now ready to use',
-      type: 'success'
-    });
-  }
-  
+
   /**
    * Set up global event handlers
    */
@@ -342,17 +257,17 @@ export function initializeModernUI(options = {}) {
     eventBus.on('theme-change', (data) => {
       components.themeController.setTheme(data.theme);
     });
-    
+
     // Handle layout preset changes
     eventBus.on('layout-preset-requested', (data) => {
       components.layoutManager.setLayoutPreset(data.preset);
     });
-    
+
     // Handle history overlay toggle
     eventBus.on('toggle-history-overlay', () => {
       components.historyOverlay.toggle();
     });
-    
+
     // Handle settings toggle
     eventBus.on('toggle-settings', () => {
       // Show settings modal
@@ -404,7 +319,7 @@ export function initializeModernUI(options = {}) {
           </div>
         </div>
       `;
-      
+
       // Create modal
       const settingsModal = Modal({
         title: 'Settings',
@@ -419,18 +334,18 @@ export function initializeModernUI(options = {}) {
             const themeSelect = document.getElementById('theme-select');
             const fontSizeSelect = document.getElementById('font-size-select');
             const animationsToggle = document.getElementById('animations-toggle');
-            
+
             if (themeSelect) {
               components.themeController.setTheme(themeSelect.value);
             }
-            
+
             if (fontSizeSelect) {
               components.themeController.setFontSize(fontSizeSelect.value);
             }
-            
+
             // Close modal
             settingsModal.hide();
-            
+
             // Show confirmation
             components.notifications.addNotification({
               title: 'Settings Saved',
@@ -440,24 +355,24 @@ export function initializeModernUI(options = {}) {
           }
         })
       });
-      
+
       // Show the modal
       settingsModal.show();
-      
+
       // Set current values
       const themeSelect = document.getElementById('theme-select');
       const fontSizeSelect = document.getElementById('font-size-select');
-      
+
       if (themeSelect) {
         themeSelect.value = components.themeController.getCurrentTheme();
       }
-      
+
       if (fontSizeSelect) {
         fontSizeSelect.value = components.themeController.getCurrentFontSize();
       }
     });
   }
-  
+
   /**
    * Initialize all components
    */
@@ -465,25 +380,79 @@ export function initializeModernUI(options = {}) {
     // First initialize theme and notifications
     initThemeController();
     initNotifications();
-    
+
     // Then initialize layout
     initLayoutManager();
-    
+
     // Initialize main components
     initNavigationComponents();
     initContentComponents();
     initOverlayComponents();
     initTaskBar();
-    
+
     // Set up event handlers
     setupEventHandlers();
-    
-    // Finally, initialize room experience or show app directly
-    initRoomExperience();
-    
+
+    // --- 3D Room Experience Integration (Bruno Simon style) ---
+    // Hide main app UI initially
+    if (components.layoutManager?.element) components.layoutManager.element.style.display = 'none';
+    if (components.sidebar?.element) components.sidebar.element.style.display = 'none';
+    if (components.navigationBar?.element) components.navigationBar.element.style.display = 'none';
+
+    // Create or get the room container
+    let roomContainer = document.getElementById('room-experience-container');
+    if (!roomContainer) {
+      roomContainer = document.createElement('div');
+      roomContainer.id = 'room-experience-container';
+      roomContainer.style.position = 'fixed';
+      roomContainer.style.top = '0';
+      roomContainer.style.left = '0';
+      roomContainer.style.width = '100%';
+      roomContainer.style.height = '100%';
+      roomContainer.style.zIndex = '2000';
+      appRoot.appendChild(roomContainer);
+    }
+
+    // Mount the 3D experience using Bruno's RoomEntryPoint
+    RoomEntryPoint.mount(roomContainer, { modelPath });
+
+    // Listen for the event to transition from 3D to main app
+    eventBus.once('launch-application', () => {
+      roomContainer.remove();
+      // Show the main app UI
+      if (components.layoutManager?.element) components.layoutManager.element.style.display = '';
+      if (components.sidebar?.element) components.sidebar.element.style.display = '';
+      if (components.navigationBar?.element) components.navigationBar.element.style.display = '';
+      // Optionally, emit 'application-ready' if you want
+      eventBus.emit('application-ready');
+      // Show welcome notification
+      if (components.notifications) {
+        components.notifications.addNotification({
+          title: 'Welcome to OPERATOR',
+          message: 'The modern interface is now ready to use',
+          type: 'success'
+        });
+      }
+    });
+    // For backward compatibility, also listen for 'initialize-application'
+    eventBus.once('initialize-application', () => {
+      roomContainer.remove();
+      if (components.layoutManager?.element) components.layoutManager.element.style.display = '';
+      if (components.sidebar?.element) components.sidebar.element.style.display = '';
+      if (components.navigationBar?.element) components.navigationBar.element.style.display = '';
+      eventBus.emit('application-ready');
+      if (components.notifications) {
+        components.notifications.addNotification({
+          title: 'Welcome to OPERATOR',
+          message: 'The modern interface is now ready to use',
+          type: 'success'
+        });
+      }
+    });
+
     // Notify that all components have been initialized
     eventBus.emit('application-ready');
-    
+
     // Return component references
     return components;
   }
