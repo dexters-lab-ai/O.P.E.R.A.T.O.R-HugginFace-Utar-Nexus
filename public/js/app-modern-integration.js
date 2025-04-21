@@ -464,3 +464,14 @@ export function initializeModernUI(options = {}) {
 export default {
   initialize: initializeModernUI
 };
+
+// Expose mountApp globally for 3D→React transition
+window.mountApp = (selector) => {
+  const rootEl = document.querySelector(selector);
+  if (!rootEl) {
+    console.error(`mountApp: container '${selector}' not found`);
+    return;
+  }
+  // Initialize React UI into the root element
+  initializeModernUI({ rootElement: rootEl, skipRoomExperience: true });
+};

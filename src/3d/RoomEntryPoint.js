@@ -3,7 +3,7 @@
  * Provides the entry experience with 3D room and computer navigation
  */
 
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.module.js';
+import * as THREE from 'three';
 import { eventBus } from '../utils/events.js';
 import { stores } from '../store/index.js';
 import RoomExperience from './RoomExperienceClass.js';

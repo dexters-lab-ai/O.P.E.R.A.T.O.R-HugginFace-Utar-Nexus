@@ -4,31 +4,16 @@
   <script type="importmap">
   {
     "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.module.js",
-      "three/": "https://cdn.jsdelivr.net/npm/three@0.132.2/"
+      "three": "/vendors/three/three.module.js",
+      "three/examples/jsm/": "/vendors/three/examples/jsm/",
+      "gsap": "https://cdn.jsdelivr.net/npm/gsap@3.12.7/index.js"
     }
   }
   </script>
-  <link rel="icon" href="data:,">
+  <link rel="icon" href="/favicon.ico" type="image/x-icon">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OPERATOR - Modern Interface</title>
-  
-  <!-- Preload critical CSS first -->
-  <link rel="preload" href="/css/base.css" as="style">
-  <link rel="preload" href="/css/variables.css" as="style">
-  <link rel="preload" href="/css/components.css" as="style">
-  
-  <!-- Preload and load all CSS assets for production reliability -->
-  <link rel="preload" href="/css/animations.css" as="style">
-  <link rel="preload" href="/css/command-center.css" as="style">
-  <link rel="preload" href="/css/header.css" as="style">
-  <link rel="preload" href="/css/index.css" as="style">
-  <link rel="preload" href="/css/task-results.css" as="style">
-  <link rel="preload" href="/css/timeline.css" as="style">
-  <link rel="preload" href="/css/3d-experience.css" as="style">
-  <link rel="preload" href="/css/futuristic.css" as="style">
-  <link rel="preload" href="/css/layouts.css" as="style">
   
   <!-- Load stylesheets in order -->
   <link rel="stylesheet" href="/css/variables.css">
@@ -44,8 +29,8 @@
   <link rel="stylesheet" href="/css/futuristic.css">
   <link rel="stylesheet" href="/css/layouts.css">
   
-  <!-- Font Awesome -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous">
+  <!-- Font Awesome (local vendor) -->
+  <link rel="stylesheet" href="/vendors/fontawesome/all.min.css">
   
   <style>
     :root {
@@ -186,45 +171,14 @@
     }
   </style>
   
-  <!-- Preload critical resources with proper priorities -->
-  <link rel="preload" href="/draco/draco_decoder.js" as="script" crossorigin="anonymous">
-  <link rel="preload" href="/draco/draco_wasm_wrapper.js" as="script" crossorigin="anonymous">
-  <link rel="preload" href="/draco/draco_decoder.wasm" as="fetch" crossorigin="anonymous">
-  
-  <!-- Model preload only after confirming Draco is ready -->
-  <script>
-    document.addEventListener('DOMContentLoaded', () => {
-      console.log('[PRELOAD] Checking Draco loader readiness');
-      
-      // Verify Draco scripts are loaded before preloading model
-      Promise.all([
-        new Promise(resolve => {
-          if (typeof DracoDecoderModule !== 'undefined') {
-            console.log('[PRELOAD] Draco already loaded');
-            return resolve();
-          }
-          
-          const checkInterval = setInterval(() => {
-            if (typeof DracoDecoderModule !== 'undefined') {
-              clearInterval(checkInterval);
-              console.log('[PRELOAD] Draco loaded successfully');
-              resolve();
-            }
-          }, 100);
-        })
-      ]).then(() => {
-        console.log('[PRELOAD] Loading 3D model');
-        const link = document.createElement('link');
-        link.rel = 'preload';
-        link.href = '/models/room.glb';
-        link.as = 'fetch';
-        link.crossOrigin = 'anonymous';
-        document.head.appendChild(link);
-      });
-    });
-  </script>
+  <!-- Space-themed gradient background for 3D container -->
+  <style>
+    #webgl-container {
+      background: radial-gradient(circle at 25% 25%, #001, #220033 60%, #000);
+    }
+  </style>
 </head>
-<body>
+<body class="loading">
   <!-- Loading state management -->
   <div class="loading-state" id="app-loader">
     <div class="loader">Loading...</div>
@@ -245,6 +199,9 @@
   <div id="app-container" style="position:relative; z-index:1;">
     <!-- UI content goes here -->
   </div>
+  
+  <!-- React root for launching application -->
+  <div id="react-root" style="display:none; width:100%; height:100%; position:absolute; top:0; left:0; z-index:2;"></div>
   
   <!-- Local Font Awesome fallback (in case CDN fails) -->
   <style>

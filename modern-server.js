@@ -60,6 +60,12 @@ app.use(express.static(path.join(__dirname, 'public'), {
   }
 }));
 
+// Serve Bruno Simon's original assets (models, environment)
+app.use(
+  '/bruno_demo_temp/static',
+  express.static(path.join(__dirname, 'bruno_demo_temp', 'static'))
+);
+
 // Legacy compatibility for /styles -> /css
 express.static.mime.define({'text/css': ['css']});
 app.use('/styles', express.static(path.join(__dirname, 'src', 'styles')));
