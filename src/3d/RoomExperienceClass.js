@@ -62,30 +62,30 @@ void main() {
 `;
 
 const MODEL_PATHS = {
-  room: { primary: '/models/roomModel.glb', fallback: '/models/room-low.glb' },
-  googleLeds: { primary: '/models/googleHomeLedsModel.glb', fallback: '/models/googleHomeLeds-low.glb' },
-  loupedeck: { primary: '/models/loupedeckButtonsModel.glb', fallback: '/models/loupedeckButtons-low.glb' },
-  topChair: { primary: '/models/topChairModel.glb', fallback: '/models/topChair-low.glb' },
-  elgatoLight: { primary: '/models/elgatoLightModel.glb', fallback: '/models/elgatoLight-low.glb' },
-  pcScreen: { primary: '/models/pcScreenModel.glb', fallback: '/models/pcScreen-low.glb' },
-  macScreen: { primary: '/models/macScreenModel.glb', fallback: '/models/macScreen-low.glb' }
+  room: { primary: '/bruno_demo_temp/static/assets/roomModel.glb', fallback: '/bruno_demo_temp/static/assets/room-low.glb' },
+  googleLeds: { primary: '/bruno_demo_temp/static/assets/googleHomeLedsModel.glb', fallback: '/bruno_demo_temp/static/assets/googleHomeLeds-low.glb' },
+  loupedeck: { primary: '/bruno_demo_temp/static/assets/loupedeckButtonsModel.glb', fallback: '/bruno_demo_temp/static/assets/loupedeckButtons-low.glb' },
+  topChair: { primary: '/bruno_demo_temp/static/assets/topChairModel.glb', fallback: '/bruno_demo_temp/static/assets/topChair-low.glb' },
+  elgatoLight: { primary: '/bruno_demo_temp/static/assets/elgatoLightModel.glb', fallback: '/bruno_demo_temp/static/assets/elgatoLight-low.glb' },
+  pcScreen: { primary: '/bruno_demo_temp/static/assets/pcScreenModel.glb', fallback: '/bruno_demo_temp/static/assets/pcScreen-low.glb' },
+  macScreen: { primary: '/bruno_demo_temp/static/assets/macScreenModel.glb', fallback: '/bruno_demo_temp/static/assets/macScreen-low.glb' }
 };
 
 export default class RoomExperience {
   constructor(props = {}) {
     this.props = {
       assetPaths: {
-        room: '/models/roomModel.glb',  // Note: removed 'public/' since it's served from root
-        googleLeds: '/models/googleHomeLedsModel.glb',
-        loupedeck: '/models/loupedeckButtonsModel.glb',
-        topChair: '/models/topChairModel.glb',
-        elgatoLight: '/models/elgatoLightModel.glb',
-        pcScreen: '/models/pcScreenModel.glb',
-        macScreen: '/models/macScreenModel.glb',
-        bakedDay: '/models/textures/bakedDay.jpg',
-        bakedNight: '/models/textures/bakedNight.jpg',
-        bakedNeutral: '/models/textures/bakedNeutral.jpg',
-        lightMap: '/models/textures/lightMap.jpg',
+        room: '/bruno_demo_temp/static/assets/roomModel.glb',
+        googleLeds: '/bruno_demo_temp/static/assets/googleHomeLedsModel.glb',
+        loupedeck: '/bruno_demo_temp/static/assets/loupedeckButtonsModel.glb',
+        topChair: '/bruno_demo_temp/static/assets/topChairModel.glb',
+        elgatoLight: '/bruno_demo_temp/static/assets/elgatoLightModel.glb',
+        pcScreen: '/bruno_demo_temp/static/assets/pcScreenModel.glb',
+        macScreen: '/bruno_demo_temp/static/assets/macScreenModel.glb',
+        bakedDay: '/bruno_demo_temp/static/assets/bakedDay.jpg',
+        bakedNight: '/bruno_demo_temp/static/assets/bakedNight.jpg',
+        bakedNeutral: '/bruno_demo_temp/static/assets/bakedNeutral.jpg',
+        lightMap: '/bruno_demo_temp/static/assets/lightMap.jpg',
         googleLedMask: '/bruno_demo_temp/static/assets/googleHomeLedMask.png'
       },
       ...props
@@ -193,20 +193,26 @@ export default class RoomExperience {
   }
 
   initializeCamera() {
-    // Start higher (1.8m ~ eye level) and further back (5m)
-    this.camera.position.set(0, 1.8, 5);
-    this.camera.lookAt(0, 1.5, 0); // Look slightly downward
-    this.camera.fov = 45;
+    // Bruno's camera position and FOV
+    this.camera.position.set(4, 2, 6);
+    this.camera.lookAt(0, 1.2, 0);
+    this.camera.fov = 40;
     this.camera.updateProjectionMatrix();
-    
     // Lighting adjustments
     if (this.ambientLight) this.ambientLight.intensity = 0.8;
     if (this.directionalLight) this.directionalLight.intensity = 1.5;
+    // Restore intro pan animation if available
+    if (this.props.animateIntro && typeof window.gsap !== 'undefined') {
+      this.camera.position.set(10, 5, 10);
+      window.gsap.to(this.camera.position, { x: 4, y: 2, z: 6, duration: 2, ease: 'power2.out', onUpdate: () => {
+        this.camera.lookAt(0, 1.2, 0);
+        this.camera.updateProjectionMatrix();
+      }});
+    }
   }
 
   async loadEnvironment() {
     const paths = [
-      '/bruno_demo_temp/static/environment.hdr',
       '/models/environment.hdr'
     ];
     
@@ -259,12 +265,13 @@ export default class RoomExperience {
         
         // Load textures
         const textures = await Promise.all([
-          this.textureLoader.loadAsync('models/textures/bakedDay.jpg'),
-          this.textureLoader.loadAsync('models/textures/bakedNight.jpg'),
-          this.textureLoader.loadAsync('models/textures/bakedNeutral.jpg'),
-          this.textureLoader.loadAsync('models/textures/lightMap.jpg')
+          this.textureLoader.loadAsync('/bruno_demo_temp/static/assets/bakedDay.jpg'),
+          this.textureLoader.loadAsync('/bruno_demo_temp/static/assets/bakedNight.jpg'),
+          this.textureLoader.loadAsync('/bruno_demo_temp/static/assets/bakedNeutral.jpg'),
+          this.textureLoader.loadAsync('/bruno_demo_temp/static/assets/lightMap.jpg')
         ]);
         
+        this.bakedTextures = textures;
         this.applyBakedMaterials(...textures);
       }
       
@@ -299,11 +306,7 @@ export default class RoomExperience {
     };
     
     const paths = [
-      // First try Bruno's exact assets
-      `/bruno_demo_temp/static/assets/${modelMap[name]}.glb`,
-      // Then try our models with same names
-      `/assets/${modelMap[name]}.glb`,
-      `/models/${modelMap[name]}.glb`
+      `/bruno_demo_temp/static/assets/${modelMap[name]}.glb`
     ];
     
     for (const path of paths) {
@@ -418,22 +421,23 @@ export default class RoomExperience {
   async loadTopChair() {
     const gltf = await this.loadGLB('topChair');
     if (!gltf) return;
-    
+    // Use Bruno's original group and baked material, with correct z-order
+    const chair = gltf.scene.children[0] || gltf.scene;
+    chair.renderOrder = 0;
+    chair.traverse(child => {
+      if (child.isMesh) {
+        // Restore original material from GLB, do not override
+        child.material.depthTest = true;
+        child.material.depthWrite = true;
+        child.material.side = THREE.FrontSide;
+      }
+    });
     this.topChair = {
-      group: gltf.scene,
+      group: chair,
       swingSpeed: 0.5,
       swingAmount: 0.3
     };
-    
-    this.topChair.group.position.set(0.7, 0, 0.5);
     this.scene.add(this.topChair.group);
-    
-    // Setup physics pivot point
-    this.topChair.pivot = new THREE.Group();
-    this.topChair.pivot.position.copy(this.topChair.group.position);
-    this.scene.add(this.topChair.pivot);
-    this.topChair.group.position.set(0, -0.5, 0);
-    this.topChair.pivot.add(this.topChair.group);
   }
 
   async loadBouncingLogo() {
@@ -530,21 +534,37 @@ export default class RoomExperience {
   }
 
   applyBakedMaterials(bakedDayTex, bakedNightTex, bakedNeutralTex, lightMapTex) {
-    bakedDayTex.flipY = false;
-    bakedNightTex.flipY = false;
-    bakedNeutralTex.flipY = false;
+    // Encode and orient textures
+    bakedDayTex.encoding = THREE.sRGBEncoding; bakedDayTex.flipY = false;
+    bakedNightTex.encoding = THREE.sRGBEncoding; bakedNightTex.flipY = false;
+    bakedNeutralTex.encoding = THREE.sRGBEncoding; bakedNeutralTex.flipY = false;
     lightMapTex.flipY = false;
-    
-    // More vibrant material settings
+
+    // Only apply baked shader to main room mesh (not screens, chairs, laptops, or props)
     this.room.traverse(child => {
-      if (child.isMesh) {
-        child.material = new THREE.MeshBasicMaterial({
-          map: bakedDayTex,
-          lightMap: lightMapTex,
-          lightMapIntensity: 2.0, 
-          toneMapped: false 
-        });
+      if (!child.isMesh) return;
+      const name = child.name.toLowerCase();
+      if (name.includes('screen') || name.includes('chair') || name.includes('laptop') || name.includes('prop') || name.includes('lamp')) {
+        if (!name.includes('lamp')) return;
       }
+      child.material = new THREE.ShaderMaterial({
+        vertexShader: BAKED_VERTEX_SHADER,
+        fragmentShader: BAKED_FRAGMENT_SHADER,
+        uniforms: {
+          uBakedDayTexture: { value: bakedDayTex },
+          uBakedNightTexture: { value: bakedNightTex },
+          uBakedNeutralTexture: { value: bakedNeutralTex },
+          uLightMapTexture: { value: lightMapTex },
+          uNightMix: { value: 1 },
+          uNeutralMix: { value: 0 },
+          uLightTvColor: { value: new THREE.Color('#ff115e') },
+          uLightTvStrength: { value: 1.47 },
+          uLightDeskColor: { value: new THREE.Color('#ff6700') },
+          uLightDeskStrength: { value: 1.9 },
+          uLightPcColor: { value: new THREE.Color('#0082ff') },
+          uLightPcStrength: { value: 1.4 }
+        }
+      });
     });
   }
 
@@ -555,26 +575,59 @@ export default class RoomExperience {
     // Add render pass
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     
-    // Add bloom pass
-    const bloomPass = new UnrealBloomPass(
-      new THREE.Vector2(window.innerWidth, window.innerHeight),
-      1.5, // strength
-      0.4, // radius
-      0.85 // threshold
-    );
-    this.composer.addPass(bloomPass);
+    // Remove bloom pass to avoid unwanted glow
+    // const bloomPass = new UnrealBloomPass(
+    //   new THREE.Vector2(window.innerWidth, window.innerHeight),
+    //   0.7, // strength (Bruno's typical value)
+    //   0.25, // radius
+    //   0.95 // threshold
+    // );
+    // this.composer.addPass(bloomPass);
     
     // Add gamma correction
     this.composer.addPass(new ShaderPass(GammaCorrectionShader));
   }
 
   setupScreens() {
-    // No screen emissive override; screens retain original materials
+    // Assign MeshBasicMaterial with video texture only, no color/emissive overlays
+    if (this.pcScreen) {
+      this.pcScreen.traverse(child => {
+        if (child.isMesh && child.material && child.material.map && child.material.map instanceof THREE.VideoTexture) {
+          child.material = new THREE.MeshBasicMaterial({
+            map: child.material.map,
+            depthTest: true,
+            depthWrite: true,
+            side: THREE.FrontSide
+          });
+        } else if (child.isMesh) {
+          child.material.depthTest = true;
+          child.material.depthWrite = true;
+          child.material.side = THREE.FrontSide;
+        }
+      });
+    }
+    if (this.macScreen) {
+      this.macScreen.traverse(child => {
+        if (child.isMesh && child.material && child.material.map && child.material.map instanceof THREE.VideoTexture) {
+          child.material = new THREE.MeshBasicMaterial({
+            map: child.material.map,
+            depthTest: true,
+            depthWrite: true,
+            side: THREE.FrontSide
+          });
+        } else if (child.isMesh) {
+          child.material.depthTest = true;
+          child.material.depthWrite = true;
+          child.material.side = THREE.FrontSide;
+        }
+      });
+    }
   }
 
   finishLoadingUI() {
     const splash = document.getElementById('splash-screen');
     const loader = document.getElementById('app-loader');
+    const launchBtn = document.getElementById('launch-operator-btn');
     const webgl = this.props.container instanceof HTMLElement
       ? this.props.container
       : document.getElementById('webgl-container');
@@ -595,6 +648,11 @@ export default class RoomExperience {
       webgl.style.pointerEvents = 'auto';
       webgl.style.display = 'block';
       console.log('[UI] 3D room container shown');
+    }
+    if (launchBtn) {
+      launchBtn.style.opacity = '1';
+      launchBtn.style.pointerEvents = 'auto';
+      launchBtn.style.display = 'block';
     }
   }
 
@@ -617,26 +675,13 @@ export default class RoomExperience {
       }
       
       // Coffee steam animation
-      if (this.coffeeSteam?.particles) {
-        const time = Date.now() * 0.001;
-        this.coffeeSteam.particles.children.forEach(particle => {
-          particle.position.y += particle.userData.speed * 0.02;
-          particle.position.x += Math.sin(time + particle.userData.offset) * 0.01;
-          
-          // Reset particles that go too high
-          if (particle.position.y > 0.3) {
-            particle.position.set(
-              Math.random() * 0.1 - 0.05,
-              Math.random() * 0.05,
-              Math.random() * 0.1 - 0.05
-            );
-          }
-        });
+      if (this.coffeeSteam && typeof this.coffeeSteam.update === 'function') {
+        this.coffeeSteam.update();
       }
       
       // Top Chair physics
       if (this.topChair) {
-        this.topChair.pivot.rotation.z = Math.sin(Date.now() * 0.001 * this.topChair.swingSpeed) * this.topChair.swingAmount;
+        this.topChair.group.rotation.y = Math.sin(Date.now() * 0.001 * this.topChair.swingSpeed) * this.topChair.swingAmount;
       }
       
       // Bouncing Logo physics
