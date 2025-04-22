@@ -228,6 +228,15 @@ app.use('/src', express.static(path.join(__dirname, 'src'), {
   }
 }));
 
+// Serve 3D experience scripts
+app.use('/js/3d', express.static(path.join(__dirname, 'src', '3d'), {
+  setHeaders: (res, path) => {
+    if (path.endsWith('.js')) {
+      res.setHeader('Content-Type', 'text/javascript');
+    }
+  }
+}));
+
 // Three.js CDN middleware
 app.use((req, res, next) => {
   const threePaths = [

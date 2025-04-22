@@ -1,4 +1,5 @@
-import * as THREE from 'three';
+import * as THREE from '/vendors/three/build/three.module.js';
+import { GUI } from '/vendors/lil-gui/lil-gui.esm.js';
 import { GLTFLoader } from '/vendors/three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from '/vendors/three/examples/jsm/loaders/DRACOLoader.js';
 import { OrbitControls } from '/vendors/three/examples/jsm/controls/OrbitControls.js';
@@ -8,9 +9,10 @@ import { RenderPass } from '/vendors/three/examples/jsm/postprocessing/RenderPas
 import { UnrealBloomPass } from '/vendors/three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { GammaCorrectionShader } from '/vendors/three/examples/jsm/shaders/GammaCorrectionShader.js';
 import { ShaderPass } from '/vendors/three/examples/jsm/postprocessing/ShaderPass.js';
-import { gsap } from 'gsap';
-import { eventBus } from '../utils/events.js';
-import { stores } from '../store/index.js';
+import gsap from '/vendors/gsap/index.js';
+import { eventBus } from '/src/utils/events.js';
+import { stores } from '/src/store/index.js';
+import Screen from '/src/3d/experience/Screen.js';
 
 // Baked room shaders
 const BAKED_VERTEX_SHADER = `
@@ -146,7 +148,16 @@ export default class RoomExperience {
     }
     window.addEventListener('resize', this.handleResize);
     this.handleResize();
-    
+
+    // Set initial camera position (respect saved state or Bruno's default)
+    if (initialState) {
+      this.camera.position.copy(initialState.initial);
+      this.camera.lookAt(initialState.lookAt || new THREE.Vector3(0, 1.2, 0));
+    } else {
+      this.initializeCamera();
+    }
+    this.camera.updateProjectionMatrix();
+
     // Create container that will always exist
     this.roomContainer = new THREE.Group();
     this.roomContainer.name = 'RoomContainer';
@@ -155,102 +166,185 @@ export default class RoomExperience {
     // Initialize empty arrays for dynamic elements
     this.accentLights = [];
     this.interactiveElements = [];
-    
-    // Basic lighting from baked maps; disable additional base lights
-    // this.setupBaseLighting();
-    
+
     // Then load models and setup model-dependent lighting
-    this.loadMainModel().then(() => {
+    // Robust fully loaded experience: wait for all models, environment, screens, videos, and first render
+    const fullyLoaded = async () => {
+      await Promise.all([
+        this.loadMainModel(),
+        this.loadEnvironment(),
+        this.loadScreens ? this.loadScreens() : Promise.resolve()
+      ]);
+      // Wait for all screen videos to be playing
+      const screenVideos = [];
+      if (this.pcScreen && this.pcScreen.video) screenVideos.push(this.pcScreen.video);
+      if (this.macScreen && this.macScreen.video) screenVideos.push(this.macScreen.video);
+      await Promise.all(screenVideos.map(video => {
+        return new Promise(resolve => {
+          if (video.readyState >= 3 && !video.paused) return resolve();
+          video.onplaying = () => resolve();
+          video.play().catch(() => resolve());
+        });
+      }));
+      // Wait for first frame rendered
+      await new Promise(resolve => {
+        let resolved = false;
+        const handler = () => {
+          if (!resolved) {
+            resolved = true;
+            this.renderer.domElement.removeEventListener('render', handler);
+            resolve();
+          }
+        };
+        // Fallback: resolve after 100ms if no render event
+        setTimeout(() => { if (!resolved) resolve(); }, 100);
+        this.renderer.domElement.addEventListener('render', handler);
+        // Also trigger a render
+        this.renderer.render(this.scene, this.camera);
+      });
+    };
+    fullyLoaded().then(() => {
+      this.setupPostProcessing();
       this.setupAccentLights();
+      // --- RE-APPLY renderer settings after all setup! ---
+      this.renderer.outputEncoding = THREE.sRGBEncoding;
+      this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      this.renderer.toneMappingExposure = 0.3; // Bruno's value for richer look
+
+      // --- Bruno's baked material defaults for richer look ---
+      if (this.bakedMaterial) {
+        this.bakedMaterial.uNightMix = 1; // Always 1 for night blend
+        this.bakedMaterial.uNeutralMix = 0; // Always start at 0
+        // Clamp max
+        if (typeof this.bakedMaterial.uNeutralMixMax !== 'undefined') {
+          this.bakedMaterial.uNeutralMixMax = 0.5;
+        }
+      }
+      // Debug log for final settings
+      console.log('[DEBUG] Renderer settings:', {
+        outputEncoding: this.renderer.outputEncoding,
+        toneMapping: this.renderer.toneMapping,
+        toneMappingExposure: this.renderer.toneMappingExposure,
+        uNightMix: this.bakedMaterial?.uNightMix,
+        uNeutralMix: this.bakedMaterial?.uNeutralMix,
+        uNeutralMixMax: this.bakedMaterial?.uNeutralMixMax
+      });
+      // Hide loader and run camera intro only after everything is loaded and visible
       this.finishLoadingUI();
+      this.disableControls();
+      this.animateIntroCamera();
       this.startAnimationLoop();
     }).catch(error => {
       console.error('Model loading failed:', error);
       this.finishLoadingUI();
     });
-    
-    // Load environment and setup post-processing
-    this.loadEnvironment();
-    this.setupPostProcessing();
   }
 
   setupRenderer(container) {
-    // Core renderer, scene, and camera setup
-    this.scene = new THREE.Scene();
-    const containerEl = container || document.body;
-    this.camera = new THREE.PerspectiveCamera(60, containerEl.clientWidth / containerEl.clientHeight, 0.1, 100);
-    this.camera.position.copy(this.props.initialCameraPosition || new THREE.Vector3(30, 20, 30));
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance', logarithmicDepthBuffer: true });
-    this.renderer.physicallyCorrectLights = false;
+    // Create renderer
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: false
+    });
+    container.appendChild(this.renderer.domElement);
+    this.renderer.setClearColor(0x010101, 1);
+    this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.renderer.setSize(container.clientWidth, container.clientHeight);
+    // --- Bruno's defaults: world-class fidelity ---
     this.renderer.outputEncoding = THREE.sRGBEncoding;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.25;
-    this.renderer.setClearColor(0x010101, 1);
-    this.renderer.setSize(containerEl.clientWidth, containerEl.clientHeight);
-    this.renderer.setPixelRatio(window.devicePixelRatio);
-    containerEl.appendChild(this.renderer.domElement);
-    this.initializeCamera();
+    this.renderer.toneMappingExposure = 0.3; // Key setting for reducing brightness
+    this.renderer.physicallyCorrectLights = true;
+    this.renderer.shadowMap.enabled = false;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // NEVER override these settings after this point!
+
+    // Create the Three.js scene
+    this.scene = new THREE.Scene();
+    const containerEl = container || document.body;
+    // Camera is created here, but position/target is set in initializeCamera()
+    this.camera = new THREE.PerspectiveCamera(60, containerEl.clientWidth / containerEl.clientHeight, 0.1, 100);
+    // Do not set position or lookAt here! This is handled in initializeCamera().
+
+    // Restore GUI controls
+    this.gui = new GUI({ title: 'Room Controls', width: 300 });
+    const ppFolder = this.gui.addFolder('Post Processing');
+    // Always sync slider to renderer, never the other way!
+    const exposureCtrl = ppFolder.add(this.renderer, 'toneMappingExposure', 0.1, 1.5, 0.01)
+      .name('Exposure')
+      .onChange(val => {
+        this.renderer.toneMappingExposure = val;
+        this.renderer.resetState();
+        // Clamp exposure to Bruno's max (optional)
+        if (this.renderer.toneMappingExposure > 1.5) this.renderer.toneMappingExposure = 1.5;
+        // Force immediate re-render so user sees update instantly
+        if (this.composer) {
+          this.composer.render();
+        } else {
+          this.renderer.render(this.scene, this.camera);
+        }
+      });
+    exposureCtrl.setValue(this.renderer.toneMappingExposure);
+    
+    // Bloom controls
+    this.bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      0.15, // strength
+      0.4,  // radius
+      0.85  // threshold
+    );
+    const bloomFolder = ppFolder.addFolder('Bloom');
+    bloomFolder.add(this.bloomPass, 'strength', 0, 3, 0.01).name('Strength');
+    bloomFolder.add(this.bloomPass, 'radius', 0, 1, 0.01).name('Radius');
+    bloomFolder.add(this.bloomPass, 'threshold', 0, 1, 0.01).name('Threshold');
+    
+    // Initialize baked materials with Bruno's defaults if not set
+    this.bakedMaterial = this.bakedMaterial || {
+      uNightMix: 1, // Bruno's default for a richer night look
+      uNeutralMix: 0 // Always start at 0
+    };
+    // Clamp uNeutralMix to max 0.5
+    if (this.bakedMaterial.uNeutralMix > 0.5) this.bakedMaterial.uNeutralMix = 0.5;
+    // Always ensure uNeutralMix starts at 0
+    this.bakedMaterial.uNeutralMix = 0;
+    // Baked material controls - moved to applyBakedMaterials to avoid undefined uniforms
+    this.gui.open();
+    
+    // Configure renderer to match Bruno's settings
+    // this.renderer.setSize(containerEl.clientWidth, containerEl.clientHeight);
+    // this.renderer.setPixelRatio(window.devicePixelRatio);
+    
+    // containerEl.appendChild(this.renderer.domElement);
+    // initialCamera call moved to initialize() to respect intro sequence
   }
 
   initializeCamera() {
-    // Bruno's camera position and FOV
-    this.camera.position.set(4, 2, 6);
-    this.camera.lookAt(0, 1.2, 0);
+    // Bruno's original camera position and FOV (start further out, centered)
+    this.camera.position.set(-40, 50, 7); // Start far and high, from the left, facing desk
+    this.camera.lookAt(1, 3, 0);
     this.camera.fov = 40;
     this.camera.updateProjectionMatrix();
-    // Lighting adjustments
-    if (this.ambientLight) this.ambientLight.intensity = 0.8;
-    if (this.directionalLight) this.directionalLight.intensity = 1.5;
-    // Restore intro pan animation if available
-    if (this.props.animateIntro && typeof window.gsap !== 'undefined') {
-      this.camera.position.set(10, 5, 10);
-      window.gsap.to(this.camera.position, { x: 4, y: 2, z: 6, duration: 2, ease: 'power2.out', onUpdate: () => {
-        this.camera.lookAt(0, 1.2, 0);
-        this.camera.updateProjectionMatrix();
-      }});
-    }
+    // No lighting adjustments needed (handled by baked/HDR)
   }
 
   async loadEnvironment() {
-    const paths = [
-      '/models/environment.hdr'
-    ];
-    
-    for (const path of paths) {
-      try {
-        const hdrEquirect = await new RGBELoader().loadAsync(path);
-        const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
-        pmremGenerator.compileEquirectangularShader();
-        const envMap = pmremGenerator.fromEquirectangular(hdrEquirect).texture;
-        
-        // Apply to scene
-        this.scene.environment = envMap;
-        this.scene.background = envMap;
-        
-        // Cleanup
-        hdrEquirect.dispose();
-        pmremGenerator.dispose();
-        console.log(`✅ Loaded HDR from ${path}`);
-        return;
-      } catch (err) {
-        console.log(`❌ Failed HDR from ${path}`);
-      }
-    }
-    
-    // Fallback: background image
+    // Only use HDR, do not fallback to any color or neutral environment
+    const path = '/bruno_demo_temp/static/assets/environment.hdr';
     try {
-      const bgTex = await this.textureLoader.loadAsync('/bruno_demo_temp/static/assets/background.jpg');
-      this.scene.background = bgTex;
-      console.log('✅ Loaded background image from /bruno_demo_temp/static/assets/background.jpg');
-      return;
+      const hdrEquirect = await new RGBELoader().loadAsync(path);
+      const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
+      pmremGenerator.compileEquirectangularShader();
+      const envMap = pmremGenerator.fromEquirectangular(hdrEquirect).texture;
+      this.scene.environment = envMap;
+      // Bruno: Use HDR for environment, keep background black for visual pop
+      this.scene.background = null;
+      hdrEquirect.dispose();
+      pmremGenerator.dispose();
+      console.log(`✅ Loaded HDR from ${path}`);
     } catch (err) {
-      console.log('❌ Failed to load background fallback');
+      console.error(`❌ Failed to load HDR from ${path}`, err);
+      // No fallback: background remains null for maximum fidelity
     }
-    
-    // Neutral fallback
-    this.scene.environment = new THREE.Color(0xeeeeee);
-    this.scene.background = new THREE.Color(0xeeeeee);
-    console.log('⚠️ Using fallback color environment');
   }
 
   async loadMainModel() {
@@ -284,8 +378,6 @@ export default class RoomExperience {
         this.loadCoffeeSteam(),
         this.loadScreens()
       ]);
-      
-      this.setupAccentLights();
     } catch (error) {
       console.error('[Model] Failed to load:', error);
     } finally {
@@ -347,6 +439,14 @@ export default class RoomExperience {
     if (!gltf) return;
     
     this.loupedeck = gltf.scene;
+    // Render buttons behind other objects, static gray color
+    this.loupedeck.traverse(child => {
+      if (child.isMesh) {
+        child.renderOrder = -1;
+        child.frustumCulled = false;
+        child.material = new THREE.MeshBasicMaterial({ color: 0x333333 });
+      }
+    });
     this.scene.add(this.loupedeck);
     
     // Find and store button meshes for animation
@@ -368,15 +468,15 @@ export default class RoomExperience {
     // Create particle system
     for (let i = 0; i < this.coffeeSteam.count; i++) {
       const particle = new THREE.Mesh(
-        new THREE.SphereGeometry(0.02, 8, 8),
+        new THREE.SphereGeometry(0.01, 16, 16),
         new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 })
       );
       
       // Randomize initial position
       particle.position.set(
-        Math.random() * 0.1 - 0.05,
-        Math.random() * 0.1,
-        Math.random() * 0.1 - 0.05
+        Math.random() * 0.06 - 0.03,
+        Math.random() * 0.06,
+        Math.random() * 0.06 - 0.03
       );
       
       particle.userData = {
@@ -387,7 +487,7 @@ export default class RoomExperience {
       this.coffeeSteam.particles.add(particle);
     }
     
-    this.coffeeSteam.particles.position.set(0.5, 0.8, 0.3); // Above coffee cup
+    this.coffeeSteam.particles.position.set(0.5, 0.75, 0.3); // Adjusted for cup alignment
     this.scene.add(this.coffeeSteam.particles);
   }
 
@@ -421,17 +521,17 @@ export default class RoomExperience {
   async loadTopChair() {
     const gltf = await this.loadGLB('topChair');
     if (!gltf) return;
-    // Use Bruno's original group and baked material, with correct z-order
+    // Use Bruno's original group and assign baked material
     const chair = gltf.scene.children[0] || gltf.scene;
     chair.renderOrder = 0;
-    chair.traverse(child => {
-      if (child.isMesh) {
-        // Restore original material from GLB, do not override
-        child.material.depthTest = true;
-        child.material.depthWrite = true;
-        child.material.side = THREE.FrontSide;
-      }
-    });
+    // Assign baked shader material to all meshes in the chair
+    if (this.bakedMaterial) {
+      chair.traverse(child => {
+        if (child.isMesh) {
+          child.material = this.bakedMaterial;
+        }
+      });
+    }
     this.topChair = {
       group: chair,
       swingSpeed: 0.5,
@@ -460,47 +560,41 @@ export default class RoomExperience {
   }
 
   async loadScreens() {
-    try {
-      // PC Screen
-      const pcScreen = await this.loadGLB('pcScreen');
-      
-      // Mac Screen
-      const macScreen = await this.loadGLB('macScreen');
-      
-      if (pcScreen) {
-        this.pcScreen = pcScreen.scene;
-        this.scene.add(this.pcScreen);
-      }
-      
-      if (macScreen) {
-        this.macScreen = macScreen.scene;
-        this.scene.add(this.macScreen);
-      }
-      this.setupScreens();
-    } catch (error) {
-      console.error('[Model] Failed to load screens:', error);
-    }
+    // PC Screen - Bruno's exact positioning
+    const pcGltf = await this.gltfLoader.loadAsync('/bruno_demo_temp/static/assets/pcScreenModel.glb');
+    const pcMesh = pcGltf.scene.children[0];
+    // Set up correct material/layering
+    pcMesh.renderOrder = 10;
+    pcMesh.material.depthTest = true;
+    pcMesh.material.depthWrite = false;
+    pcMesh.material.transparent = true;
+    this.pcScreen = new Screen(pcMesh, '/bruno_demo_temp/static/assets/videoPortfolio.mp4', this.scene);
+    // Only add mesh ONCE (Screen will add to scene)
+
+    // Mac Screen - Bruno's exact positioning
+    const macGltf = await this.gltfLoader.loadAsync('/bruno_demo_temp/static/assets/macScreenModel.glb');
+    const macMesh = macGltf.scene.children[0];
+    macMesh.renderOrder = 10;
+    macMesh.material.depthTest = true;
+    macMesh.material.depthWrite = false;
+    macMesh.material.transparent = true;
+    this.macScreen = new Screen(macMesh, '/bruno_demo_temp/static/assets/videoStream.mp4', this.scene);
+    // Only add mesh ONCE (Screen will add to scene)
   }
 
   setupBaseLighting() {
-    // Bruno's exact ambient light settings
-    this.ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
-    this.scene.add(this.ambientLight);
+    // Bruno's ambient light (subtle, only if absolutely needed)
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.05);
+    this.scene.add(ambientLight);
     
-    // Bruno's window light configuration
-    const windowLight = new THREE.PointLight(0xffffff, 1.5, 6);
-    windowLight.position.set(1.8, 1.8, -3.2);
-    this.scene.add(windowLight);
-    
-    // Bruno's directional light setup
-    this.directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    this.directionalLight.position.set(0.8, 1.5, 0.8);
-    this.scene.add(this.directionalLight);
-    
-    // Configure renderer to match Bruno's settings
-    this.renderer.outputEncoding = THREE.sRGBEncoding;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.25;
+    // Main directional light (Bruno's settings)
+    const mainLight = new THREE.DirectionalLight(0xffffff, 0.1);
+    mainLight.position.set(5, 5, 5);
+    mainLight.castShadow = true;
+    mainLight.shadow.mapSize.width = 2048;
+    mainLight.shadow.mapSize.height = 2048;
+    mainLight.intensity = 0; // Remove sunlight effect
+    this.scene.add(mainLight);
   }
 
   setupAccentLights() {
@@ -521,8 +615,8 @@ export default class RoomExperience {
         light.target = obj;
         
         if (obj.name.includes('Strong')) {
-          light.intensity = 1.8; 
-          light.color.setHex(0xffe699); 
+          light.intensity = 0.5; 
+          light.color.setHex(0x000000); 
           light.penumbra = 0.15;
         }
         
@@ -540,88 +634,79 @@ export default class RoomExperience {
     bakedNeutralTex.encoding = THREE.sRGBEncoding; bakedNeutralTex.flipY = false;
     lightMapTex.flipY = false;
 
+    // Create material with tone mapping enabled
+    this.bakedMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        uBakedDayTexture: { value: bakedDayTex },
+        uBakedNightTexture: { value: bakedNightTex },
+        uBakedNeutralTexture: { value: bakedNeutralTex },
+        uLightMapTexture: { value: lightMapTex },
+        uNightMix: { value: 1 }, // Set to 1 as requested
+        uNeutralMix: { value: 0 },
+        uLightTvColor: { value: new THREE.Color('#ff115e') }, // Bruno's bright red-pink
+        uLightTvStrength: { value: 2 },
+        uLightDeskColor: { value: new THREE.Color('#ff6700') }, // Bruno's orange
+        uLightDeskStrength: { value: 1.9 },
+        uLightPcColor: { value: new THREE.Color('#0082ff') }, // Bruno's blue
+        uLightPcStrength: { value: 1.4 }
+      },
+      vertexShader: BAKED_VERTEX_SHADER,
+      fragmentShader: BAKED_FRAGMENT_SHADER,
+      toneMapped: true, // Restore tone mapping
+      transparent: false,
+      depthWrite: true,
+      depthTest: true
+    });
+    // Expose uniforms for GUI binding
+    this.bakedMaterial.uNightMix = this.bakedMaterial.uniforms.uNightMix;
+    this.bakedMaterial.uNeutralMix = this.bakedMaterial.uniforms.uNeutralMix;
+    // Add GUI controls for baked material here (after ShaderMaterial creation)
+    if (this.gui) {
+      // Remove previous folder if it exists to avoid duplicates
+      if (this.bakedMatFolder) {
+        this.gui.removeFolder(this.bakedMatFolder);
+      }
+      this.bakedMatFolder = this.gui.addFolder('Baked Material');
+      this.bakedMatFolder.add(this.bakedMaterial.uniforms.uNightMix, 'value', 0, 2, 0.01).name('Night Mix').onChange(() => { this.bakedMaterial.needsUpdate = true; });
+      this.bakedMatFolder.add(this.bakedMaterial.uniforms.uNeutralMix, 'value', 0, 0.5, 0.01).name('Neutral Mix').onChange(() => { this.bakedMaterial.needsUpdate = true; });
+    }
+
     // Only apply baked shader to main room mesh (not screens, chairs, laptops, or props)
     this.room.traverse(child => {
       if (!child.isMesh) return;
-      const name = child.name.toLowerCase();
-      if (name.includes('screen') || name.includes('chair') || name.includes('laptop') || name.includes('prop') || name.includes('lamp')) {
-        if (!name.includes('lamp')) return;
-      }
-      child.material = new THREE.ShaderMaterial({
-        vertexShader: BAKED_VERTEX_SHADER,
-        fragmentShader: BAKED_FRAGMENT_SHADER,
-        uniforms: {
-          uBakedDayTexture: { value: bakedDayTex },
-          uBakedNightTexture: { value: bakedNightTex },
-          uBakedNeutralTexture: { value: bakedNeutralTex },
-          uLightMapTexture: { value: lightMapTex },
-          uNightMix: { value: 1 },
-          uNeutralMix: { value: 0 },
-          uLightTvColor: { value: new THREE.Color('#ff115e') },
-          uLightTvStrength: { value: 1.47 },
-          uLightDeskColor: { value: new THREE.Color('#ff6700') },
-          uLightDeskStrength: { value: 1.9 },
-          uLightPcColor: { value: new THREE.Color('#0082ff') },
-          uLightPcStrength: { value: 1.4 }
+      
+      // Enhanced screen exclusion check
+      let parent = child.parent;
+      while (parent) {
+        if (parent === this.pcScreen || parent === this.macScreen || 
+            parent.name.includes('Screen')) {
+          console.warn('Skipping baked material for screen element:', child.name);
+          return;
         }
-      });
+        parent = parent.parent;
+      }
+      child.material = this.bakedMaterial;
+      console.log('[BakedMaterial] Assigned baked material to mesh:', child.name);
     });
+    // Ensure room meshes render at default layer
+    this.room.traverse(child => { if (child.isMesh) child.renderOrder = 0; });
   }
 
   setupPostProcessing() {
-    // Create composer
+    // Setup post-processing pipeline
+    // Always preserve renderer outputEncoding/toneMapping!
     this.composer = new EffectComposer(this.renderer);
-    
-    // Add render pass
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    
-    // Remove bloom pass to avoid unwanted glow
-    // const bloomPass = new UnrealBloomPass(
-    //   new THREE.Vector2(window.innerWidth, window.innerHeight),
-    //   0.7, // strength (Bruno's typical value)
-    //   0.25, // radius
-    //   0.95 // threshold
-    // );
-    // this.composer.addPass(bloomPass);
-    
-    // Add gamma correction
-    this.composer.addPass(new ShaderPass(GammaCorrectionShader));
-  }
-
-  setupScreens() {
-    // Assign MeshBasicMaterial with video texture only, no color/emissive overlays
-    if (this.pcScreen) {
-      this.pcScreen.traverse(child => {
-        if (child.isMesh && child.material && child.material.map && child.material.map instanceof THREE.VideoTexture) {
-          child.material = new THREE.MeshBasicMaterial({
-            map: child.material.map,
-            depthTest: true,
-            depthWrite: true,
-            side: THREE.FrontSide
-          });
-        } else if (child.isMesh) {
-          child.material.depthTest = true;
-          child.material.depthWrite = true;
-          child.material.side = THREE.FrontSide;
-        }
-      });
-    }
-    if (this.macScreen) {
-      this.macScreen.traverse(child => {
-        if (child.isMesh && child.material && child.material.map && child.material.map instanceof THREE.VideoTexture) {
-          child.material = new THREE.MeshBasicMaterial({
-            map: child.material.map,
-            depthTest: true,
-            depthWrite: true,
-            side: THREE.FrontSide
-          });
-        } else if (child.isMesh) {
-          child.material.depthTest = true;
-          child.material.depthWrite = true;
-          child.material.side = THREE.FrontSide;
-        }
-      });
-    }
+    this.bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(this.renderer.domElement.width, this.renderer.domElement.height),
+      0.35, 0.8, 0.2
+    );
+    this.composer.addPass(this.bloomPass);
+    // DO NOT add GammaCorrectionShader if renderer.outputEncoding = sRGBEncoding
+    // Double check: NEVER override renderer.outputEncoding or toneMapping here!
+    this.renderer.outputEncoding = THREE.sRGBEncoding;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 0.4;
   }
 
   finishLoadingUI() {
@@ -660,11 +745,8 @@ export default class RoomExperience {
     const animate = () => {
       this._animationFrameId = requestAnimationFrame(animate);
       
-      // Use composer instead of direct render
-      this.composer.render();
-      
-      // Update controls if they exist
       if (this.controls) this.controls.update();
+      this.composer ? this.composer.render() : this.renderer.render(this.scene, this.camera);
       
       // Google LEDs animation (TV 'DAIL' bouncing)
       if (this.googleLeds?.items) {
@@ -758,7 +840,7 @@ export default class RoomExperience {
     this.isTransitioning = true;
     this.animateCamera(
       this.props.cameraPositions.computer,
-      new THREE.Vector3(0, 1.1, 0),
+      new THREE.Vector3(0, 1.6, 0),
       this.transitionDuration,
       () => {
         this.isTransitioning = false;
@@ -776,7 +858,7 @@ export default class RoomExperience {
     this.isTransitioning = true;
     this.animateCamera(
       this.props.cameraPositions.screen,
-      new THREE.Vector3(0, 1.1, 0),
+      new THREE.Vector3(0, 1.6, 0),
       this.transitionDuration,
       () => {
         this.isTransitioning = false;
@@ -814,45 +896,13 @@ export default class RoomExperience {
     this.isTransitioning = true;
     this.animateCamera(
       this.props.cameraPositions.initial,
-      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(0, 1.6, 0),
       this.transitionDuration,
       () => {
         this.isTransitioning = false;
         this.enableControls();
       }
     );
-  }
-
-  /**
-   * Animate camera movement
-   */
-  animateCamera(targetPosition, targetLookAt, duration, callback) {
-    const startPosition = this.camera.position.clone();
-    const startLookAt = this.controls?.target.clone() || new THREE.Vector3();
-    const clockStart = Date.now();
-    const easeInOutCubic = t => t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2, 3)/2;
-    const currentTarget = startLookAt.clone();
-    const update = () => {
-      const elapsed = Date.now() - clockStart;
-      const t = Math.min(elapsed / duration, 1);
-      const ease = easeInOutCubic(t);
-      this.camera.position.lerpVectors(startPosition, targetPosition, ease);
-      currentTarget.lerpVectors(startLookAt, targetLookAt, ease);
-      this.camera.lookAt(currentTarget);
-      if (this.controls) {
-        this.controls.target.copy(currentTarget);
-        this.controls.update();
-      }
-      if (t < 1) requestAnimationFrame(update);
-      else if (callback) callback();
-    };
-    update();
-  }
-
-  /**
-   * Fade out the 3D view
-   */
-  fadeOut(callback) {
     const el = this.renderer.domElement;
     el.style.transition = 'opacity 0.5s';
     el.style.opacity = '0';
@@ -895,6 +945,93 @@ export default class RoomExperience {
     });
     document.body.appendChild(btn);
     btn.addEventListener('click', () => this.launchApplication());
+  }
+
+  // Generic camera animation utility for all transitions
+  animateCamera(targetPosition, lookAtTarget, duration = 3000, onComplete = null) {
+    const start = this.camera.position.clone();
+    const end = targetPosition ? targetPosition.clone() : this.camera.position.clone();
+    const lookAt = lookAtTarget ? lookAtTarget.clone() : new THREE.Vector3(0, 1.6, 0);
+    const startTime = performance.now();
+    if (this.controls) this.controls.enabled = false;
+    const animate = () => {
+      const now = performance.now();
+      const t = Math.min((now - startTime) / duration, 1);
+      const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      const currentPos = new THREE.Vector3().lerpVectors(start, end, ease);
+      this.camera.position.copy(currentPos);
+      this.camera.lookAt(lookAt);
+      this.camera.updateProjectionMatrix();
+      if (this.controls) {
+        this.controls.target.copy(lookAt);
+        this.controls.update();
+      }
+      if (t < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        if (this.controls) {
+          this.controls.enabled = true;
+          this.controls.target.copy(lookAt);
+          this.controls.update();
+        }
+        if (onComplete) onComplete();
+      }
+    };
+    animate();
+  }
+
+  // World-class cinematic intro animation with improved easing and angles
+  animateIntroCamera() {
+    // Camera positions (higher end point, slight left offset)
+    const start = new THREE.Vector3(-30, 15, 15);  // Start far left, high
+    const end = new THREE.Vector3(-5, 3.5, 5);     // More left ending position
+    const lookAt = new THREE.Vector3(1.5, 2.5, 0); // Looking more left
+    const duration = 3500;
+
+    // Setup animation
+    this.camera.position.copy(start);
+    this.camera.lookAt(lookAt);
+    
+    // Disable controls during animation
+    if (this.controls) this.controls.enabled = false;
+
+    // Animation loop with standard easing
+    const startTime = performance.now();
+    const animate = (timestamp) => {
+      const elapsed = timestamp - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      // Smoother cubic easing function
+      const easedProgress = progress < 0.5 
+        ? 4 * progress * progress * progress
+        : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+
+      // Smooth position interpolation
+      this.camera.position.lerpVectors(start, end, easedProgress);
+      this.camera.lookAt(lookAt);
+      this.camera.updateProjectionMatrix();
+
+      if (this.controls) {
+        this.controls.target.copy(lookAt);
+        this.controls.update();
+      }
+
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        // Finalize animation
+        if (this.controls) {
+          this.controls.enabled = true;
+          this.controls.target.copy(lookAt);
+          this.controls.update();
+        }
+        
+        // Restore launch button (with safety check)
+        if (typeof this.showLaunchButton === 'function') {
+          this.showLaunchButton();
+        }
+      }
+    };
+    requestAnimationFrame(animate);
   }
 
   launchApplication() {

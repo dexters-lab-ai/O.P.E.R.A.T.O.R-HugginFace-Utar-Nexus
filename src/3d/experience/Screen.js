@@ -1,54 +1,69 @@
-import * as THREE from 'three'
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 
-import Experience from './Experience.js'
+export default class Screen {
+  constructor(mesh, videoPath, scene) {
+    this.mesh = mesh;
+    this.videoPath = videoPath;
+    this.scene = scene; // Store scene reference
+    this.video = null;
+    this.material = null;
+    this.texture = null;
+    this.initialized = false;
+    this.init();
+  }
 
-export default class Screen
-{
-    constructor(_mesh, _sourcePath)
-    {
-        this.experience = new Experience()
-        this.resources = this.experience.resources
-        this.debug = this.experience.debug
-        this.scene = this.experience.scene
-        this.world = this.experience.world
+  init() {
+    if (this.initialized) return;
+    this.initialized = true;
+    // Ensure video texture renders behind other objects
+    this.mesh.renderOrder = 0;
+    this.mesh.material.depthWrite = true;
+    this.mesh.material.depthTest = true;
 
-        this.mesh = _mesh
-        this.sourcePath = _sourcePath
+    // Video setup (Bruno's exact parameters)
+    this.video = document.createElement('video');
+    this.video.src = this.videoPath;
+    this.video.muted = true;
+    this.video.loop = true;
+    this.video.playsInline = true;
+    this.video.autoplay = true;
+    this.video.crossOrigin = 'anonymous';
+    this.video.style.display = 'none';
+    document.body.appendChild(this.video);
+    this.video.play();
 
-        this.setModel()
+    // Material setup
+    this.texture = new THREE.VideoTexture(this.video);
+    this.texture.encoding = THREE.sRGBEncoding;
+    this.mesh.material.map = this.texture;
+
+    // Force depth buffer update
+    this.mesh.material.needsUpdate = true;
+    this.scene.add(this.mesh);
+  }
+
+  dispose() {
+    if (this.video) {
+      this.video.pause();
+      this.video.src = '';
+      if (this.video.parentNode) {
+        this.video.parentNode.removeChild(this.video);
+      }
+      this.video = null;
     }
-
-    setModel()
-    {
-        this.model = {}
-
-        // Element
-        this.model.element = document.createElement('video')
-        this.model.element.muted = true
-        this.model.element.loop = true
-        this.model.element.controls = true
-        this.model.element.playsInline = true
-        this.model.element.autoplay = true
-        this.model.element.src = this.sourcePath
-        this.model.element.play()
-
-        // Texture
-        this.model.texture = new THREE.VideoTexture(this.model.element)
-        this.model.texture.encoding = THREE.sRGBEncoding
-
-        // Material
-        this.model.material = new THREE.MeshBasicMaterial({
-            map: this.model.texture
-        })
-
-        // Mesh
-        this.model.mesh = this.mesh
-        this.model.mesh.material = this.model.material
-        this.scene.add(this.model.mesh)
+    if (this.texture) {
+      this.texture.dispose();
+      this.texture = null;
     }
-
-    update()
-    {
-        // this.model.group.rotation.y = Math.sin(this.time.elapsed * 0.0005) * 0.5
+    if (this.mesh && this.mesh.material && this.mesh.material.map) {
+      this.mesh.material.map = null;
+      this.mesh.material.needsUpdate = true;
     }
+    if (this.scene && this.mesh) {
+      this.scene.remove(this.mesh);
+    }
+    this.initialized = false;
+  }
 }

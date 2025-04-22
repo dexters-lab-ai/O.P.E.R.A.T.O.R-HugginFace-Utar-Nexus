@@ -71,14 +71,22 @@ export default class World
 
     setScreens()
     {
+        if (this.pcScreen && typeof this.pcScreen.dispose === 'function') {
+            this.pcScreen.dispose();
+        }
+        if (this.macScreen && typeof this.macScreen.dispose === 'function') {
+            this.macScreen.dispose();
+        }
         this.pcScreen = new Screen(
             this.resources.items.pcScreenModel.scene.children[0],
-            '/assets/videoPortfolio.mp4'
-        )
+            '/assets/videoPortfolio.mp4',
+            this.scene
+        );
         this.macScreen = new Screen(
             this.resources.items.macScreenModel.scene.children[0],
-            '/assets/videoStream.mp4'
-        )
+            '/assets/videoStream.mp4',
+            this.scene
+        );
     }
 
     resize()
@@ -87,23 +95,31 @@ export default class World
 
     update()
     {
-        if(this.googleLeds)
-            this.googleLeds.update()
+        if(this.googleLeds && typeof this.googleLeds.update === 'function')
+            this.googleLeds.update();
 
-        if(this.loupedeckButtons)
-            this.loupedeckButtons.update()
+        if(this.loupedeckButtons && typeof this.loupedeckButtons.update === 'function')
+            this.loupedeckButtons.update();
 
-        if(this.coffeeSteam)
-            this.coffeeSteam.update()
+        if(this.coffeeSteam && typeof this.coffeeSteam.update === 'function')
+            this.coffeeSteam.update();
 
-        if(this.topChair)
-            this.topChair.update()
+        if(this.topChair && typeof this.topChair.update === 'function')
+            this.topChair.update();
 
-        if(this.bouncingLogo)
-            this.bouncingLogo.update()
+        if(this.bouncingLogo && typeof this.bouncingLogo.update === 'function')
+            this.bouncingLogo.update();
     }
 
     destroy()
     {
+        if (this.pcScreen && typeof this.pcScreen.dispose === 'function') {
+            this.pcScreen.dispose();
+            this.pcScreen = null;
+        }
+        if (this.macScreen && typeof this.macScreen.dispose === 'function') {
+            this.macScreen.dispose();
+            this.macScreen = null;
+        }
     }
 }
