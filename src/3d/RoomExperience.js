@@ -832,54 +832,6 @@ export function RoomExperience(props = {}) {
    */
   function enableControls() {
     if (controls) {
-      controls.enabled = true;
-    }
-  }
-  
-  /**
-   * Dispose of all resources
-   */
-  function dispose() {
-    console.group('[Room] Dispose');
-    try {
-      // Stop animation loop
-      // renderer.setAnimationLoop(null);
-      
-      // Remove event listeners
-      window.removeEventListener('resize', handleResize);
-      
-      // Dispose of Three.js resources
-      if (scene) {
-        scene.traverse((object) => {
-          if (object.isMesh) {
-            object.geometry.dispose();
-            
-            if (object.material.map) {
-              object.material.map.dispose();
-            }
-            object.material.dispose();
-          }
-        });
-      }
-      
-      // Remove canvas from DOM
-      if (renderer && renderer.domElement && renderer.domElement.parentNode) {
-        renderer.domElement.parentNode.removeChild(renderer.domElement);
-      }
-      
-      // Dispose of renderer
-      if (renderer) {
-        renderer.dispose();
-      }
-    } finally {
-      console.groupEnd();
-    }
-  }
-  
-  function hasWebGLSupport() {
-    try {
-      const canvas = document.createElement('canvas');
-      return !!(
         window.WebGLRenderingContext && 
         (canvas.getContext('webgl') || canvas.getContext('experimental-webgl'))
       );

@@ -253,9 +253,9 @@ export default class RoomExperience {
     // --- Bruno's defaults: world-class fidelity ---
     this.renderer.outputEncoding = THREE.sRGBEncoding;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.3; // Key setting for reducing brightness
+    this.renderer.toneMappingExposure = 0.3; // Bruno's value for best exposure
     this.renderer.physicallyCorrectLights = true;
-    this.renderer.shadowMap.enabled = false;
+    this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     // NEVER override these settings after this point!
 
@@ -584,17 +584,9 @@ export default class RoomExperience {
 
   setupBaseLighting() {
     // Bruno's ambient light (subtle, only if absolutely needed)
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.05);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.025);
     this.scene.add(ambientLight);
-    
-    // Main directional light (Bruno's settings)
-    const mainLight = new THREE.DirectionalLight(0xffffff, 0.1);
-    mainLight.position.set(5, 5, 5);
-    mainLight.castShadow = true;
-    mainLight.shadow.mapSize.width = 2048;
-    mainLight.shadow.mapSize.height = 2048;
-    mainLight.intensity = 0; // Remove sunlight effect
-    this.scene.add(mainLight);
+    // Directional/ceiling light removed for pure baked lighting look.
   }
 
   setupAccentLights() {

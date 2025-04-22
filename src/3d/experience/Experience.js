@@ -181,6 +181,34 @@ export default class Experience
 
     destroy()
     {
-        
+        console.group('[Experience] Destroy');
+        try {
+            if(this.renderer && typeof this.renderer.destroy === 'function') {
+                this.renderer.destroy();
+                this.renderer = null;
+            }
+            if(this.resources && typeof this.resources.destroy === 'function') {
+                this.resources.destroy();
+                this.resources = null;
+            }
+            if(this.world && typeof this.world.destroy === 'function') {
+                this.world.destroy();
+                this.world = null;
+            }
+            if(this.camera && typeof this.camera.destroy === 'function') {
+                this.camera.destroy();
+                this.camera = null;
+            }
+            if(this.sizes && this.sizes.off) {
+                this.sizes.off('resize');
+            }
+            // Remove renderer DOM element if present
+            if(this.targetElement && this.targetElement.parentNode) {
+                this.targetElement.parentNode.removeChild(this.targetElement);
+            }
+            Experience.instance = null;
+        } finally {
+            console.groupEnd();
+        }
     }
 }

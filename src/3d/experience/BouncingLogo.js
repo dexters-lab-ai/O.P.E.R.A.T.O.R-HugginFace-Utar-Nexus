@@ -43,6 +43,7 @@ export default class BouncingLogo
         this.model.geometry.rotateY(- Math.PI * 0.5)
 
         this.model.material = new THREE.MeshBasicMaterial({
+            color: 0x000000,
             transparent: true,
             premultipliedAlpha: true,
             map: this.model.texture
