@@ -46,10 +46,53 @@ export function initializeModernUI(options = {}) {
     modelPath = '/models/room.glb'
   } = options;
 
+  // Patch fetch to log API calls and errors globally
+  const origFetch = window.fetch;
+  window.fetch = async (...args) => {
+    try {
+      const res = await origFetch(...args);
+      if (!res.ok) {
+        updateDebugPanel(`[API ERROR] ${args[0]}: ${res.status} ${res.statusText}`);
+      } else {
+        updateDebugPanel(`[API OK] ${args[0]}`);
+      }
+      return res;
+    } catch (err) {
+      updateDebugPanel(`[API FAIL] ${args[0]}: ${err.message}`);
+      throw err;
+    }
+  };
+
   // Component instances
   const components = {};
+  // Debug panel for session/API status
+  let debugPanel = null;
   // Create root container if needed
   const appRoot = document.getElementById('app-root') || createAppRoot();
+  // Add debug panel
+  function createDebugPanel() {
+    debugPanel = document.createElement('div');
+    debugPanel.id = 'debug-panel';
+    debugPanel.style.position = 'fixed';
+    debugPanel.style.bottom = '0';
+    debugPanel.style.right = '0';
+    debugPanel.style.background = 'rgba(0,0,0,0.85)';
+    debugPanel.style.color = '#fff';
+    debugPanel.style.fontSize = '12px';
+    debugPanel.style.zIndex = '9999';
+    debugPanel.style.padding = '6px 14px';
+    debugPanel.style.borderTopLeftRadius = '8px';
+    debugPanel.style.maxWidth = '340px';
+    debugPanel.innerHTML = '<b>Debug Panel</b><div id="debug-status"></div>';
+    document.body.appendChild(debugPanel);
+    updateDebugPanel('Initializing...');
+  }
+  function updateDebugPanel(msg) {
+    if (debugPanel) {
+      debugPanel.querySelector('#debug-status').textContent = msg;
+    }
+  }
+  createDebugPanel();
 
   /**
    * Create the application root element
@@ -66,18 +109,30 @@ export function initializeModernUI(options = {}) {
    * Initialize theme controller
    */
   function initThemeController() {
-    components.themeController = ThemeController({
-      defaultTheme: 'dark',
-      defaultFontSize: 'medium',
-      api: { post }
-    });
-    // Apply saved theme if available
-    const savedTheme = localStorage.getItem('operator_theme') || 'dark';
     try {
-      components.themeController.setTheme(savedTheme);
-    } catch (error) {
-      console.error('Failed to set initial theme:', error);
-      components.themeController.setTheme('dark', false);
+      components.themeController = ThemeController({
+        defaultTheme: 'dark',
+        defaultFontSize: 'medium',
+        api: { post }
+      });
+      console.log('[INIT] ThemeController created');
+      // Apply saved theme if available
+      const savedTheme = localStorage.getItem('operator_theme') || 'dark';
+      try {
+        components.themeController.setTheme(savedTheme);
+      } catch (error) {
+        console.error('Failed to set initial theme:', error);
+        components.themeController.setTheme('dark', false);
+      }
+    } catch (err) {
+      console.error('[ERROR] ThemeController failed to create:', err);
+      if (components.notifications) {
+        components.notifications.addNotification({
+          title: 'Theme Controller Error',
+          message: err.message,
+          type: 'error'
+        });
+      }
     }
   }
 
@@ -85,11 +140,17 @@ export function initializeModernUI(options = {}) {
    * Initialize notifications system
    */
   function initNotifications() {
-    components.notifications = Notifications({
-      position: 'top-right',
-      duration: 5000
-    });
-    appRoot.appendChild(components.notifications);
+    try {
+      components.notifications = Notifications({
+        position: 'top-right',
+        duration: 5000
+      });
+      console.log('[INIT] Notifications created');
+      appRoot.appendChild(components.notifications);
+      console.log('[INIT] Notifications appended to DOM');
+    } catch (err) {
+      console.error('[ERROR] Notifications failed to create/append:', err);
+    }
   }
 
   /**
@@ -172,16 +233,68 @@ export function initializeModernUI(options = {}) {
     ];
 
     // Create sidebar
-    components.sidebar = Sidebar({
-      containerId: 'main-sidebar',
-      position: 'left',
-      collapsed: false,
-      items: sidebarItems
-    });
+    try {
+      components.sidebar = Sidebar({
+        containerId: 'main-sidebar',
+        position: 'left',
+        collapsed: false,
+        items: sidebarItems
+      });
+      console.log('[INIT] Sidebar created');
+    } catch (err) {
+      console.error('[ERROR] Sidebar failed to create:', err);
+      if (components.notifications) {
+        components.notifications.addNotification({
+          title: 'Sidebar Error',
+          message: err.message,
+          type: 'error'
+        });
+      }
+    }
 
     // Create navigation bar
-    components.navigationBar = NavigationBar({
-      containerId: 'main-navigation'
+    try {
+      console.error('[APP] Attempting to require NavigationBar');
+      const NavBar = require('../src/components/NavigationBar.js');
+      components.navigationBar = NavBar.default || NavBar({ containerId: 'main-navigation' });
+      console.error('[APP] NavigationBar required successfully');
+      
+      // Always append NavigationBar to DOM at top of appRoot
+      if (appRoot.firstChild) {
+        appRoot.insertBefore(components.navigationBar, appRoot.firstChild);
+      } else {
+        appRoot.appendChild(components.navigationBar);
+      }
+    } catch (err) {
+      console.error('[APP] Failed to require NavigationBar:', err);
+      components.navigationBar = document.createElement('div');
+      components.navigationBar.textContent = 'NAVBAR PLACEHOLDER';
+      components.navigationBar.style.backgroundColor = 'red';
+      components.navigationBar.style.height = '50px';
+      appRoot.appendChild(components.navigationBar);
+    }
+
+    // Create back button and inject into navigation bar after launch
+    components.backButton = null;
+    eventBus.on('application-ready', () => {
+      if (!components.backButton) {
+        import('../src/components/BackButton.js').then(({ default: BackButton }) => {
+          components.backButton = BackButton({
+            onBack: () => eventBus.emit('exit-application'),
+            containerId: 'back-btn'
+          });
+          // Insert back button into navigation bar
+          if (components.navigationBar && components.navigationBar.appendChild) {
+            components.navigationBar.appendChild(components.backButton);
+          }
+        });
+      } else {
+        // Already exists, just show it
+        components.backButton.style.display = '';
+      }
+    });
+    eventBus.on('exit-application', () => {
+      if (components.backButton) components.backButton.style.display = 'none';
     });
 
     // Add to layout with runtime checks
@@ -202,16 +315,40 @@ export function initializeModernUI(options = {}) {
    */
   function initContentComponents() {
     // Create message timeline
-    components.messageTimeline = MessageTimeline({
-      containerId: 'message-timeline',
-      initialFilter: 'all'
-    });
+    try {
+      components.messageTimeline = MessageTimeline({
+        containerId: 'message-timeline',
+        initialFilter: 'all'
+      });
+      console.log('[INIT] MessageTimeline created');
+    } catch (err) {
+      console.error('[ERROR] MessageTimeline failed to create:', err);
+      if (components.notifications) {
+        components.notifications.addNotification({
+          title: 'Message Timeline Error',
+          message: err.message,
+          type: 'error'
+        });
+      }
+    }
 
     // Create command center
-    components.commandCenter = CommandCenter({
-      containerId: 'command-center',
-      initialTab: 'nli'
-    });
+    try {
+      components.commandCenter = CommandCenter({
+        containerId: 'command-center',
+        initialTab: 'nli'
+      });
+      console.log('[INIT] CommandCenter created');
+    } catch (err) {
+      console.error('[ERROR] CommandCenter failed to create:', err);
+      if (components.notifications) {
+        components.notifications.addNotification({
+          title: 'Command Center Error',
+          message: err.message,
+          type: 'error'
+        });
+      }
+    }
 
     // Add to layout with runtime check
     if (typeof components.layoutManager.setContent === 'function') {
@@ -229,24 +366,72 @@ export function initializeModernUI(options = {}) {
    */
   function initOverlayComponents() {
     // Create history overlay
-    components.historyOverlay = HistoryOverlay({
-      containerId: 'history-overlay'
-    });
+    try {
+      components.historyOverlay = HistoryOverlay({
+        containerId: 'history-overlay'
+      });
+      console.log('[INIT] HistoryOverlay created');
+    } catch (err) {
+      console.error('[ERROR] HistoryOverlay failed to create:', err);
+      if (components.notifications) {
+        components.notifications.addNotification({
+          title: 'History Overlay Error',
+          message: err.message,
+          type: 'error'
+        });
+      }
+    }
 
     // Add to DOM
-    appRoot.appendChild(components.historyOverlay);
+    try {
+      appRoot.appendChild(components.historyOverlay);
+      console.log('[INIT] HistoryOverlay appended to DOM');
+    } catch (err) {
+      console.error('[ERROR] Failed to append HistoryOverlay:', err);
+    }
+
+    // Listen for event to show/hide overlay
+    eventBus.on('toggle-history-overlay', () => {
+      if (components.historyOverlay && typeof components.historyOverlay.toggle === 'function') {
+        components.historyOverlay.toggle();
+      } else {
+        // fallback: toggle display
+        if (components.historyOverlay.style.display === 'block') {
+          components.historyOverlay.style.display = 'none';
+        } else {
+          components.historyOverlay.style.display = 'block';
+        }
+      }
+    });
   }
 
   /**
    * Initialize task bar
    */
   function initTaskBar() {
-    components.taskBar = TaskBar({
-      containerId: 'task-bar'
-    });
+    try {
+      components.taskBar = TaskBar({
+        containerId: 'task-bar'
+      });
+      console.log('[INIT] TaskBar created');
+    } catch (err) {
+      console.error('[ERROR] TaskBar failed to create:', err);
+      if (components.notifications) {
+        components.notifications.addNotification({
+          title: 'Task Bar Error',
+          message: err.message,
+          type: 'error'
+        });
+      }
+    }
 
     // Add to layout
-    components.layoutManager.setTaskBar(components.taskBar);
+    try {
+      components.layoutManager.setTaskBar(components.taskBar);
+      console.log('[INIT] TaskBar set in LayoutManager');
+    } catch (err) {
+      console.error('[ERROR] Failed to set TaskBar in LayoutManager:', err);
+    }
   }
 
   /**

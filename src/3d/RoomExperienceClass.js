@@ -1033,6 +1033,18 @@ export default class RoomExperience extends EventEmitter {
       launchBtn.parentNode.removeChild(launchBtn);
       console.log('[RoomExperience] Launch button removed');
     }
+    // Dispose of GUI (Tweakpane/lil-gui) if present
+    if (this.gui) {
+      if (typeof this.gui.dispose === 'function') {
+        this.gui.dispose();
+      }
+      // Remove from DOM if present
+      if (this.gui.domElement && this.gui.domElement.parentNode) {
+        this.gui.domElement.parentNode.removeChild(this.gui.domElement);
+      }
+      this.gui = null;
+      console.log('[RoomExperience] GUI disposed and removed from DOM');
+    }
     // Null out references
     this.scene = null;
     this.camera = null;
@@ -1160,7 +1172,7 @@ export default class RoomExperience extends EventEmitter {
   animateIntroCamera() {
     // GSAP-based smooth intro pan
     this.controls.enabled = false;
-    const lookAt = new THREE.Vector3(1.5, 2.5, 0);
+    const lookAt = new THREE.Vector3(1.4, 3, -1.1);
     // Set camera to match controls' pan start position and target
     if (this.controls) {
       this.camera.position.copy(this.controls.object.position);
@@ -1170,8 +1182,13 @@ export default class RoomExperience extends EventEmitter {
       this.camera.lookAt(1, 2, 0);
     }
     this.camera.updateProjectionMatrix();
+    // Cinematic move: further from desk and turned left (z: 5.5, x: -4.5), keep height
     gsap.to(this.camera.position, {
-      x: -5, y: 3.5, z: 5,
+      x: -5.5, // more negative = more to the left
+      y: 3,  // unchanged height
+      z: 6,  // further away from desk
+      duration: 3.5,
+      ease: 'power3.inOut',
       duration: 3.5,
       ease: 'power3.inOut',
       onUpdate: () => {

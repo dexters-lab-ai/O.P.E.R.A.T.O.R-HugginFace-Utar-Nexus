@@ -3,9 +3,15 @@
  * Main application header with navigation controls and user information
  */
 
+console.error('[NAVIGATION-BAR] FILE IS LOADED!');
+throw new Error('DEBUG: Forcing error to confirm NavigationBar.js load');
+
 import { eventBus } from '../utils/events.js';
 import { stores } from '../store/index.js';
 import Button from './base/Button.js';
+
+// DEBUG: Log initialization
+console.log('[NAVIGATION-BAR] Component initialized');
 
 /**
  * Create a navigation bar component
@@ -24,6 +30,11 @@ export function NavigationBar(props = {}) {
   const container = document.createElement('div');
   container.className = 'navigation-bar';
   if (containerId) container.id = containerId;
+  
+  // DEBUG: Detect if element gets removed
+  container.addEventListener('DOMNodeRemoved', () => {
+    console.error('[NAVIGATION-BAR] Element was removed from DOM!');
+  });
   
   // Create branding section
   const branding = document.createElement('div');
@@ -131,6 +142,12 @@ export function NavigationBar(props = {}) {
   container.appendChild(branding);
   container.appendChild(navigation);
   container.appendChild(tools);
+
+  // DEBUG: Log the container before returning
+  console.log('[DEBUG] NavigationBar container:', container);
+
+  // Always return the container for mounting
+  return container;
   
   // Layout menu (created on demand)
   let layoutMenu = null;
