@@ -6,7 +6,7 @@
 import { eventBus } from '../utils/events.js';
 import { stores } from '../store/index.js';
 import Button from './base/Button.js';
-import api from '../utils/api.js';
+import { getSettings, saveSettings } from '../api/settings.js';
 
 /**
  * Create a settings component
@@ -486,8 +486,8 @@ export function Settings(props = {}) {
         document.documentElement.removeAttribute('data-high-contrast');
       }
       
-      // Save to server
-      await api.post('/settings', { 
+      // Save to server (modularized)
+      await saveSettings({
         general: settings.general,
         interface: settings.interface,
         accessibility: settings.accessibility
@@ -553,7 +553,7 @@ export function Settings(props = {}) {
    */
   async function loadSettings() {
     try {
-      const response = await api.get('/settings');
+      const response = await getSettings();
       
       if (response && response.success) {
         // Merge server settings with defaults

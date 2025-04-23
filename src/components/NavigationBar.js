@@ -3,8 +3,7 @@
  * Main application header with navigation controls and user information
  */
 
-console.error('[NAVIGATION-BAR] FILE IS LOADED!');
-throw new Error('DEBUG: Forcing error to confirm NavigationBar.js load');
+console.log('[NAVIGATION-BAR] Component file loaded');
 
 import { eventBus } from '../utils/events.js';
 import { stores } from '../store/index.js';
@@ -31,10 +30,19 @@ export function NavigationBar(props = {}) {
   container.className = 'navigation-bar';
   if (containerId) container.id = containerId;
   
-  // DEBUG: Detect if element gets removed
-  container.addEventListener('DOMNodeRemoved', () => {
-    console.error('[NAVIGATION-BAR] Element was removed from DOM!');
+  // Use MutationObserver to detect removal from DOM
+  const observer = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      mutation.removedNodes.forEach((removed) => {
+        if (removed === container) {
+          console.warn('[NAVIGATION-BAR] Element was removed from DOM!');
+        }
+      });
+    });
   });
+  if (container.parentNode) {
+    observer.observe(container.parentNode, { childList: true });
+  }
   
   // Create branding section
   const branding = document.createElement('div');
@@ -123,7 +131,7 @@ export function NavigationBar(props = {}) {
       <div class="user-name">User</div>
       <div class="user-status">
         <span class="status-indicator online"></span>
-        <span class="status-text">Active</span>
+        <div class="status-text">Active</div>
       </div>
     </div>
   `;
@@ -165,7 +173,7 @@ export function NavigationBar(props = {}) {
       layoutMenu = document.createElement('div');
       layoutMenu.className = 'dropdown-menu';
       
-      const layoutOptions = [
+      const layoutPresets = [
         { id: 'default', name: 'Default', icon: 'fa-columns' },
         { id: 'centered', name: 'Centered', icon: 'fa-align-center' },
         { id: 'focus', name: 'Focus Mode', icon: 'fa-bullseye' },
@@ -173,7 +181,7 @@ export function NavigationBar(props = {}) {
       ];
       
       // Create menu items
-      layoutOptions.forEach(option => {
+      layoutPresets.forEach((option) => {
         const menuItem = document.createElement('a');
         menuItem.href = '#';
         menuItem.className = 'dropdown-item';

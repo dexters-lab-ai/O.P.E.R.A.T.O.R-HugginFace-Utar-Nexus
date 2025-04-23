@@ -5,9 +5,10 @@
 
 import { eventBus } from './utils/events.js';
 import { stores } from './store/index.js';
-import { api, get, post } from './utils/api.js';
 import { initializeModernUI } from './app-modern-integration.js';
 import ErrorBoundary from './components/base/ErrorBoundary';
+import { getAllHistory } from './api/history.js';
+import { getSettings } from './api/settings.js';
 
 // Maintain references to all initialized components
 let appComponents = null;
@@ -70,7 +71,7 @@ async function initializeStores() {
     
     // Load user settings if available
     try {
-      const settingsResponse = await get('/settings');
+      const settingsResponse = await getSettings();
       if (settingsResponse && settingsResponse.success) {
         // Update UI store with user settings
         stores.ui.setState({
@@ -91,7 +92,7 @@ async function initializeStores() {
     
     // Initialize history store
     try {
-      const historyResponse = await get('/history', { limit: 20 });
+      const historyResponse = await getAllHistory(1, 20);
       if (historyResponse && historyResponse.success) {
         stores.history.setState({
           items: historyResponse.items || []
@@ -333,6 +334,6 @@ export default {
   init: initializeApp,
   stores,
   eventBus,
-  api,
+
   getComponents: () => appComponents
 };

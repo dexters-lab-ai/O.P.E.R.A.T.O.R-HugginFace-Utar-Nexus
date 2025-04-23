@@ -5,7 +5,7 @@
 
 import { eventBus, addEvent } from '../utils/events.js';
 import { messagesStore } from '../store/index.js';
-import api from '../utils/api.js';
+import { getMessageHistory } from '../api/messages.js';
 
 // Message type constants
 export const MESSAGE_TYPES = {
@@ -194,7 +194,7 @@ export function MessageTimeline(props = {}) {
   function loadMessages() {
     messagesStore.setState({ loading: true, error: null });
     
-    api.messages.getHistory()
+    getMessageHistory()
       .then(data => {
         if (data && Array.isArray(data.items)) {
           messagesStore.setState({ 

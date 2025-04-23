@@ -4,9 +4,12 @@
  */
 
 import { eventBus } from '../src/utils/events.js';
-import { App } from '../src/components/App.js';
+import * as App from '../src/api/index.js';
 import { stores } from '../src/store/index.js';
-import { api, get, post } from '../src/utils/api.js';
+import { getAllHistory } from '../src/api/history.js';
+import { getMessageHistory } from '../src/api/messages.js';
+import { submitNLI } from '../src/api/nli.js';
+import { getActiveTasks, cancelTask } from '../src/api/tasks.js';
 import { init3DScene } from './3d-scene-manager.js';
 
 // Import base components
@@ -37,7 +40,7 @@ import RoomEntryPoint from '../src/3d/RoomEntryPoint.js';
  * @param {Object} options - Initialization options
  * @returns {Object} Component references and utilities
  */
-export function initializeModernUI(options = {}) {
+export async function initializeModernUI(options = {}) {
   // Destructure options and set defaults
   const {
     rootElement = document.body,
@@ -45,6 +48,32 @@ export function initializeModernUI(options = {}) {
     initialLayoutPreset = 'default',
     modelPath = '/models/room.glb'
   } = options;
+
+  // Initialize debug panel first
+  let debugPanel = null;
+  function initDebugPanel() {
+    debugPanel = document.createElement('div');
+    debugPanel.style.cssText = `
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      background: rgba(0,0,0,0.7);
+      color: white;
+      padding: 8px;
+      font-family: monospace;
+      z-index: 9999;
+    `;
+    document.body.appendChild(debugPanel);
+  }
+
+  function updateDebugPanel(message) {
+    if (debugPanel) {
+      debugPanel.textContent = message;
+    }
+  }
+
+  // Initialize debug panel early
+  initDebugPanel();
 
   // Patch fetch to log API calls and errors globally
   const origFetch = window.fetch;
@@ -63,37 +92,46 @@ export function initializeModernUI(options = {}) {
     }
   };
 
-  // Component instances
+  // Initialize NavigationBar first and append to appRoot
   const components = {};
-  // Debug panel for session/API status
-  let debugPanel = null;
+  try {
+    const NavBar = await import('../src/components/NavigationBar.js');
+    components.navigationBar = NavBar.default({ containerId: 'main-navigation' });
+    // Attach to appRoot at the top
+    const appRoot = document.getElementById('app-root') || createAppRoot();
+    appRoot.insertBefore(components.navigationBar, appRoot.firstChild);
+    // Debug styling (optional, remove for production)
+    components.navigationBar.style.outline = '2px solid red';
+    components.navigationBar.style.position = 'relative';
+    components.navigationBar.style.zIndex = '9999';
+  } catch (err) {
+    console.error('[APP] NavigationBar failed:', err);
+    const errorDiv = document.createElement('div');
+    errorDiv.textContent = 'NAVBAR ERROR: ' + err.message;
+    errorDiv.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      padding: 1rem;
+      background: #ff0000;
+      color: white;
+      z-index: 9999;
+    `;
+    document.body.prepend(errorDiv);
+  }
+
+  // Continue initializing other components as before
+  components.layoutManager = null;
+  components.sidebar = null;
+  components.notifications = null;
+  // ... (rest of your initialization logic for these components)
+
+
+  // Component instances
   // Create root container if needed
   const appRoot = document.getElementById('app-root') || createAppRoot();
-  // Add debug panel
-  function createDebugPanel() {
-    debugPanel = document.createElement('div');
-    debugPanel.id = 'debug-panel';
-    debugPanel.style.position = 'fixed';
-    debugPanel.style.bottom = '0';
-    debugPanel.style.right = '0';
-    debugPanel.style.background = 'rgba(0,0,0,0.85)';
-    debugPanel.style.color = '#fff';
-    debugPanel.style.fontSize = '12px';
-    debugPanel.style.zIndex = '9999';
-    debugPanel.style.padding = '6px 14px';
-    debugPanel.style.borderTopLeftRadius = '8px';
-    debugPanel.style.maxWidth = '340px';
-    debugPanel.innerHTML = '<b>Debug Panel</b><div id="debug-status"></div>';
-    document.body.appendChild(debugPanel);
-    updateDebugPanel('Initializing...');
-  }
-  function updateDebugPanel(msg) {
-    if (debugPanel) {
-      debugPanel.querySelector('#debug-status').textContent = msg;
-    }
-  }
-  createDebugPanel();
-
+  
   /**
    * Create the application root element
    * @returns {HTMLElement} App root element
@@ -179,7 +217,7 @@ export function initializeModernUI(options = {}) {
 
   // ... (repeat for all other helper/init functions that were previously at module level)
 
-  function initializeAll() {
+  async function initializeAll() {
     // First initialize theme and notifications
     initThemeController();
     initNotifications();
@@ -252,27 +290,43 @@ export function initializeModernUI(options = {}) {
       }
     }
 
-    // Create navigation bar
-    try {
-      console.error('[APP] Attempting to require NavigationBar');
-      const NavBar = require('../src/components/NavigationBar.js');
-      components.navigationBar = NavBar.default || NavBar({ containerId: 'main-navigation' });
-      console.error('[APP] NavigationBar required successfully');
+    // Initialize core UI that should persist
+    async function initializePersistentUI() {
+      const components = {};
       
-      // Always append NavigationBar to DOM at top of appRoot
-      if (appRoot.firstChild) {
-        appRoot.insertBefore(components.navigationBar, appRoot.firstChild);
-      } else {
-        appRoot.appendChild(components.navigationBar);
+      try {
+        // Create and mount NavigationBar directly to body
+        const NavBar = await import('../src/components/NavigationBar.js');
+        components.navigationBar = NavBar.default({ containerId: 'main-navigation' });
+        document.body.prepend(components.navigationBar);
+        
+        // Style for visibility during debug
+        components.navigationBar.style.outline = '2px solid red';
+        components.navigationBar.style.position = 'fixed';
+        components.navigationBar.style.zIndex = '9999';
+        
+        return components;
+      } catch (err) {
+        console.error('[APP] Persistent UI failed:', err);
+        const errorDiv = document.createElement('div');
+        errorDiv.textContent = 'UI Error: ' + err.message;
+        errorDiv.style.cssText = `
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          padding: 1rem;
+          background: #ff0000;
+          color: white;
+          z-index: 9999;
+        `;
+        document.body.prepend(errorDiv);
+        return components;
       }
-    } catch (err) {
-      console.error('[APP] Failed to require NavigationBar:', err);
-      components.navigationBar = document.createElement('div');
-      components.navigationBar.textContent = 'NAVBAR PLACEHOLDER';
-      components.navigationBar.style.backgroundColor = 'red';
-      components.navigationBar.style.height = '50px';
-      appRoot.appendChild(components.navigationBar);
     }
+
+    // Call this early in your bootstrap process
+    const persistentUI = await initializePersistentUI();
 
     // Create back button and inject into navigation bar after launch
     components.backButton = null;
@@ -561,7 +615,7 @@ export function initializeModernUI(options = {}) {
   /**
    * Initialize all components
    */
-  function initializeAll() {
+  async function initializeAll() {
     // First initialize theme and notifications
     initThemeController();
     initNotifications();
@@ -582,7 +636,7 @@ export function initializeModernUI(options = {}) {
     // Hide main app UI initially
     if (components.layoutManager?.element) components.layoutManager.element.style.display = 'none';
     if (components.sidebar?.element) components.sidebar.element.style.display = 'none';
-    if (components.navigationBar?.element) components.navigationBar.element.style.display = 'none';
+    if (components.navigationBar) components.navigationBar.style.display = 'none';
 
     // Create or get the room container
     let roomContainer = document.getElementById('room-experience-container');
@@ -607,7 +661,7 @@ export function initializeModernUI(options = {}) {
       // Show the main app UI
       if (components.layoutManager?.element) components.layoutManager.element.style.display = '';
       if (components.sidebar?.element) components.sidebar.element.style.display = '';
-      if (components.navigationBar?.element) components.navigationBar.element.style.display = '';
+      if (components.navigationBar) components.navigationBar.style.display = '';
       // Optionally, emit 'application-ready' if you want
       eventBus.emit('application-ready');
       // Show welcome notification
@@ -624,7 +678,7 @@ export function initializeModernUI(options = {}) {
       roomContainer.remove();
       if (components.layoutManager?.element) components.layoutManager.element.style.display = '';
       if (components.sidebar?.element) components.sidebar.element.style.display = '';
-      if (components.navigationBar?.element) components.navigationBar.element.style.display = '';
+      if (components.navigationBar) components.navigationBar.style.display = '';
       eventBus.emit('application-ready');
       if (components.notifications) {
         components.notifications.addNotification({
@@ -643,7 +697,7 @@ export function initializeModernUI(options = {}) {
   }
   
   // Initialize everything and return component references
-  return initializeAll();
+  return await initializeAll();
 }
 
 export default {

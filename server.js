@@ -119,6 +119,7 @@ import tasksRouter      from './src/routes/tasks.js';
 import customUrlsRouter from './src/routes/customUrls.js';
 import settingsRouter   from './src/routes/settings.js';
 import { requireAuth }  from './src/middleware/requireAuth.js';
+import serveStaticAssets from './src/middleware/staticAssets.js';
 
 // ======================================
 // 9) ROUTERS (after session middleware)
@@ -140,6 +141,9 @@ app.get('/logout', (req, res) => {
   });
 });
 
+// Serve PWA static assets
+serveStaticAssets(app);
+
 // ======================================
 // 10) HTML ENDPOINTS & FALLBACK
 // ======================================
@@ -151,7 +155,7 @@ const guard = (req, res, next) => {
 }
 
 // Loop over the other .html endpoints
-const pages = ['history', 'guide', 'settings'];
+const pages = ['modern', 'history', 'guide', 'settings'];
 pages.forEach(page => {
   app.get(`/${page}.html`, guard, (req, res) => {
     // always send the same SPA “shell” (login is served separately)
@@ -168,7 +172,6 @@ app.get('/', guard, (req, res) => {
   // note: index.html is now in dist/
   res.sendFile(path.join(__dirname, 'dist', 'index.html'))
 })
-
 
 // ======================================
 // 11) WEBSOCKET SETUP

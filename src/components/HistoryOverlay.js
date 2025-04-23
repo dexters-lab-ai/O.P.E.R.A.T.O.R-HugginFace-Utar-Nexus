@@ -6,7 +6,7 @@
 import { eventBus } from '../utils/events.js';
 import { stores } from '../store/index.js';
 import Button from './base/Button.js';
-import api from '../utils/api.js';
+import { getAllHistory } from '../api/history.js';
 
 /**
  * Create a history overlay component
@@ -250,11 +250,8 @@ export function HistoryOverlay(props = {}) {
       timelineViz.innerHTML = ''; // Clear timeline
       
       // Get history data from API
-      const historyData = await api.history.getHistory({
-        page: currentPage,
-        limit: 20,
-        type: currentFilter === 'all' ? null : currentFilter
-      });
+      const historyData = await getAllHistory(currentPage, 20);
+      // Note: type filtering should be handled separately if needed.
       
       if (historyData) {
         // Update pagination

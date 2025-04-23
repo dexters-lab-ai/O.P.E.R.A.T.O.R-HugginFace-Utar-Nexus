@@ -6,7 +6,7 @@
 import { eventBus } from '../utils/events.js';
 import { stores } from '../store/index.js';
 import Button from './base/Button.js';
-import api from '../utils/api.js';
+import { getActiveTasks, cancelTask as cancelTaskApi } from '../api/tasks.js';
 
 /**
  * Create a task bar component
@@ -232,7 +232,7 @@ export function TaskBar(props = {}) {
   async function cancelTask(taskId) {
     try {
       // Send cancel request
-      await api.tasks.cancel(taskId);
+      await cancelTaskApi(taskId);
       
       // Remove from active tasks
       activeTasks = activeTasks.filter(task => task._id !== taskId);
@@ -302,7 +302,7 @@ export function TaskBar(props = {}) {
    */
   async function fetchActiveTasks() {
     try {
-      const response = await api.tasks.getActive();
+      const response = await getActiveTasks();
       
       if (response && Array.isArray(response.tasks)) {
         activeTasks = response.tasks;

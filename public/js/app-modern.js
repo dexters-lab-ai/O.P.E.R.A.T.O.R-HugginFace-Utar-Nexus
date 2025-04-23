@@ -4,9 +4,14 @@
  */
 
 import { eventBus } from '../src/utils/events.js';
-import { stores } from '../src/store/index.js';
-import { api, get, post } from '../src/utils/api.js';
 import { initializeModernUI } from './app-modern-integration.js';
+
+import * as App from '../src/api/index.js';
+import { stores } from '../src/store/index.js';
+import { getAllHistory } from '../src/api/history.js';
+import { getMessageHistory } from '../src/api/messages.js';
+import { submitNLI } from '../src/api/nli.js';
+import { getActiveTasks, cancelTask } from '../src/api/tasks.js';
 
 // Maintain references to all initialized components
 let appComponents = null;

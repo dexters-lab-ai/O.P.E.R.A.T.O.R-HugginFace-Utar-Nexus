@@ -5,7 +5,8 @@
 
 import { eventBus } from '../utils/events.js';
 import { uiStore, messagesStore } from '../store/index.js';
-import api from '../utils/api.js';
+import { submitNLI } from '../api/nli.js';
+import { getActiveTasks, cancelTask } from '../api/tasks.js';
 import Button from './base/Button.js';
 
 // Tab types
@@ -155,8 +156,8 @@ export function CommandCenter(props = {}) {
     messagesStore.setState({ timeline: [...timeline, userMessage] });
     
     try {
-      // Send message to API
-      const response = await api.post('/chat', { prompt: inputText });
+      // Send message to API (modularized)
+      const response = await submitNLI(inputText);
       
       if (response.success && response.assistantReply) {
         // Add assistant response to timeline
@@ -345,7 +346,7 @@ export function CommandCenter(props = {}) {
   // Method to check for active tasks
   async function checkActiveTasks() {
     try {
-      const response = await api.tasks.getActive();
+      const response = await getActiveTasks();
       
       if (response && Array.isArray(response.tasks)) {
         const activeTasks = response.tasks;
@@ -391,7 +392,7 @@ export function CommandCenter(props = {}) {
             const cancelBtn = taskEl.querySelector('.cancel-task-btn');
             cancelBtn.addEventListener('click', async () => {
               try {
-                await api.tasks.cancel(task._id);
+                await cancelTask(task._id);
                 taskEl.remove();
                 
                 // Check if empty
