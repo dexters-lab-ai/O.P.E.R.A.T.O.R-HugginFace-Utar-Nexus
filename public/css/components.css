@@ -1188,3 +1188,15 @@ input:checked + .toggle-slider:before {
   color: white;
   font-size: 2rem;
 }
+
+/* Error Boundary Styles */
+.error-fallback {
+  padding: 2rem;
+  background: #ffebee;
+  border: 1px solid #ef9a9a;
+}
+
+.error-fallback button {
+  background: #d32f2f;
+  color: white;
+}

@@ -22,6 +22,7 @@ import Sidebar from './components/Sidebar.js';
 import TaskBar from './components/TaskBar.js';
 import MessageTimeline from './components/MessageTimeline.js';
 import CommandCenter from './components/CommandCenter.js';
+import BackButton from './components/BackButton.js';
 import HistoryOverlay from './components/HistoryOverlay.js';
 import Notifications from './components/Notifications.js';
 import ThemeController from './components/ThemeController.js';
@@ -29,6 +30,85 @@ import LayoutManager from './components/LayoutManager.js';
 
 // Import 3D experience
 import RoomEntryPoint from './3d/RoomEntryPoint.js';
+
+// Main App logic (modern, robust, memory-safe)
+let mountedApp = null;
+const appRoot = document.getElementById('app-root') || (() => {
+  const root = document.createElement('div');
+  root.id = 'app-root';
+  document.body.appendChild(root);
+  return root;
+})();
+
+function createModernApp() {
+  // Container
+  const container = document.createElement('div');
+  container.className = 'container fade-in';
+  setTimeout(() => container.classList.remove('fade-in'), 400);
+
+  // Back button
+  const backButton = BackButton({
+    onBack: () => {
+      container.classList.add('fade-out');
+      setTimeout(() => {
+        if (typeof container.destroy === 'function') container.destroy();
+        if (container.parentElement) container.parentElement.removeChild(container);
+        eventBus.emit('exit-application');
+      }, 350);
+    }
+  });
+  container.appendChild(backButton);
+
+  // Command Center
+  const commandCenter = CommandCenter({ containerId: 'command-center' });
+  // Message Timeline
+  const messageTimeline = MessageTimeline({ containerId: 'message-timeline' });
+
+  // Layout
+  const commandCenterContainer = document.createElement('div');
+  commandCenterContainer.className = 'fixed-command-center';
+  const commandCenterLayout = document.createElement('div');
+  commandCenterLayout.className = 'command-center-container';
+  commandCenterLayout.appendChild(commandCenter);
+  commandCenterContainer.appendChild(commandCenterLayout);
+  commandCenterContainer.appendChild(messageTimeline);
+  container.appendChild(commandCenterContainer);
+
+  // Destroy/cleanup
+  container.destroy = () => {
+    container.classList.remove('fade-in','fade-out');
+    if (typeof commandCenter.destroy === 'function') commandCenter.destroy();
+    if (typeof messageTimeline.destroy === 'function') messageTimeline.destroy();
+    if (backButton) {
+      backButton.onclick = null;
+      if (backButton.parentElement) backButton.parentElement.removeChild(backButton);
+    }
+  };
+  return container;
+}
+
+// Listen for app initialization event (from RoomEntryPoint)
+eventBus.on('initialize-application', () => {
+  // Remove any previous app
+  if (mountedApp && typeof mountedApp.destroy === 'function') {
+    mountedApp.destroy();
+    if (mountedApp.parentElement) mountedApp.parentElement.removeChild(mountedApp);
+    mountedApp = null;
+  }
+  appRoot.innerHTML = '';
+  mountedApp = createModernApp();
+  appRoot.appendChild(mountedApp);
+});
+
+eventBus.on('exit-application', () => {
+  if (mountedApp && typeof mountedApp.destroy === 'function') {
+    mountedApp.destroy();
+    if (mountedApp.parentElement) mountedApp.parentElement.removeChild(mountedApp);
+    mountedApp = null;
+  }
+  appRoot.innerHTML = '';
+});
+import App from './components/App.js';
 
 /**
  * Initialize the modern UI components and integrate them
@@ -47,7 +127,33 @@ export function initializeModernUI(options = {}) {
   
   // Create root container if needed
   const appRoot = document.getElementById('app-root') || createAppRoot();
-  
+
+  // Track app instance for cleanup
+  let mountedApp = null;
+
+  // Listen for app initialization event (from RoomEntryPoint)
+  eventBus.on('initialize-application', () => {
+    // Defensive: Remove any previous app
+    if (mountedApp && typeof mountedApp.destroy === 'function') {
+      mountedApp.destroy();
+      if (mountedApp.parentElement) mountedApp.parentElement.removeChild(mountedApp);
+      mountedApp = null;
+    }
+    appRoot.innerHTML = '';
+    mountedApp = App();
+    appRoot.appendChild(mountedApp);
+  });
+
+  // Listen for exit event (from App back button)
+  eventBus.on('exit-application', () => {
+    if (mountedApp && typeof mountedApp.destroy === 'function') {
+      mountedApp.destroy();
+      if (mountedApp.parentElement) mountedApp.parentElement.removeChild(mountedApp);
+      mountedApp = null;
+    }
+    appRoot.innerHTML = '';
+  });
+
   /**
    * Create the application root element
    * @returns {HTMLElement} App root element

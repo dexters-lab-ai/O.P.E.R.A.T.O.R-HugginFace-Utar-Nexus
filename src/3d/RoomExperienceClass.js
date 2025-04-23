@@ -1,4 +1,4 @@
-import * as THREE from '/vendors/three/build/three.module.js';
+import * as THREE from 'three';
 import { GUI } from '/vendors/lil-gui/lil-gui.esm.js';
 import { GLTFLoader } from '/vendors/three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from '/vendors/three/examples/jsm/loaders/DRACOLoader.js';
@@ -9,10 +9,13 @@ import { RenderPass } from '/vendors/three/examples/jsm/postprocessing/RenderPas
 import { UnrealBloomPass } from '/vendors/three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { GammaCorrectionShader } from '/vendors/three/examples/jsm/shaders/GammaCorrectionShader.js';
 import { ShaderPass } from '/vendors/three/examples/jsm/postprocessing/ShaderPass.js';
+import { FontLoader } from '/vendors/three/examples/jsm/loaders/FontLoader.js';
+import { TextGeometry } from '/vendors/three/examples/jsm/geometries/TextGeometry.js';
 import gsap from '/vendors/gsap/index.js';
 import { eventBus } from '/src/utils/events.js';
 import { stores } from '/src/store/index.js';
 import Screen from '/src/3d/experience/Screen.js';
+import { EventEmitter } from '/src/utils/events.js';
 
 // Baked room shaders
 const BAKED_VERTEX_SHADER = `
@@ -73,8 +76,9 @@ const MODEL_PATHS = {
   macScreen: { primary: '/bruno_demo_temp/static/assets/macScreenModel.glb', fallback: '/bruno_demo_temp/static/assets/macScreen-low.glb' }
 };
 
-export default class RoomExperience {
+export default class RoomExperience extends EventEmitter {
   constructor(props = {}) {
+    super();
     this.props = {
       assetPaths: {
         room: '/bruno_demo_temp/static/assets/roomModel.glb',
@@ -94,13 +98,15 @@ export default class RoomExperience {
     };
     
     // Initialize loadingManager, textureLoader, dracoLoader, gltfLoader
-    this.loadingManager = new THREE.LoadingManager();
+    // Use external LoadingManager if provided (from RoomEntryPoint), else create new
+    this.loadingManager = this.props.loadingManager || new THREE.LoadingManager();
     this.textureLoader = new THREE.TextureLoader(this.loadingManager);
     this.textureLoader.crossOrigin = 'anonymous';
     this.dracoLoader = new DRACOLoader(this.loadingManager);
     this.dracoLoader.setDecoderPath('/draco/');
     this.dracoLoader.setDecoderConfig({ type: 'wasm' });
-    this.gltfLoader = new GLTFLoader(this.loadingManager);
+    this.loader = new GLTFLoader(this.loadingManager);
+    this.gltfLoader = this.loader;
     this.gltfLoader.setDRACOLoader(this.dracoLoader);
 
     // Prepare core members
@@ -213,21 +219,18 @@ export default class RoomExperience {
 
       // --- Bruno's baked material defaults for richer look ---
       if (this.bakedMaterial) {
-        this.bakedMaterial.uNightMix = 1; // Always 1 for night blend
-        this.bakedMaterial.uNeutralMix = 0; // Always start at 0
-        // Clamp max
-        if (typeof this.bakedMaterial.uNeutralMixMax !== 'undefined') {
-          this.bakedMaterial.uNeutralMixMax = 0.5;
-        }
+        this.bakedMaterial.uNightMix = 1;      // Always 1 for night blend
+        this.bakedMaterial.uNeutralMix = 0;    // Always start at 0
+        this.bakedMaterial.uNeutralMixMax = 0.5; // Define max unconditionally
       }
       // Debug log for final settings
       console.log('[DEBUG] Renderer settings:', {
-        outputEncoding: this.renderer.outputEncoding,
+        outputEncoding: this.renderer.outputEncoding ?? THREE.sRGBEncoding,
         toneMapping: this.renderer.toneMapping,
         toneMappingExposure: this.renderer.toneMappingExposure,
-        uNightMix: this.bakedMaterial?.uNightMix,
-        uNeutralMix: this.bakedMaterial?.uNeutralMix,
-        uNeutralMixMax: this.bakedMaterial?.uNeutralMixMax
+        uNightMix: this.bakedMaterial?.uNightMix ?? 0,
+        uNeutralMix: this.bakedMaterial?.uNeutralMix ?? 0,
+        uNeutralMixMax: this.bakedMaterial?.uNeutralMixMax ?? 0
       });
       // Hide loader and run camera intro only after everything is loaded and visible
       this.finishLoadingUI();
@@ -347,12 +350,30 @@ export default class RoomExperience {
     }
   }
 
+  async loadAsset(asset) {
+    if (!this.loader) throw new Error('Loader not initialized');
+    
+    try {
+      const gltf = await this.loader.loadAsync(asset.path);
+      this.loadedAssets++;
+      const progress = Math.floor((this.loadedAssets / this.totalAssets) * 100);
+      this.emit('asset-loaded', { 
+        name: asset.name,
+        progress: progress
+      });
+      return gltf;
+    } catch (error) {
+      this.emit('load-error', error);
+      throw error;
+    }
+  }
+
   async loadMainModel() {
     console.group('[Model] Loading Main Room');
     
     try {
       // Load main room
-      const roomGLTF = await this.loadGLB('room');
+      const roomGLTF = await this.loadAsset({ name: 'room', path: MODEL_PATHS.room.primary });
       if (roomGLTF?.scene) {
         this.room = roomGLTF.scene;
         this.roomContainer.add(this.room);
@@ -378,10 +399,67 @@ export default class RoomExperience {
         this.loadCoffeeSteam(),
         this.loadScreens()
       ]);
+
+      // --- TV 3D TEXT: Add TV text mesh after models are loaded ---
+      // Log all mesh/group names in the room for debugging
+    this.logAllMeshNames(this.room);
+    (async function() {
+      if (this.tvTextMesh) return;
+
+      // Create dynamic canvas
+      const canvas = document.createElement('canvas');
+      canvas.width = 512;
+      canvas.height = 512;
+      const ctx = canvas.getContext('2d');
+
+      // Setup texture/material
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.flipY = false;
+      const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, toneMapped: false });
+
+      // Get Bruno's screen mesh
+      const screen = this.scene.getObjectByName('Cube320');
+      if (!screen) { console.error('TV mesh not found: Cube320'); return; }
+      screen.material = material;
+      screen.renderOrder = 999;
+      screen.material.depthTest = false;
+      this.tvTextMesh = screen;
+
+      // Animate bouncing logo
+      const logo = new Image(); logo.src = '/bruno_demo_temp/static/assets/threejsJourneyLogo.png';
+      let x = 0, y = 0, vx = 2, vy = 2;
+      const w = 80, h = 80;
+      function animate() {
+        ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        x += vx; y += vy;
+        if (x <= 0 || x + w >= canvas.width) vx = -vx;
+        if (y <= 0 || y + h >= canvas.height) vy = -vy;
+        if (logo.complete) ctx.drawImage(logo, x, y, w, h);
+        texture.needsUpdate = true;
+        requestAnimationFrame(animate);
+      }
+      animate();
+    }).call(this);
     } catch (error) {
       console.error('[Model] Failed to load:', error);
     } finally {
       console.groupEnd();
+    }
+  }
+
+  /**
+   * Recursively log all mesh/group names in a given object3D (for debugging model hierarchy)
+   */
+  logAllMeshNames(object, depth = 0) {
+    if (!object) return;
+    const pad = '  '.repeat(depth);
+    if (object.name) {
+      console.log(`${pad}${object.type}: ${object.name}`);
+    }
+    if (object.children && object.children.length > 0) {
+      object.children.forEach(child => this.logAllMeshNames(child, depth + 1));
     }
   }
 
@@ -702,18 +780,10 @@ export default class RoomExperience {
   }
 
   finishLoadingUI() {
-    const splash = document.getElementById('splash-screen');
     const loader = document.getElementById('app-loader');
-    const launchBtn = document.getElementById('launch-operator-btn');
     const webgl = this.props.container instanceof HTMLElement
       ? this.props.container
       : document.getElementById('webgl-container');
-    if (splash) {
-      splash.style.opacity = '0';
-      splash.style.pointerEvents = 'none';
-      setTimeout(() => { splash.style.display = 'none'; }, 600);
-      console.log('[UI] Splash screen hidden');
-    }
     if (loader) {
       loader.style.opacity = '0';
       loader.style.pointerEvents = 'none';
@@ -725,11 +795,6 @@ export default class RoomExperience {
       webgl.style.pointerEvents = 'auto';
       webgl.style.display = 'block';
       console.log('[UI] 3D room container shown');
-    }
-    if (launchBtn) {
-      launchBtn.style.opacity = '1';
-      launchBtn.style.pointerEvents = 'auto';
-      launchBtn.style.display = 'block';
     }
   }
 

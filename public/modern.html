@@ -18,6 +18,15 @@
   <title>OPERATOR - Modern Interface</title>
   
   <!-- Load stylesheets in order -->
+  <!-- Modern PWA CSS (migration in progress) -->
+  <!-- Modern PWA CSS: ensure these are served from /public/css for correct MIME type -->
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/backbutton.css">
+  <link rel="stylesheet" href="/css/3d-experience.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/futuristic.css">
+  <!-- Legacy CSS below (reference only during migration)-->
+  <!--
   <link rel="stylesheet" href="/css/variables.css">
   <link rel="stylesheet" href="/css/base.css">
   <link rel="stylesheet" href="/css/components.css">
@@ -30,6 +39,7 @@
   <link rel="stylesheet" href="/css/3d-experience.css">
   <link rel="stylesheet" href="/css/futuristic.css">
   <link rel="stylesheet" href="/css/layouts.css">
+  -->
   
   <!-- Font Awesome (local vendor) -->
   <link rel="stylesheet" href="/vendors/fontawesome/all.min.css">
@@ -108,8 +118,13 @@
     }
     
     .loading-text {
+      font-family: 'Courier New', monospace;
       font-size: 0.9rem;
-      color: var(--text-secondary);
+      font-variant: small-caps;
+      letter-spacing: 1px;
+      color: #00fffc;
+      text-shadow: 0 0 5px rgba(0, 255, 252, 0.5);
+      margin-top: 1.5rem;
     }
     
     .app-container {
@@ -187,7 +202,7 @@
   </div>
   
   <!-- Splash Screen -->
-  <div class="splash-screen" id="splash-screen">
+  <div class="splash-screen" id="splash-screen" style="display: flex;">
     <div class="logo">O.P.E.R.A.T.O.R</div>
     <div class="loading-bar">
       <div class="loading-progress" id="loading-progress" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
@@ -229,45 +244,25 @@
   <!-- Tweakpane will now be imported via npm package -->
   
   <!-- Component Imports -->
-  <script src="/js/app-modern.js" type="module" defer></script>
-  <script src="/js/app-modern-integration.js" type="module" defer></script>
-  <script src="/js/modern-integration.js" type="module" defer></script>
-  
-  <script type="module">
-    console.log('[DEBUG] 🏗️ modern.html script execution started');
-  </script>
-  
-  <script type="module" onerror="console.error('❌ RoomExperience failed to load:', event)">
-    import './src/3d/RoomExperienceClass.js';
-    console.log('[DEBUG] ✅ RoomExperienceClass imported successfully');
-  </script>
-  
-  <script type="module">
-    function initApp() {
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => {
-          console.log('[APP] DOM fully loaded');
-          // --- Trigger 3D Room Experience ---
-          import('/js/app-modern-integration.js').then(mod => {
-            // The modern UI module will handle 3D experience and app initialization automatically
-              console.log('[APP] app-modern-integration.js loaded. Initialization handled by module.');
-          });
-        });
-      } else {
-        console.log('[APP] DOM already loaded');
-        // --- Trigger 3D Room Experience ---
-        import('/js/app-modern-integration.js').then(mod => {
-          // The modern UI module will handle 3D experience and app initialization automatically
-            console.log('[APP] app-modern-integration.js loaded. Initialization handled by module.');
-        });
-      }
-    }
-    initApp();
-  </script>
+  <!-- Modern JS modules for PWA migration -->
+  <script type="module" src="/js/bootstrap.js" defer></script>
   
   <script>
     window.addEventListener('load', () => {
       document.getElementById('app-loader').style.display = 'none';
+    });
+  </script>
+  
+  <script type="module">
+    import { eventBus } from '/src/utils/events.js';
+    
+    // Hide splash only when fully loaded
+    eventBus.on('room-loading-complete', () => {
+      const splash = document.getElementById('splash-screen');
+      if (splash) {
+        splash.style.opacity = '0';
+        setTimeout(() => splash.remove(), 500);
+      }
     });
   </script>
 </body>

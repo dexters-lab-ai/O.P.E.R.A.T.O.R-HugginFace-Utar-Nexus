@@ -1,8 +1,9 @@
-/**
- * OPERATOR Modern Interface Server
- * A simplified Express server that properly serves ES modules with correct MIME types
- */
+// =========================
+// OPERATOR Modern Interface Server
+// =========================
+// Organized for clarity and maintainability
 
+// --- 0. IMPORTS & GLOBALS ---
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -13,28 +14,63 @@ import MongoStore from 'connect-mongo';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import mime from 'mime';
+
+// --- Routers & Models ---
 import messagesRouter from './src/routes/messages.js';
 import tasksRouter from './src/routes/tasks.js';
 import authRouter from './src/routes/auth.js';
 import ChatHistory from './src/models/ChatHistory.js';
 import User from './src/models/User.js';
 
+// --- Path helpers ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// --- 1. ENV CONFIG ---
+// =========================
+// 1. ENVIRONMENT CONFIG
+// =========================
 const PORT = process.env.PORT || 8080;
 const MONGO_URI = process.env.MONGO_URI;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 
-// --- 2. EXPRESS APP ---
+// =========================
+// 2. APP INITIALIZATION
+// =========================
 const app = express();
 
-// --- 3. BODY PARSERS ---
+// =========================
+// 3. STATIC FILE MIDDLEWARE
+// =========================
+// Ensure correct MIME types for .js, .css, .glb, etc.
+mime.define({'application/javascript': ['js']}, true);
+mime.define({'text/css': ['css']}, true);
+mime.define({'model/gltf-binary': ['glb']}, true);
+
+// Serve static files
+app.use('/css', express.static(path.join(__dirname, 'public/css'), { 
+  setHeaders: (res) => {
+    res.set('Content-Type', 'text/css');
+  }
+}));
+app.use('/js', express.static(path.join(__dirname, 'public/js')));
+app.use('/src', express.static(path.join(__dirname, 'src')));  // Only for development
+app.use('/vendors', express.static(path.join(__dirname, 'public/vendors')));
+
+app.use('/models', express.static(path.join(__dirname, 'public/models')));
+// Serve /js/components for ES module imports
+app.use('/js/components', express.static(path.join(__dirname, 'public/js/components')));
+// --- End static file serving ---
+
+// =========================
+// 4. BODY PARSERS
+// =========================
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// --- 4. SESSION STORE (connect-mongo, always, like legacy) ---
+// =========================
+// 5. SESSION STORE
+// =========================
 app.use(session({
   secret: SESSION_SECRET,
   resave: false,

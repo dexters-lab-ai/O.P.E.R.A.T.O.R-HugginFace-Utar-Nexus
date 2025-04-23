@@ -3,8 +3,10 @@
  * Provides custom event bus for component communication
  */
 
+import { EventEmitter } from 'https://cdn.skypack.dev/events@3.3.0';
+
 /**
- * Global event bus for cross-component communication
+ * Custom EventBus implementation (compatible with EventEmitter API)
  */
 class EventBus {
   constructor() {
@@ -103,7 +105,7 @@ export const eventBus = new EventBus();
  * @param {Object} options - Event listener options
  * @returns {Function} Cleanup function
  */
-export function addEvent(element, eventType, handler, options = {}) {
+function addEvent(element, eventType, handler, options = {}) {
   if (!element) return () => {};
   
   element.addEventListener(eventType, handler, options);
@@ -118,7 +120,7 @@ export function addEvent(element, eventType, handler, options = {}) {
  * @param {Array} listeners - Array of [element, eventType, handler, options] tuples
  * @returns {Function} Cleanup function for all listeners
  */
-export function addEvents(listeners = []) {
+function addEvents(listeners = []) {
   const cleanupFns = listeners.map(
     ([element, eventType, handler, options]) => addEvent(element, eventType, handler, options)
   );
@@ -134,7 +136,7 @@ export function addEvents(listeners = []) {
  * @param {number} delay - Delay in milliseconds
  * @returns {Function} Debounced function
  */
-export function debounce(fn, delay = 300) {
+function debounce(fn, delay = 300) {
   let timeoutId;
   
   return function(...args) {
@@ -152,7 +154,7 @@ export function debounce(fn, delay = 300) {
  * @param {number} limit - Throttle limit in milliseconds
  * @returns {Function} Throttled function
  */
-export function throttle(fn, limit = 300) {
+function throttle(fn, limit = 300) {
   let inThrottle = false;
   
   return function(...args) {
@@ -167,10 +169,5 @@ export function throttle(fn, limit = 300) {
   };
 }
 
-export default {
-  eventBus,
-  addEvent,
-  addEvents,
-  debounce,
-  throttle
-};
+export { EventEmitter };
+export { addEvent, addEvents, debounce, throttle };
