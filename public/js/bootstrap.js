@@ -44,10 +44,16 @@ import { eventBus } from '/src/utils/events.js';
     }, 2000);
   });
 
-  // Preload UI module to register initialize-application listeners
+  // Preload UI integration module to register PWA event handlers and mountApp helper
   await import('/js/app-modern-integration.js');
-
-  // Create and mount 3D Room
+  // Mount the PWA shell into the main app container; UI remains hidden until launch event triggers
+  try {
+    window.mountApp('#app-container');
+    console.log('[bootstrap] Modern UI shell successfully mounted to #app-container');
+  } catch (err) {
+    console.error('[bootstrap] Error mounting modern UI shell:', err);
+  }
+  // Create and mount 3D Room Experience
   const { RoomEntryPoint } = await import('/src/3d/RoomEntryPoint.js');
   const webglContainer = document.getElementById('webgl-container');
   webglContainer.innerHTML = '';

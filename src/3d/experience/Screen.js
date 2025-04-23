@@ -47,10 +47,10 @@ export default class Screen {
   dispose() {
     if (this.video) {
       this.video.pause();
-      this.video.src = '';
-      if (this.video.parentNode) {
-        this.video.parentNode.removeChild(this.video);
-      }
+      this.video.removeAttribute('src');  // Prevents invalid URI load
+      this.video.load();                   // Reset the video element
+      if (this.video.parentNode) this.video.parentNode.removeChild(this.video);
+      console.log('[Screen] video element disposed:', this.videoPath);
       this.video = null;
     }
     if (this.texture) {

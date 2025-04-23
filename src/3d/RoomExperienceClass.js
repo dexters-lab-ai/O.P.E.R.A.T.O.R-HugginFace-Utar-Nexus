@@ -211,15 +211,16 @@ export default class RoomExperience extends EventEmitter {
     };
     fullyLoaded().then(() => {
       this.setupPostProcessing();
-      this.setupAccentLights();
+      // Accent spotlights are disabled to use pure baked lighting
+      // this.setupAccentLights();
       // --- RE-APPLY renderer settings after all setup! ---
       this.renderer.outputEncoding = THREE.sRGBEncoding;
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      this.renderer.toneMappingExposure = 0.3; // Bruno's value for richer look
+      this.renderer.toneMappingExposure = 0.3; // Ensure starting exposure = 0.3
 
       // --- Bruno's baked material defaults for richer look ---
       if (this.bakedMaterial) {
-        this.bakedMaterial.uNightMix = 1;      // Always 1 for night blend
+        this.bakedMaterial.uNightMix = 1.16;   // Updated starting nightMix
         this.bakedMaterial.uNeutralMix = 0;    // Always start at 0
         this.bakedMaterial.uNeutralMixMax = 0.5; // Define max unconditionally
       }
@@ -272,6 +273,7 @@ export default class RoomExperience extends EventEmitter {
     // Restore GUI controls
     this.gui = new GUI({ title: 'Room Controls', width: 300 });
     const ppFolder = this.gui.addFolder('Post Processing');
+    this.ppFolder = ppFolder;
     // Always sync slider to renderer, never the other way!
     const exposureCtrl = ppFolder.add(this.renderer, 'toneMappingExposure', 0.1, 1.5, 0.01)
       .name('Exposure')
@@ -289,21 +291,9 @@ export default class RoomExperience extends EventEmitter {
       });
     exposureCtrl.setValue(this.renderer.toneMappingExposure);
     
-    // Bloom controls
-    this.bloomPass = new UnrealBloomPass(
-      new THREE.Vector2(window.innerWidth, window.innerHeight),
-      0.15, // strength
-      0.4,  // radius
-      0.85  // threshold
-    );
-    const bloomFolder = ppFolder.addFolder('Bloom');
-    bloomFolder.add(this.bloomPass, 'strength', 0, 3, 0.01).name('Strength');
-    bloomFolder.add(this.bloomPass, 'radius', 0, 1, 0.01).name('Radius');
-    bloomFolder.add(this.bloomPass, 'threshold', 0, 1, 0.01).name('Threshold');
-    
     // Initialize baked materials with Bruno's defaults if not set
     this.bakedMaterial = this.bakedMaterial || {
-      uNightMix: 1, // Bruno's default for a richer night look
+      uNightMix: 1.16, // Updated default for nightMix
       uNeutralMix: 0 // Always start at 0
     };
     // Clamp uNeutralMix to max 0.5
@@ -400,48 +390,84 @@ export default class RoomExperience extends EventEmitter {
         this.loadScreens()
       ]);
 
-      // --- TV 3D TEXT: Add TV text mesh after models are loaded ---
-      // Log all mesh/group names in the room for debugging
-    this.logAllMeshNames(this.room);
-    (async function() {
-      if (this.tvTextMesh) return;
+      // Add bouncing logo plane to TV screen
+      (async () => {
+        // Integrate Bruno's bouncing logo plane
+        // Setup group at TV face
+        const logoGroup = new THREE.Group();
+        logoGroup.position.set(4.2, 2.717, 1.63);
+        this.scene.add(logoGroup);
 
-      // Create dynamic canvas
-      const canvas = document.createElement('canvas');
-      canvas.width = 512;
-      canvas.height = 512;
-      const ctx = canvas.getContext('2d');
+        // Logo background: small black plane behind logo
+        const bgGeo = new THREE.PlaneGeometry(4, 1);
+        bgGeo.rotateY(-Math.PI * 0.5);
+        const bgMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5 });
+        const bgMesh = new THREE.Mesh(bgGeo, bgMat);
+        // Increase size & adjust overlay: height *7, width *2.7; crop top by 3%, shift right by 3%
+        const heightScale = 0.359 * 7;
+        const widthScale = 0.424 * 2.7 * 0.93; // reduce width by 5%
+        bgMesh.scale.y = heightScale * 0.965;  // reduce top by 3.5%
+        bgMesh.scale.z = widthScale;           // set new width
+        bgMesh.position.y -= heightScale * 0.035 / 2; // move down to keep bottom aligned
+        bgMesh.position.z = widthScale * 0.17; // shift overlay 5% to the right
+        bgMesh.position.x = 0;
+        bgMesh.renderOrder = 0;
+        bgMesh.material.depthTest = true;
+        bgMesh.material.depthWrite = false;
+        console.log('[DEBUG] Logo bgMesh values:', {
+          heightScale,
+          widthScale,
+          scaleY: bgMesh.scale.y,
+          posX: bgMesh.position.x,
+          posY: bgMesh.position.y,
+          posZ: bgMesh.position.z
+        });
+        logoGroup.add(bgMesh);
 
-      // Setup texture/material
-      const texture = new THREE.CanvasTexture(canvas);
-      texture.minFilter = THREE.LinearFilter;
-      texture.magFilter = THREE.LinearFilter;
-      texture.flipY = false;
-      const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, toneMapped: false });
+        // Load logo texture
+        const logoTexture = await this.textureLoader.loadAsync('/bruno_demo_temp/static/assets/dail-fav.png');
+        logoTexture.encoding = THREE.sRGBEncoding;
 
-      // Get Bruno's screen mesh
-      const screen = this.scene.getObjectByName('Cube320');
-      if (!screen) { console.error('TV mesh not found: Cube320'); return; }
-      screen.material = material;
-      screen.renderOrder = 999;
-      screen.material.depthTest = false;
-      this.tvTextMesh = screen;
+        // Geometry and material
+        const logoSize = 0.7; // Adjust for desired size
+        const geometry = new THREE.PlaneGeometry(1, 1); // Square
+        geometry.rotateY(-Math.PI * 0.5);
+        const material = new THREE.MeshBasicMaterial({
+          transparent: true,
+          premultipliedAlpha: true,
+          map: logoTexture
+        });
 
-      // Animate bouncing logo
-      const logo = new Image(); logo.src = '/bruno_demo_temp/static/assets/threejsJourneyLogo.png';
-      let x = 0, y = 0, vx = 2, vy = 2;
-      const w = 80, h = 80;
-      function animate() {
-        ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-        x += vx; y += vy;
-        if (x <= 0 || x + w >= canvas.width) vx = -vx;
-        if (y <= 0 || y + h >= canvas.height) vy = -vy;
-        if (logo.complete) ctx.drawImage(logo, x, y, w, h);
-        texture.needsUpdate = true;
-        requestAnimationFrame(animate);
-      }
-      animate();
-    }).call(this);
+        // Mesh and scale
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.scale.y = logoSize;
+        mesh.scale.z = logoSize;
+        mesh.renderOrder = 1;
+        logoGroup.add(mesh);
+
+        // Bounce params
+        let z = 0, y = 0;
+        const limits = {
+  z: { min: -1.076 * 1.15, max: 1.454 * 1.15 }, // increase horizontal bounce by 15%
+  y: { min: -1.055 * 0.85, max: 0.947 * 0.85 } // reduce vertical bounce by 15%
+};
+        const speed = { z: 0.00061, y: 0.00037 };
+        const clock = new THREE.Clock();
+
+        const animateLogo = () => {
+          const delta = clock.getDelta() * 1000;
+          z += speed.z * delta;
+          y += speed.y * delta;
+          if (z > limits.z.max) { z = limits.z.max; speed.z *= -1; }
+          if (z < limits.z.min) { z = limits.z.min; speed.z *= -1; }
+          if (y > limits.y.max) { y = limits.y.max; speed.y *= -1; }
+          if (y < limits.y.min) { y = limits.y.min; speed.y *= -1; }
+          mesh.position.z = z;
+          mesh.position.y = y;
+          requestAnimationFrame(animateLogo);
+        };
+        animateLogo();
+      })();
     } catch (error) {
       console.error('[Model] Failed to load:', error);
     } finally {
@@ -572,28 +598,8 @@ export default class RoomExperience extends EventEmitter {
   async loadElgatoLight() {
     const gltf = await this.loadGLB('elgatoLight');
     if (!gltf) return;
-    
-    this.elgatoLight = {
-      group: gltf.scene,
-      light: new THREE.SpotLight(0xffffff, 2, 5),
-      target: new THREE.Object3D()
-    };
-    
-    // Position light and target
-    this.elgatoLight.light.position.set(0.5, 1.2, 0.3);
-    this.elgatoLight.target.position.set(0.5, 0.8, 0.3);
-    this.elgatoLight.light.target = this.elgatoLight.target;
-    
-    this.scene.add(this.elgatoLight.group);
-    this.scene.add(this.elgatoLight.light);
-    this.scene.add(this.elgatoLight.target);
-    
-    // Debug controls
-    if (this.debug) {
-      const folder = this.debug.addFolder('Elgato Light');
-      folder.add(this.elgatoLight.light, 'intensity', 0, 5);
-      folder.addColor(this.elgatoLight.light, 'color');
-    }
+    // Only add Elgato model (no extra spotlights)
+    this.scene.add(gltf.scene);
   }
 
   async loadTopChair() {
@@ -668,40 +674,14 @@ export default class RoomExperience extends EventEmitter {
   }
 
   setupAccentLights() {
-    if (!this.roomContainer) return;
-    
-    // Clear existing lights
-    this.accentLights.forEach(light => {
-      this.scene.remove(light);
-      if (light.target) this.scene.remove(light.target);
-    });
-    this.accentLights = [];
-    
-    // More vibrant accent lights
-    this.roomContainer.traverse(obj => {
-      if (obj.isMesh && obj.name.includes('LightTarget')) {
-        const light = new THREE.SpotLight(0xfff0c2, 1.0, 6, Math.PI * 0.15, 0.4);
-        light.position.copy(obj.position);
-        light.target = obj;
-        
-        if (obj.name.includes('Strong')) {
-          light.intensity = 0.5; 
-          light.color.setHex(0x000000); 
-          light.penumbra = 0.15;
-        }
-        
-        this.scene.add(light);
-        this.scene.add(light.target);
-        this.accentLights.push(light);
-      }
-    });
+    // Accent spotlights are disabled to use pure baked lighting
   }
 
   applyBakedMaterials(bakedDayTex, bakedNightTex, bakedNeutralTex, lightMapTex) {
     // Encode and orient textures
     bakedDayTex.encoding = THREE.sRGBEncoding; bakedDayTex.flipY = false;
     bakedNightTex.encoding = THREE.sRGBEncoding; bakedNightTex.flipY = false;
-    bakedNeutralTex.encoding = THREE.sRGBEncoding; bakedNeutralTex.flipY = false;
+    bakedNeutralTex.encoding = THREE.sRGBEncoding; bakedNeutralTex.flipY = true; //default false - fun dev
     lightMapTex.flipY = false;
 
     // Create material with tone mapping enabled
@@ -711,12 +691,12 @@ export default class RoomExperience extends EventEmitter {
         uBakedNightTexture: { value: bakedNightTex },
         uBakedNeutralTexture: { value: bakedNeutralTex },
         uLightMapTexture: { value: lightMapTex },
-        uNightMix: { value: 1 }, // Set to 1 as requested
+        uNightMix: { value: 1.16 }, // Updated starting nightMix
         uNeutralMix: { value: 0 },
-        uLightTvColor: { value: new THREE.Color('#ff115e') }, // Bruno's bright red-pink
-        uLightTvStrength: { value: 2 },
+        uLightTvColor: { value: new THREE.Color('#8000ff') }, // vivid purple behind TV
+        uLightTvStrength: { value: 1.5 },
         uLightDeskColor: { value: new THREE.Color('#ff6700') }, // Bruno's orange
-        uLightDeskStrength: { value: 1.9 },
+        uLightDeskStrength: { value: 1.5 },
         uLightPcColor: { value: new THREE.Color('#0082ff') }, // Bruno's blue
         uLightPcStrength: { value: 1.4 }
       },
@@ -744,7 +724,7 @@ export default class RoomExperience extends EventEmitter {
     // Only apply baked shader to main room mesh (not screens, chairs, laptops, or props)
     this.room.traverse(child => {
       if (!child.isMesh) return;
-      
+
       // Enhanced screen exclusion check
       let parent = child.parent;
       while (parent) {
@@ -755,7 +735,20 @@ export default class RoomExperience extends EventEmitter {
         }
         parent = parent.parent;
       }
-      child.material = this.bakedMaterial;
+      if (child.name.includes('Wall')) {
+        const wallMat = this.bakedMaterial.clone();
+        wallMat.side = THREE.DoubleSide;
+        wallMat.onBeforeCompile = shader => {
+          shader.fragmentShader = 'uniform vec3 uBackColor;\n' + shader.fragmentShader;
+          shader.fragmentShader = shader.fragmentShader.replace(
+            'gl_FragColor = vec4(color, 1.0);\n if (!gl_FrontFacing) gl_FragColor = vec4(uBackColor, 1.0);'
+          );
+          shader.uniforms.uBackColor = { value: new THREE.Color('#8000ff') };
+        };
+        child.material = wallMat;
+      } else {
+        child.material = this.bakedMaterial;
+      }
       console.log('[BakedMaterial] Assigned baked material to mesh:', child.name);
     });
     // Ensure room meshes render at default layer
@@ -772,11 +765,25 @@ export default class RoomExperience extends EventEmitter {
       0.35, 0.8, 0.2
     );
     this.composer.addPass(this.bloomPass);
+    // Bloom controls under Post Processing
+    if (this.ppFolder) {
+      if (this.bloomFolder) this.gui.removeFolder(this.bloomFolder);
+      this.bloomFolder = this.ppFolder.addFolder('Bloom');
+      const strengthCtrl = this.bloomFolder.add(this.bloomPass, 'strength', 0, 3, 0.01).name('Strength')
+        .onChange(() => this.composer.render());
+      strengthCtrl.setValue(this.bloomPass.strength);
+      const radiusCtrl = this.bloomFolder.add(this.bloomPass, 'radius', 0, 1, 0.01).name('Radius')
+        .onChange(() => this.composer.render());
+      radiusCtrl.setValue(this.bloomPass.radius);
+      const thresholdCtrl = this.bloomFolder.add(this.bloomPass, 'threshold', 0, 1, 0.01).name('Threshold')
+        .onChange(() => this.composer.render());
+      thresholdCtrl.setValue(this.bloomPass.threshold);
+    }
     // DO NOT add GammaCorrectionShader if renderer.outputEncoding = sRGBEncoding
     // Double check: NEVER override renderer.outputEncoding or toneMapping here!
     this.renderer.outputEncoding = THREE.sRGBEncoding;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.4;
+    this.renderer.toneMappingExposure = 0.3; // Starting exposure = 0.3
   }
 
   finishLoadingUI() {
@@ -787,7 +794,7 @@ export default class RoomExperience extends EventEmitter {
     if (loader) {
       loader.style.opacity = '0';
       loader.style.pointerEvents = 'none';
-      setTimeout(() => { loader.style.display = 'none'; }, 600);
+      setTimeout(() => { loader.style.display = 'none'; }, 2000);
       console.log('[UI] Loader hidden');
     }
     if (webgl) {
@@ -931,9 +938,121 @@ export default class RoomExperience extends EventEmitter {
     this.isAppLaunched = true;
     this.showLoadingAnimation && this.showLoadingAnimation();
     this.dispose();
-    const root = document.querySelector('#react-root');
-    if (root) root.style.display = 'block';
-    window.mountApp('#react-root');
+    // Reveal the modern UI container
+    const appContainer = document.querySelector('#app-container') || document.querySelector('#app-root');
+    if (appContainer) appContainer.style.display = 'block';
+    // Trigger UI initialization via eventBus
+    eventBus.emit('initialize-application');
+  }
+
+  /**
+   * Dispose of all resources, assets, videos, controls, and event listeners for maximum memory efficiency
+   */
+  dispose() {
+    console.log('[RoomExperience] dispose() called: starting cleanup');
+    // Stop animation loop
+    if (this._animationFrameId) {
+      cancelAnimationFrame(this._animationFrameId);
+      console.log('[RoomExperience] Animation loop stopped');
+      this._animationFrameId = null;
+    }
+    // Dispose of videos and textures (screens, etc)
+    const screens = [this.pcScreen, this.macScreen];
+    screens.forEach(screen => {
+      if (screen && typeof screen.dispose === 'function') {
+        if (screen.video) {
+          try {
+            screen.video.pause();
+            screen.video.removeAttribute('src'); // Prevents browser from re-requesting
+            screen.video.load(); // Reset the video element
+            if (screen.video.parentNode) {
+              screen.video.parentNode.removeChild(screen.video);
+              console.log('[RoomExperience] Video element removed from DOM');
+            }
+          } catch (e) {
+            console.warn('[RoomExperience] Error cleaning up video element:', e);
+          }
+        }
+        screen.dispose();
+        console.log('[RoomExperience] Screen disposed:', screen);
+      }
+    });
+    // Dispose of all scene meshes/materials/geometries
+    if (this.scene) {
+      let meshCount = 0;
+      this.scene.traverse(obj => {
+        // Dispose geometry
+        if (obj.geometry) {
+          obj.geometry.dispose && obj.geometry.dispose();
+        }
+        // Dispose material(s)
+        if (obj.material) {
+          if (Array.isArray(obj.material)) {
+            obj.material.forEach(m => m.dispose && m.dispose());
+          } else {
+            obj.material.dispose && obj.material.dispose();
+          }
+        }
+        // Dispose textures
+        if (obj.material && obj.material.map) {
+          obj.material.map.dispose && obj.material.map.dispose();
+        }
+        if (obj.isMesh) meshCount++;
+      });
+      console.log(`[RoomExperience] Disposed scene meshes/materials/geometries (total meshes: ${meshCount})`);
+    }
+    // Dispose of renderer
+    if (this.renderer) {
+      if (this.renderer.forceContextLoss) this.renderer.forceContextLoss();
+      if (this.renderer.dispose) this.renderer.dispose();
+      if (this.renderer.domElement && this.renderer.domElement.parentNode) {
+        this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
+        console.log('[RoomExperience] Renderer DOM element removed');
+      }
+      this.renderer = null;
+      console.log('[RoomExperience] Renderer disposed');
+    }
+    // Dispose of controls
+    if (this.controls && this.controls.dispose) {
+      this.controls.dispose();
+      this.controls = null;
+      console.log('[RoomExperience] Controls disposed');
+    }
+    // Dispose of postprocessing composer
+    if (this.composer && this.composer.dispose) {
+      this.composer.dispose();
+      this.composer = null;
+      console.log('[RoomExperience] Composer disposed');
+    }
+    // Remove event listeners
+    window.removeEventListener('resize', this.handleResize);
+    console.log('[RoomExperience] Resize event listener removed');
+    // Remove any launch/app buttons
+    const launchBtn = document.getElementById('launch-btn');
+    if (launchBtn && launchBtn.parentNode) {
+      launchBtn.parentNode.removeChild(launchBtn);
+      console.log('[RoomExperience] Launch button removed');
+    }
+    // Null out references
+    this.scene = null;
+    this.camera = null;
+    this.roomContainer = null;
+    this.accentLights = null;
+    this.interactiveElements = null;
+    this.bakedMaterial = null;
+    this.googleLeds = null;
+    this.topChair = null;
+    this.coffeeSteam = null;
+    this.bouncingLogo = null;
+    this.pcScreen = null;
+    this.macScreen = null;
+    // Defensive: remove all remaining properties that are objects
+    Object.keys(this).forEach(key => {
+      if (typeof this[key] === 'object' && this[key] !== null) {
+        this[key] = null;
+      }
+    });
+    console.log('[RoomExperience] dispose() finished: all resources released');
   }
 
   /**
@@ -1001,7 +1120,7 @@ export default class RoomExperience extends EventEmitter {
       borderRadius: '4px', cursor: 'pointer', zIndex: '10'
     });
     document.body.appendChild(btn);
-    btn.addEventListener('click', () => this.launchApplication());
+    btn.addEventListener('click', () => eventBus.emit('launch-application'));
   }
 
   // Generic camera animation utility for all transitions
@@ -1039,64 +1158,35 @@ export default class RoomExperience extends EventEmitter {
 
   // World-class cinematic intro animation with improved easing and angles
   animateIntroCamera() {
-    // Camera positions (higher end point, slight left offset)
-    const start = new THREE.Vector3(-30, 15, 15);  // Start far left, high
-    const end = new THREE.Vector3(-5, 3.5, 5);     // More left ending position
-    const lookAt = new THREE.Vector3(1.5, 2.5, 0); // Looking more left
-    const duration = 3500;
-
-    // Setup animation
-    this.camera.position.copy(start);
-    this.camera.lookAt(lookAt);
-    
-    // Disable controls during animation
-    if (this.controls) this.controls.enabled = false;
-
-    // Animation loop with standard easing
-    const startTime = performance.now();
-    const animate = (timestamp) => {
-      const elapsed = timestamp - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-      // Smoother cubic easing function
-      const easedProgress = progress < 0.5 
-        ? 4 * progress * progress * progress
-        : 1 - Math.pow(-2 * progress + 2, 3) / 2;
-
-      // Smooth position interpolation
-      this.camera.position.lerpVectors(start, end, easedProgress);
-      this.camera.lookAt(lookAt);
-      this.camera.updateProjectionMatrix();
-
-      if (this.controls) {
-        this.controls.target.copy(lookAt);
-        this.controls.update();
-      }
-
-      if (progress < 1) {
-        requestAnimationFrame(animate);
-      } else {
-        // Finalize animation
+    // GSAP-based smooth intro pan
+    this.controls.enabled = false;
+    const lookAt = new THREE.Vector3(1.5, 2.5, 0);
+    // Set camera to match controls' pan start position and target
+    if (this.controls) {
+      this.camera.position.copy(this.controls.object.position);
+      this.camera.lookAt(this.controls.target);
+    } else {
+      this.camera.position.set(10, 3, 7);
+      this.camera.lookAt(1, 2, 0);
+    }
+    this.camera.updateProjectionMatrix();
+    gsap.to(this.camera.position, {
+      x: -5, y: 3.5, z: 5,
+      duration: 3.5,
+      ease: 'power3.inOut',
+      onUpdate: () => {
+        this.camera.lookAt(lookAt);
+        this.camera.updateProjectionMatrix();
         if (this.controls) {
-          this.controls.enabled = true;
           this.controls.target.copy(lookAt);
           this.controls.update();
         }
-        
-        // Restore launch button (with safety check)
-        if (typeof this.showLaunchButton === 'function') {
-          this.showLaunchButton();
-        }
+      },
+      onComplete: () => {
+        if (this.controls) this.controls.enabled = true;
+        this.showLaunchButton?.();
       }
-    };
-    requestAnimationFrame(animate);
-  }
-
-  launchApplication() {
-    this.controls.dispose();
-    this.renderer.domElement.style.display = 'none';
-    const root = document.querySelector('#react-root');
-    if (root) root.style.display = 'block';
-    window.mountApp('#react-root');
+    });
   }
 
   createVideoTexture(videoPath) {

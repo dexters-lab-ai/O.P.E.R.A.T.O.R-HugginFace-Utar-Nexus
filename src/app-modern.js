@@ -45,16 +45,16 @@ async function initializeApp() {
     // Complete initialization
     finalizeInitialization();
     updateLoadingProgress(100, loadingProgress);
-    
-    // Hide splash screen with animated transition
-    if (splashScreen) {
-      setTimeout(() => {
+
+    // Hide splash screen when app is fully ready
+    eventBus.once('application-ready', () => {
+      if (splashScreen) {
         splashScreen.style.opacity = '0';
         setTimeout(() => {
           splashScreen.style.display = 'none';
         }, 500);
-      }, 500);
-    }
+      }
+    });
     
     console.log('Application initialization complete!');
   } catch (error) {
@@ -112,7 +112,7 @@ async function initializeStores() {
   }
 }
 
-// Load required assets
+// Load required assets (aggregate all sets for progress bar)
 async function loadAssets() {
   console.log('Loading application assets...');
   
@@ -131,10 +131,32 @@ async function loadAssets() {
     });
   };
 
-  await Promise.all([
-    loadCSS('/css/components.css'),
-    loadCSS('/css/variables.css')
-  ]);
+  // Simulate three asset sets for demonstration
+  const assetSets = [
+    Promise.all([
+      loadCSS('/css/components.css'),
+      loadCSS('/css/variables.css')
+    ]),
+    // Simulate other asset sets (e.g., images, fonts, 3D models)
+    new Promise((resolve) => setTimeout(resolve, 800)),
+    new Promise((resolve) => setTimeout(resolve, 800))
+  ];
+
+  // Progress bar update logic
+  const splashScreen = document.getElementById('splash-screen');
+  const loadingProgress = document.getElementById('loading-progress');
+  let loaded = 0;
+  const total = assetSets.length;
+  assetSets.forEach(p => p.then(() => {
+    loaded++;
+    if (loadingProgress) {
+      const percent = Math.round((loaded / total) * 100);
+      loadingProgress.style.width = percent + '%';
+      loadingProgress.setAttribute('aria-valuenow', percent);
+    }
+  }));
+
+  await Promise.all(assetSets);
 }
 
 // Initialize UI components using the integration module
