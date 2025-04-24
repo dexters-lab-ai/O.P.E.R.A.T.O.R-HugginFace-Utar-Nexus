@@ -1,5 +1,17 @@
 /* Main CSS for OPERATOR Modern Interface */
 
+/* Add your main cyberpunk styles here */
+
+@import '../components/UnifiedCommandSection.css';
+
+:root {
+  --cyberpunk-neon: #0ff4f6;
+  --cyberpunk-purple: #5f1fff;
+  --cyberpunk-bg: rgba(25,28,40,0.88);
+  --cyberpunk-glass: rgba(25,28,40,0.72);
+  --cyberpunk-border: rgba(0,255,255,0.18);
+}
+
 /* Back button fade animations */
 .btn-back.fade-in {
   opacity: 0;

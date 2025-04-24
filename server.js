@@ -108,11 +108,10 @@ app.use((req, res, next) => {
 });
 
 // 7.4 Serve static assets
-app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(path.join(__dirname, 'dist')));
+app.use(express.static(path.join(__dirname, 'public')));
 app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
 app.use('/images', express.static(path.join(__dirname, 'public', 'assets', 'images')));
-app.use('/src', express.static(path.join(__dirname, 'src')));
 app.use('/midscene_run', express.static(MIDSCENE_RUN_DIR));
 app.use('/models', express.static('public/models'));
 app.use('/draco', express.static('public/draco'));
@@ -176,8 +175,7 @@ const guard = (req, res, next) => {
 const pages = ['modern', 'history', 'guide', 'settings'];
 pages.forEach(page => {
   app.get(`/${page}.html`, guard, (req, res) => {
-    // always send the same SPA “shell” (login is served separately)
-    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    res.sendFile(path.join(__dirname, 'dist', `${page}.html`));
   });
 });
 
@@ -1464,7 +1462,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
         screenshotUrl,
         currentUrl,
         extractedInfo: cleanForPrompt(extractedInfo),
-        navigableElements: Array.isArray(navigableElements)
+        navigableElements: Array.isArray(navigableElements) 
           ? navigableElements.map(el => cleanForPrompt(el))
           : cleanForPrompt(navigableElements)
       }

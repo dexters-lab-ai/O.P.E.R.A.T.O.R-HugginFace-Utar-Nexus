@@ -8,25 +8,25 @@ import { stores } from './store/index.js';
 import { api, get, post } from './utils/api.js';
 
 // Import base components
-import Button from './components/base/Button.js';
-import Modal from './components/base/Modal.js';
-import Tooltip from './components/base/Tooltip.js';
-import Dropdown from './components/base/Dropdown.js';
-import Tabs from './components/base/Tabs.js';
-import ProgressBar from './components/base/ProgressBar.js';
-import Alert from './components/base/Alert.js';
+import Button from './components/base/Button.jsx';
+import Modal from './components/base/Modal.jsx';
+import Tooltip from './components/base/Tooltip.jsx';
+import Dropdown from './components/base/Dropdown.jsx';
+import Tabs from './components/base/Tabs.jsx';
+import ProgressBar from './components/base/ProgressBar.jsx';
+import Alert from './components/base/Alert.jsx';
 
 // Import layout components
-import NavigationBar from './components/NavigationBar.js';
-import Sidebar from './components/Sidebar.js';
-import TaskBar from './components/TaskBar.js';
-import MessageTimeline from './components/MessageTimeline.js';
-import CommandCenter from './components/CommandCenter.js';
-import BackButton from './components/BackButton.js';
-import HistoryOverlay from './components/HistoryOverlay.js';
-import Notifications from './components/Notifications.js';
-import ThemeController from './components/ThemeController.js';
-import LayoutManager from './components/LayoutManager.js';
+import NavigationBar from './components/NavigationBar.jsx';
+import Sidebar from './components/Sidebar.jsx';
+import TaskBar from './components/TaskBar.jsx';
+import MessageTimeline from './components/MessageTimeline.jsx';
+import CommandCenter from './components/CommandCenter.jsx';
+import BackButton from './components/BackButton.jsx';
+import HistoryOverlay from './components/HistoryOverlay.jsx';
+import Notifications from './components/Notifications.jsx';
+import ThemeController from './components/ThemeController.jsx';
+import LayoutManager from './components/LayoutManager.jsx';
 
 // Import 3D experience
 import RoomEntryPoint from './3d/RoomEntryPoint.js';
@@ -108,7 +108,7 @@ eventBus.on('exit-application', () => {
   }
   appRoot.innerHTML = '';
 });
-import App from './components/App.js';
+import App from './components/App.jsx';
 
 /**
  * Initialize the modern UI components and integrate them

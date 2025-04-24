@@ -1,4 +1,7 @@
-const API_BASE = window.location.origin;
+const API_BASE = import.meta.env.DEV
+  ? '' // Use Vite dev proxy
+  : (import.meta.env.VITE_API_BASE || window.location.origin);
+console.log('[api-helpers] API_BASE:', API_BASE);
 const API_CONFIG = {
   credentials: 'include',
   headers: {
@@ -8,8 +11,12 @@ const API_CONFIG = {
 };
 
 export async function fetchAPI(url, options = {}) {
+  // Ensure API path uses /api prefix for Vite proxy
+  const endpoint = url.startsWith('/api') ? url : `/api${url}`;
+  const fullUrl = `${API_BASE}${endpoint}`;
+  console.log('[api-helpers] fetchAPI called:', fullUrl);
   try {
-    const response = await fetch(`${API_BASE}${url}`, {
+    const response = await fetch(fullUrl, {
       ...API_CONFIG,
       ...options
     });

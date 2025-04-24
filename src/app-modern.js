@@ -1,28 +1,38 @@
 /**
  * OPERATOR - Modern Application Entry Point
- * This is the modernized version of the app.js that uses the component system
+ * Now with all CSS imports managed by Vite
  */
 
+// Core Styles
+import './styles/command-center.css';
+import './styles/main.css';
+import './styles/components.css';
+import './styles/futuristic.css';
+import './styles/layouts.css';
+import './styles/backbutton.css';
+import './styles/3d-experience.css';
+
+// Vendor CSS (must remain in HTML)
+// <link rel="stylesheet" href="/vendors/fontawesome/all.min.css">
+
+// App Initialization
 import { eventBus } from './utils/events.js';
 import { stores } from './store/index.js';
 import { initializeModernUI } from './app-modern-integration.js';
-import ErrorBoundary from './components/base/ErrorBoundary';
+import ErrorBoundary from './components/base/ErrorBoundary.jsx';
 import { getAllHistory } from './api/history.js';
 import { getSettings } from './api/settings.js';
 
 // Maintain references to all initialized components
 let appComponents = null;
 
-// Wait for DOM to be fully loaded
-document.addEventListener('DOMContentLoaded', () => {
-  initializeApp();
-});
+// Initialize app when DOM loads
+document.addEventListener('DOMContentLoaded', initializeApp);
 
-// Initialize the application
 async function initializeApp() {
-  console.log('Initializing modern OPERATOR application...');
-  
   try {
+    console.log('Initializing modern OPERATOR application...');
+    
     // Show splash screen during initialization
     const splashScreen = document.getElementById('splash-screen');
     const loadingProgress = document.getElementById('loading-progress');
@@ -330,6 +340,9 @@ function showNotification(message, type = 'info') {
 }
 
 // Export public API
+export async function initApp() {
+  return initializeApp();
+}
 export default {
   init: initializeApp,
   stores,

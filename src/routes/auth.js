@@ -94,7 +94,7 @@ router.post('/request-reset', async (req, res) => {
     const token = Math.random().toString(36).substr(2) + Date.now();
     passwordResetTokens[token] = { userId: user._id, expires: Date.now() + 3600_000 };
     // Log the reset link (replace with email logic in production)
-    console.log(`[Password Reset] http://localhost:8080/reset-password?token=${token}`);
+    console.log(`[Password Reset] http://localhost:3000/reset-password?token=${token}`);
     res.json({ success: true, message: 'Password reset link sent (check server logs in dev).' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to process reset request' });

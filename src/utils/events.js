@@ -5,93 +5,27 @@
 
 import { EventEmitter } from 'https://cdn.skypack.dev/events@3.3.0';
 
-/**
- * Custom EventBus implementation (compatible with EventEmitter API)
- */
-class EventBus {
-  constructor() {
-    this.events = {};
+// Simple event bus for in-app events
+const listeners = {};
+export const eventBus = {
+  on(event, cb) {
+    (listeners[event] = listeners[event] || []).push(cb);
+  },
+  once(event, cb) {
+    const wrapper = (...args) => {
+      this.off(event, wrapper);
+      cb.apply(this, args);
+    };
+    this.on(event, wrapper);
+  },
+  off(event, cb) {
+    if (!listeners[event]) return;
+    listeners[event] = listeners[event].filter(fn => fn !== cb);
+  },
+  emit(event, payload) {
+    (listeners[event] || []).forEach(cb => cb(payload));
   }
-
-  /**
-   * Subscribe to an event
-   * @param {string} event - Event name
-   * @param {Function} callback - Event handler
-   * @returns {Function} Unsubscribe function
-   */
-  on(event, callback) {
-    if (!this.events[event]) {
-      this.events[event] = [];
-    }
-    
-    this.events[event].push(callback);
-    
-    // Return unsubscribe function
-    return () => this.off(event, callback);
-  }
-
-  /**
-   * Unsubscribe from an event
-   * @param {string} event - Event name
-   * @param {Function} callback - Event handler to remove
-   */
-  off(event, callback) {
-    if (!this.events[event]) return;
-    
-    this.events[event] = this.events[event].filter(cb => cb !== callback);
-    
-    // Clean up empty event arrays
-    if (this.events[event].length === 0) {
-      delete this.events[event];
-    }
-  }
-
-  /**
-   * Emit an event with data
-   * @param {string} event - Event name
-   * @param {any} data - Event data
-   */
-  emit(event, data) {
-    if (!this.events[event]) return;
-    
-    this.events[event].forEach(callback => {
-      try {
-        callback(data);
-      } catch (err) {
-        console.error(`Error in event handler for "${event}":`, err);
-      }
-    });
-  }
-  
-  /**
-   * Subscribe to an event only once
-   * @param {string} event - Event name
-   * @param {Function} callback - Event handler
-   * @returns {Function} Unsubscribe function
-   */
-  once(event, callback) {
-    const unsubscribe = this.on(event, (data) => {
-      unsubscribe();
-      callback(data);
-    });
-    return unsubscribe;
-  }
-
-  /**
-   * Clear all event handlers for a specific event or all events
-   * @param {string} [event] - Optional event name to clear
-   */
-  clear(event) {
-    if (event) {
-      delete this.events[event];
-    } else {
-      this.events = {};
-    }
-  }
-}
-
-// Create single instance of event bus
-export const eventBus = new EventBus();
+};
 
 /**
  * DOM-specific utilities for event handling

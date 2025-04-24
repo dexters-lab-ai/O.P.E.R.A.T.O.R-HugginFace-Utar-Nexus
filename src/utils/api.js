@@ -6,7 +6,7 @@
 /**
  * Configuration for API requests
  */
-const API_BASE = 'http://localhost:8080';
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE || window.location.origin);
 const API_CONFIG = {
   credentials: 'include',
   headers: {
@@ -23,7 +23,10 @@ const API_CONFIG = {
  */
 export async function fetchAPI(url, options = {}) {
   try {
-    const response = await fetch(`${API_BASE}${url}`, {
+    // Build full URL using proxy in dev and proper prefix
+    const endpoint = url.startsWith('/api') ? url : `/api${url}`;
+    const fullUrl = `${API_BASE}${endpoint}`;
+    const response = await fetch(fullUrl, {
       ...API_CONFIG,
       ...options
     });

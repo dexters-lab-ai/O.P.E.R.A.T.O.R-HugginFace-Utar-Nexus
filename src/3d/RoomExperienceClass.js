@@ -1,21 +1,21 @@
 import * as THREE from 'three';
-import { GUI } from '/vendors/lil-gui/lil-gui.esm.js';
-import { GLTFLoader } from '/vendors/three/examples/jsm/loaders/GLTFLoader.js';
-import { DRACOLoader } from '/vendors/three/examples/jsm/loaders/DRACOLoader.js';
-import { OrbitControls } from '/vendors/three/examples/jsm/controls/OrbitControls.js';
-import { RGBELoader } from '/vendors/three/examples/jsm/loaders/RGBELoader.js';
-import { EffectComposer } from '/vendors/three/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from '/vendors/three/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from '/vendors/three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { GammaCorrectionShader } from '/vendors/three/examples/jsm/shaders/GammaCorrectionShader.js';
-import { ShaderPass } from '/vendors/three/examples/jsm/postprocessing/ShaderPass.js';
-import { FontLoader } from '/vendors/three/examples/jsm/loaders/FontLoader.js';
-import { TextGeometry } from '/vendors/three/examples/jsm/geometries/TextGeometry.js';
-import gsap from '/vendors/gsap/index.js';
-import { eventBus } from '/src/utils/events.js';
-import { stores } from '/src/store/index.js';
-import Screen from '/src/3d/experience/Screen.js';
-import { EventEmitter } from '/src/utils/events.js';
+import { GUI } from 'https://cdn.jsdelivr.net/npm/lil-gui@0.17.0/dist/lil-gui.esm.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectionShader.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js';
+import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js';
+import gsap from 'https://cdn.jsdelivr.net/npm/gsap@3.12.7/index.js';
+import { eventBus } from '../utils/events.js';
+import { stores } from '../store/index.js';
+import Screen from './experience/Screen.js';
+import { EventEmitter } from '../utils/events.js';
 
 // Baked room shaders
 const BAKED_VERTEX_SHADER = `

@@ -7,9 +7,9 @@
  * between legacy and modern code.
  */
 
-import { App } from './components/App.js';
-import { CommandCenter } from './components/CommandCenter.js';
-import { MessageTimeline } from './components/MessageTimeline.js';
+import { App } from './components/App.jsx';
+import { CommandCenter } from './components/CommandCenter.jsx';
+import { MessageTimeline } from './components/MessageTimeline.jsx';
 import { initializeBridge } from './utils/bridge.js';
 import { stores } from './store/index.js';
 import { eventBus } from './utils/events.js';

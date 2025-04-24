@@ -89,6 +89,18 @@ export function RoomEntryPoint(props = {}) {
         const manager = roomExperience.loadingManager;
         manager.onProgress = (url, itemsLoaded, itemsTotal) => {
           const p = Math.floor((itemsLoaded / itemsTotal) * 100);
+          // Update splash screen progress bar
+          const splashBar = document.getElementById('loading-progress');
+          if (splashBar) {
+            splashBar.style.width = `${p}%`;
+            splashBar.setAttribute('aria-valuenow', p);
+          }
+          // Update splash screen text with asset name & percent
+          const loadingText = document.getElementById('loading-text');
+          if (loadingText) {
+            const name = url.split('/').pop();
+            loadingText.textContent = `${name} (${p}%)`;
+          }
           eventBus.emit('room-loading-progress', { progress: p, step: url });
         };
         // All assets loaded: push splash to 100% and complete

@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -6,8 +7,19 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export default defineConfig({
-  root: path.resolve(__dirname, 'public'),
-  publicDir: path.resolve(__dirname, 'public'),
+  plugins: [react()],
+  // Support .js/.jsx files containing JSX
+  resolve: { 
+    extensions: ['.js', '.jsx', 'ts', 'tsx'],
+    alias: {
+      '@': path.resolve(__dirname, 'src'),
+      '@utils': path.resolve(__dirname, 'src/utils'),
+      '@components': path.resolve(__dirname, 'src/components'),
+      '@store': path.resolve(__dirname, 'src/store')
+    }
+  },
+  root: __dirname,  // Project root (not /public)
+  publicDir: 'public',  // Static files (old interface)
   server: {
     port: 3000,
     strictPort: true,
@@ -18,9 +30,51 @@ export default defineConfig({
     headers: {
       'Cache-Control': 'no-store'
     },
+    mimeTypes: {
+      'application/javascript': ['jsx', 'tsx']
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:3420',
+        changeOrigin: true,
+        ws: true,
+        rewrite: (path) => path.replace(/^\/api/, '')
+      },
+      '/settings': {
+        target: 'http://localhost:3420',
+        changeOrigin: true
+      },
+      '/bruno_demo_temp': {
+        target: 'http://localhost:3420',
+        changeOrigin: true
+      },
+      '/ws': {
+        target: 'ws://localhost:3420',
+        changeOrigin: true,
+        ws: true
+      }
+    }
+  },
+  preview: {
+    port: 3000,
+    strictPort: true,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3420',
+        changeOrigin: true,
+        ws: true,
+        rewrite: (path) => path.replace(/^\/api/, '')
+      },
+      '/settings': {
+        target: 'http://localhost:3420',
+        changeOrigin: true
+      },
+      '/bruno_demo_temp': {
+        target: 'http://localhost:3420',
+        changeOrigin: true
+      },
+      '/ws': {
+        target: 'ws://localhost:3420',
         changeOrigin: true,
         ws: true
       }
@@ -28,26 +82,17 @@ export default defineConfig({
   },
   clearScreen: false,
   cacheDir: '.vite-cache',
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, 'src'),
-      '@utils': path.resolve(__dirname, 'src/utils'),
-      '@components': path.resolve(__dirname, 'src/components'),
-      '@store': path.resolve(__dirname, 'src/store'),
-      'three$': 'https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.module.js',
-      'three/examples/jsm/': 'https://cdn.jsdelivr.net/npm/three@0.132.2/examples/jsm/',
-      'three/examples/jsm/controls/OrbitControls': 'https://cdn.jsdelivr.net/npm/three@0.132.2/examples/jsm/controls/OrbitControls.js'
-    }
-  },
   optimizeDeps: {
     include: ['three/examples/jsm/loaders/DRACOLoader'],
     exclude: ['three/examples/js/libs/draco/draco_decoder.js']
   },
   build: {
-    outDir: '../dist',
+    outDir: 'dist',  // New interface output
     emptyOutDir: true,
     rollupOptions: {
-      input: path.resolve(__dirname, 'public/modern.html'),
+      input: {
+        modern: path.resolve(__dirname, 'src/modern.html')  // New entry
+      },
       output: {
         assetFileNames: (assetInfo) => {
           if (assetInfo.name.includes('Room') || 
