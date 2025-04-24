@@ -1,0 +1,38 @@
+/* Migrated styles from public/css/command-center.css and index.css for Command Center modern UI */
+
+.fixed-command-center {
+  display: flex;
+  flex-direction: column;
+  margin: calc(var(--header-height) + 20px) auto 30px;
+  width: 100%;
+  gap: 24px;
+}
+
+.command-center-container {
+  display: flex;
+  gap: 24px;
+  width: 100%;
+}
+
+@media (max-width: 1024px) {
+  .command-center-container {
+    flex-direction: column;
+  }
+}
+
+.command-center {
+  flex: 2;
+}
+
+.task-results {
+  flex: 1;
+  background: var(--glass-background);
+  border-radius: var(--border-radius);
+  box-shadow: var(--depth-shadow);
+  padding: 1.5rem 1rem;
+  margin-top: 24px;
+  min-height: 220px;
+  transition: all 0.3s cubic-bezier(.4,0,.2,1);
+}
+
+/* Add more migrated rules as needed for unified look */
