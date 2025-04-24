@@ -257,7 +257,7 @@ export default class RoomExperience extends EventEmitter {
     // --- Bruno's defaults: world-class fidelity ---
     this.renderer.outputEncoding = THREE.sRGBEncoding;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.3; // Bruno's value for best exposure
+    this.renderer.toneMappingExposure = 0.4; 
     this.renderer.physicallyCorrectLights = true;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -760,9 +760,12 @@ export default class RoomExperience extends EventEmitter {
     // Always preserve renderer outputEncoding/toneMapping!
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
+    // Set initial bloom strength and exposure as per user requirements
     this.bloomPass = new UnrealBloomPass(
       new THREE.Vector2(this.renderer.domElement.width, this.renderer.domElement.height),
-      0.35, 0.8, 0.2
+      0.1, // strength
+      0.8, // radius (unchanged)
+      0.2  // threshold (unchanged)
     );
     this.composer.addPass(this.bloomPass);
     // Bloom controls under Post Processing
@@ -783,7 +786,7 @@ export default class RoomExperience extends EventEmitter {
     // Double check: NEVER override renderer.outputEncoding or toneMapping here!
     this.renderer.outputEncoding = THREE.sRGBEncoding;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.3; // Starting exposure = 0.3
+    this.renderer.toneMappingExposure = 0.4; // Starting exposure = 0.4 (user requirement)
   }
 
   finishLoadingUI() {
@@ -1126,11 +1129,7 @@ export default class RoomExperience extends EventEmitter {
     btn.type = 'button';
     btn.id = 'launch-btn';
     btn.innerText = 'Launch O.P.E.R.A.T.O.R';
-    Object.assign(btn.style, {
-      position: 'absolute', bottom: '2rem', left: '50%', transform: 'translateX(-50%)',
-      padding: '1rem 2rem', background: 'rgba(0,0,0,0.8)', color: '#0ff', border: '1px solid #0ff',
-      borderRadius: '4px', cursor: 'pointer', zIndex: '10'
-    });
+    btn.className = 'cyberpunk-launch-btn';
     document.body.appendChild(btn);
     btn.addEventListener('click', () => eventBus.emit('launch-application'));
   }

@@ -405,6 +405,19 @@ input:focus, textarea:focus, select:focus {
   opacity: 1;
 }
 
+/* Defensive visibility rules */
+.message-timeline,
+.command-center {
+  display: block !important;
+  opacity: 1 !important;
+  z-index: 2100 !important;
+  position: relative;
+}
+
+.history-overlay {
+  z-index: 2200 !important;
+}
+
 /* Responsive adaptations for futuristic elements */
 @media (max-width: 768px) {
   :root {

@@ -23,6 +23,7 @@
   
   <!-- Font Awesome (local vendor) -->
   <link rel="stylesheet" href="/vendors/fontawesome/all.min.css">
+<link rel="stylesheet" href="src/styles/cyberpunk-launch-btn.css">
   
   <style>
     :root {
@@ -154,6 +155,7 @@
       height: 100%;
       background: #121212;
       display: flex;
+      flex-direction: column;
       justify-content: center;
       align-items: center;
       z-index: 9999;
@@ -174,11 +176,51 @@
       background: radial-gradient(circle at 25% 25%, #001, #220033 60%, #000);
     }
   </style>
+  
+  <!-- Spinner loader animations -->
+  <style>
+    /* Sleek SVG spinner, cyberpunk neon */
+    #app-loader .svg-spinner {
+      width: 64px;
+      height: 64px;
+      display: block;
+      margin: 0 auto;
+    }
+    #app-loader .svg-spinner .spinner-bg {
+      display: none;
+    }
+    #app-loader .svg-spinner .spinner-fg {
+      stroke: #009dff;
+      stroke-width: 3.5;
+      stroke-linecap: round;
+      filter: drop-shadow(0 0 5px #00eaff);
+      animation: spinner-dash 1.1s cubic-bezier(0.4,0,0.2,1) infinite;
+    }
+    @keyframes spinner-dash {
+      0% { stroke-dasharray: 1, 150; stroke-dashoffset: 0; }
+      50% { stroke-dasharray: 90, 150; stroke-dashoffset: -35; }
+      100% { stroke-dasharray: 90, 150; stroke-dashoffset: -124; }
+    }
+    #app-loader .loader-text {
+      margin-top: 1rem;
+      color: white;
+      font-size: 1.2rem;
+      text-align: center;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
 </head>
 <body class="loading">
   <!-- Loading state management -->
   <div class="loading-state" id="app-loader">
-    <div class="loader">Loading...</div>
+    <svg class="svg-spinner" viewBox="0 0 50 50">
+      <circle class="spinner-bg" cx="25" cy="25" r="20" fill="none" />
+      <circle class="spinner-fg" cx="25" cy="25" r="20" fill="none" />
+    </svg>
+    <div class="loader-text">Loading...</div>
   </div>
   
   <!-- Splash Screen -->
@@ -187,7 +229,7 @@
     <div class="loading-bar">
       <div class="loading-progress" id="loading-progress" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
     </div>
-    <div class="loading-text">Initializing system...</div>
+    <div class="loading-text" id="loading-text" style="color: white;">Initializing system...</div>
   </div>
   
   <!-- Move container outside app-container -->

@@ -382,19 +382,42 @@ export function initializeModernUI(options = {}) {
    * Handle transition from 3D room to application
    */
   function transition3DToApp() {
-    // Get room container
     const roomContainer = document.getElementById('room-experience-container');
+    if (!roomContainer) return;
+
+    // Phase 1: Start transition
+    roomContainer.style.opacity = '0';
+    roomContainer.style.pointerEvents = 'none';
     
-    if (roomContainer) {
-      // Animate transition
-      roomContainer.style.opacity = '0';
-      
-      // Show application after transition
-      setTimeout(() => {
+    // Phase 2: Post-transition cleanup
+    const cleanup = () => {
+      requestAnimationFrame(() => {
+        // Parallel operations
         roomContainer.remove();
+        components.layoutManager.show();
+        
+        // Atomic visibility enforcement
+        document.querySelectorAll('.message-timeline, .command-center').forEach(el => {
+          el.style.display = 'block';
+          el.style.opacity = '1';
+          el.style.zIndex = '2100';
+          el.style.pointerEvents = 'auto';
+        });
+        
         showApplication();
-      }, 1000);
-    }
+      });
+    };
+    
+    // Use both transitionend and timeout fallback
+    roomContainer.addEventListener('transitionend', cleanup, { once: true });
+    setTimeout(cleanup, 1100); // Fallback if transitionend fails
+    
+    // Phase 3: Final verification
+    setTimeout(() => {
+      if (!document.getElementById('room-experience-container')) {
+        eventBus.emit('ui-visibility-verified');
+      }
+    }, 2000);
   }
   
   /**
@@ -565,6 +588,23 @@ export function initializeModernUI(options = {}) {
     // Return component references
     return components;
   }
+  
+  // Animation helpers
+  const animateIn = (el) => {
+    el.style.transform = 'translateY(8px)';
+    el.style.opacity = '0';
+    requestAnimationFrame(() => {
+      el.style.transition = 'transform 0.3s ease-out, opacity 0.3s';
+      el.style.transform = '';
+      el.style.opacity = '1';
+    });
+  };
+
+  // Apply to components
+  components.layoutManager.show = () => {
+    animateIn(document.querySelector('.message-timeline'));
+    animateIn(document.querySelector('.command-center'));
+  };
   
   // Initialize everything and return component references
   return initializeAll();

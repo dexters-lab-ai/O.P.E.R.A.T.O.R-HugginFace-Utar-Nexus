@@ -15,7 +15,8 @@ export default defineConfig({
       '@': path.resolve(__dirname, 'src'),
       '@utils': path.resolve(__dirname, 'src/utils'),
       '@components': path.resolve(__dirname, 'src/components'),
-      '@store': path.resolve(__dirname, 'src/store')
+      '@store': path.resolve(__dirname, 'src/store'),
+      '@fortawesome/fontawesome-free/webfonts': path.resolve(__dirname, 'node_modules/@fortawesome/fontawesome-free/webfonts')
     }
   },
   root: __dirname,  // Project root (not /public)
@@ -87,6 +88,7 @@ export default defineConfig({
     exclude: ['three/examples/js/libs/draco/draco_decoder.js']
   },
   build: {
+    assetsDir: 'vendors/webfonts',
     outDir: 'dist',  // New interface output
     emptyOutDir: true,
     rollupOptions: {
