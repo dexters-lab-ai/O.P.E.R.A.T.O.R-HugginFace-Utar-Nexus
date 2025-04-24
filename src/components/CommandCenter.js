@@ -13,7 +13,6 @@ import Button from './base/Button.js';
 export const TAB_TYPES = {
   NLI: 'nli',
   ACTIVE_TASKS: 'active-tasks',
-  MANUAL: 'manual',
   REPETITIVE: 'repetitive',
   SCHEDULED: 'scheduled'
 };
@@ -62,9 +61,8 @@ export function CommandCenter(props = {}) {
 
   // Define tabs
   const tabs = [
-    { id: TAB_TYPES.NLI, label: 'Chat', icon: 'fa-comments' },
+    { id: TAB_TYPES.NLI, label: 'NLI Chat', icon: 'fa-comment-dots' },
     { id: TAB_TYPES.ACTIVE_TASKS, label: 'Active Tasks', icon: 'fa-spinner fa-spin' },
-    { id: TAB_TYPES.MANUAL, label: 'General Task', icon: 'fa-tasks' },
     { id: TAB_TYPES.REPETITIVE, label: 'Repetitive', icon: 'fa-sync' },
     { id: TAB_TYPES.SCHEDULED, label: 'Scheduled', icon: 'fa-calendar' }
   ];
@@ -75,13 +73,17 @@ export function CommandCenter(props = {}) {
   // Create tab buttons
   tabs.forEach(tab => {
     const button = document.createElement('button');
-    button.className = `tab-btn ${tab.id === activeTab ? 'active' : ''}`;
+    button.className = `cyber-tab ${tab.id === activeTab ? 'active' : ''}`;
     button.dataset.taskType = tab.id;
     button.id = `${tab.id}-tab`;
     
     // Add icon if available
     if (tab.icon) {
-      button.innerHTML = `<i class="fas ${tab.icon}"></i> ${tab.label}`;
+      button.innerHTML = `
+        <span class="cyber-glow"></span>
+        <i class="fas ${tab.icon}"></i>
+        <span class="cyber-label">${tab.label}</span>
+      `;
     } else {
       button.textContent = tab.label;
     }
@@ -132,6 +134,19 @@ export function CommandCenter(props = {}) {
   textarea.rows = 2;
   textarea.placeholder = 'Type your message, command, or task...';
   textarea.required = true;
+  
+  // Add Three.js initialization
+  const initThreeJS = () => {
+    // Three.js particle system for input field
+    const threeCanvas = document.createElement('canvas');
+    threeCanvas.className = 'threejs-input-effect';
+    inputBar.appendChild(threeCanvas);
+    
+    // Implementation would continue with Three.js setup
+    // (Actual Three.js code would be added here)
+  };
+  
+  initThreeJS();
   
   // Handle form submission
   nliForm.addEventListener('submit', async (e) => {
@@ -287,10 +302,8 @@ export function CommandCenter(props = {}) {
   activeTasksSection.appendChild(repetitiveTasksContent);
   taskSections.appendChild(activeTasksSection);
   
-  // Add other sections (manual, repetitive, scheduled)
-  // For brevity, we're not implementing these fully now
+  // Add other sections (repetitive, scheduled)
   const otherSections = [
-    { id: 'manual-section', type: TAB_TYPES.MANUAL },
     { id: 'repetitive-section', type: TAB_TYPES.REPETITIVE },
     { id: 'scheduled-section', type: TAB_TYPES.SCHEDULED }
   ];
@@ -320,7 +333,6 @@ export function CommandCenter(props = {}) {
       const isActive = (
         (tabType === TAB_TYPES.NLI && section.id === 'unified-input-section') ||
         (tabType === TAB_TYPES.ACTIVE_TASKS && section.id === 'active-tasks-section') ||
-        (tabType === TAB_TYPES.MANUAL && section.id === 'manual-section') ||
         (tabType === TAB_TYPES.REPETITIVE && section.id === 'repetitive-section') ||
         (tabType === TAB_TYPES.SCHEDULED && section.id === 'scheduled-section')
       );

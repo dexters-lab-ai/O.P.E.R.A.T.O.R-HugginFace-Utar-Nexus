@@ -94,6 +94,19 @@ app.use((req, res, next) => {
   next();
 });
 
+// --- CORS for front-end dev server (allow requests from localhost) ---
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && origin.startsWith('http://localhost')) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  }
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
+
 // 7.4 Serve static assets
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(path.join(__dirname, 'dist')));
@@ -120,6 +133,11 @@ import customUrlsRouter from './src/routes/customUrls.js';
 import settingsRouter   from './src/routes/settings.js';
 import { requireAuth }  from './src/middleware/requireAuth.js';
 import serveStaticAssets from './src/middleware/staticAssets.js';
+
+// Serve /login for SPA compatibility (redirects /login → /login.html)
+app.get('/login', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
 
 // ======================================
 // 9) ROUTERS (after session middleware)
@@ -1688,11 +1706,11 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
                 success: step.result.success,
                 currentUrl: step.result.currentUrl,
                 extractedInfo: typeof step.result.extractedInfo === 'string'
-                  ? cleanForPrompt(step.result.extractedInfo)
+                  ? step.result.extractedInfo.substring(0, 1500) + '...'
                   : "No extraction",
-                navigableElements: Array.isArray(step.result.navigableElements)
-                  ? step.result.navigableElements.map(el => cleanForPrompt(el))
-                  : "No navigable elements"
+                navigableElements: Array.isArray(step.result.navigableElements) 
+                  ? step.result.navigableElements.slice(0, 30) 
+                  : []
               })
             });
           }

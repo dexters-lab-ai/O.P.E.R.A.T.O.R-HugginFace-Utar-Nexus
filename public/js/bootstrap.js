@@ -48,7 +48,7 @@ import { eventBus } from '/src/utils/events.js';
   await import('/js/app-modern-integration.js');
   // Mount the PWA shell into the main app container; UI remains hidden until launch event triggers
   try {
-    window.mountApp('#app-container');
+    await window.mountApp('#app-container');
     console.log('[bootstrap] Modern UI shell successfully mounted to #app-container');
   } catch (err) {
     console.error('[bootstrap] Error mounting modern UI shell:', err);

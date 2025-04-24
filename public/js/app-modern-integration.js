@@ -11,6 +11,7 @@ import { getMessageHistory } from '../src/api/messages.js';
 import { submitNLI } from '../src/api/nli.js';
 import { getActiveTasks, cancelTask } from '../src/api/tasks.js';
 import { init3DScene } from './3d-scene-manager.js';
+import { post } from '../src/utils/api-helpers.js';
 
 // Import base components
 import Button from '../src/components/base/Button.js';
@@ -195,15 +196,96 @@ export async function initializeModernUI(options = {}) {
    * Initialize layout manager
    */
   function initLayoutManager() {
-    const layoutPreset = localStorage.getItem('layout_preset') || 'default';
-    components.layoutManager = LayoutManager({
-      containerId: 'layout-manager',
-      initialPreset: layoutPreset
-    });
-    if (components.layoutManager.element && components.layoutManager.element instanceof HTMLElement) {
-      appRoot.appendChild(components.layoutManager.element);
-    } else {
-      throw new Error('LayoutManager did not return a valid DOM element.');
+    try {
+      components.layoutManager = LayoutManager({
+        containerId: 'layout-manager',
+        presets: {
+          default: { sidebar: true, width: '240px' },
+          centered: { sidebar: false, maxWidth: '800px' },
+          focus: { sidebar: false, padding: '0' },
+          expanded: { sidebar: true, width: '300px' }
+        }
+      });
+      
+      // Setup layout change handler
+      eventBus.on('layout-change-requested', ({ preset, callback }) => {
+        try {
+          if (components.layoutManager?.setLayoutPreset) {
+            components.layoutManager.setLayoutPreset(preset);
+            callback(true);
+          } else {
+            console.warn('LayoutManager not properly initialized');
+            callback(false);
+          }
+        } catch (err) {
+          console.error('Layout change failed:', err);
+          components.notifications?.addNotification({
+            title: 'Layout Error',
+            message: 'Failed to change layout',
+            type: 'error'
+          });
+          callback(false);
+        }
+      });
+      
+      // Add layout styles
+      const style = document.createElement('style');
+      style.textContent = `
+        .dropdown-menu.layout-menu {
+          min-width: 280px;
+          padding: 8px 0;
+        }
+        .layout-option {
+          display: flex;
+          align-items: center;
+          padding: 12px 16px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+        .layout-option:hover {
+          background: rgba(var(--color-primary-rgb), 0.1);
+        }
+        .layout-option.active {
+          background: rgba(var(--color-primary-rgb), 0.05);
+        }
+        .layout-option.loading {
+          opacity: 0.7;
+          pointer-events: none;
+        }
+        .layout-icon {
+          margin-right: 12px;
+          font-size: 1.2em;
+          color: var(--color-primary);
+        }
+        .layout-info {
+          flex: 1;
+        }
+        .layout-name {
+          font-weight: 500;
+        }
+        .layout-description {
+          font-size: 0.85em;
+          opacity: 0.8;
+          margin-top: 2px;
+        }
+        .layout-check {
+          opacity: 0;
+          color: var(--color-primary);
+        }
+        .layout-option.active .layout-check {
+          opacity: 1;
+        }
+      `;
+      document.head.appendChild(style);
+      
+      console.log('[INIT] LayoutManager initialized');
+    } catch (err) {
+      console.error('[ERROR] LayoutManager failed:', err);
+      components.notifications?.addNotification({
+        title: 'Layout Error',
+        message: 'Failed to initialize layout manager',
+        type: 'error'
+      });
     }
   }
 
@@ -367,13 +449,27 @@ export async function initializeModernUI(options = {}) {
   /**
    * Initialize main content components
    */
-  function initContentComponents() {
-    // Create message timeline
+  async function initContentComponents() {
+    // --- Unified Message Timeline ---
     try {
+      // Remove any existing timeline to avoid duplicates
+      const oldTimeline = document.getElementById('message-timeline');
+      if (oldTimeline) oldTimeline.innerHTML = '';
+      // Create and mount MessageTimeline (already imported)
       components.messageTimeline = MessageTimeline({
         containerId: 'message-timeline',
-        initialFilter: 'all'
+        initialFilter: 'all',
+        animated: true // Custom prop for enhanced animation
       });
+      // Add cyberpunk/frosty-glass effect
+      const timelineEl = document.getElementById('message-timeline');
+      if (timelineEl) {
+        timelineEl.style.backdropFilter = 'blur(16px) saturate(180%)';
+        timelineEl.style.background = 'rgba(30,40,60,0.55)';
+        timelineEl.style.borderRadius = '22px';
+        timelineEl.style.boxShadow = '0 8px 32px 0 rgba(31,38,135,0.37)';
+        timelineEl.style.transition = 'all 0.5s cubic-bezier(.6,.2,.1,1.0)';
+      }
       console.log('[INIT] MessageTimeline created');
     } catch (err) {
       console.error('[ERROR] MessageTimeline failed to create:', err);
@@ -386,23 +482,71 @@ export async function initializeModernUI(options = {}) {
       }
     }
 
-    // Create command center
-    try {
-      components.commandCenter = CommandCenter({
-        containerId: 'command-center',
-        initialTab: 'nli'
-      });
-      console.log('[INIT] CommandCenter created');
-    } catch (err) {
-      console.error('[ERROR] CommandCenter failed to create:', err);
-      if (components.notifications) {
-        components.notifications.addNotification({
+    // --- Command Center (NLI chat input) ---
+    function initCommandCenter() {
+      try {
+        components.commandCenter = CommandCenter({
+          containerId: 'command-center',
+          onSubmit: async (input) => {
+            try {
+              const response = await submitNLI(input);
+              components.notifications.addNotification({
+                title: 'Command submitted',
+                message: 'Your command is being processed',
+                type: 'success'
+              });
+              return response;
+            } catch (error) {
+              components.notifications.addNotification({
+                title: 'Command failed',
+                message: error.message,
+                type: 'error'
+              });
+              throw error;
+            }
+          },
+          onClear: () => {
+            components.notifications.addNotification({
+              title: 'Input cleared',
+              type: 'info'
+            });
+          }
+        });
+        
+        // Ensure proper styling
+        components.commandCenter.style.cssText = `
+          position: relative;
+          width: 100%;
+          max-width: 800px;
+          margin: 0 auto;
+          padding: 20px;
+          background: var(--color-background-secondary);
+          border-radius: 12px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        `;
+        
+        // Add to DOM
+        appRoot.appendChild(components.commandCenter);
+        
+        // Load Font Awesome for icons
+        const faLink = document.createElement('link');
+        faLink.rel = 'stylesheet';
+        faLink.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css';
+        faLink.integrity = 'sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEBFlcgUa6xLiPY/NS5R+E6ztJQ==';
+        faLink.crossOrigin = 'anonymous';
+        document.head.appendChild(faLink);
+        
+        console.log('[INIT] CommandCenter initialized with NLI input');
+      } catch (err) {
+        console.error('[ERROR] CommandCenter failed:', err);
+        components.notifications?.addNotification({
           title: 'Command Center Error',
           message: err.message,
           type: 'error'
         });
       }
     }
+    initCommandCenter();
 
     // Add to layout with runtime check
     if (typeof components.layoutManager.setContent === 'function') {
@@ -413,6 +557,57 @@ export async function initializeModernUI(options = {}) {
     } else {
       console.error('LayoutManager is missing setContent method.');
     }
+
+    // --- Chat/NLI Form Handler (migrated from src/app.js) ---
+    // Ensure unified input form handler is present
+    setTimeout(() => {
+      const unifiedForm = document.getElementById('unified-input-form');
+      if (unifiedForm && !unifiedForm._hasHandler) {
+        const promptInput = unifiedForm.querySelector('input[type="text"], textarea');
+        const submitButton = unifiedForm.querySelector('button[type="submit"]');
+        unifiedForm.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const prompt = promptInput.value.trim();
+          if (!prompt) return;
+          if (submitButton) submitButton.disabled = true;
+          eventBus.emit('notification', { message: 'Sending...', type: 'info' });
+          try {
+            const response = await fetch('/nli', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+              credentials: 'include',
+              body: JSON.stringify({ prompt })
+            });
+            const data = await response.json();
+            if (data.success && data.assistantReply) {
+              eventBus.emit('new-message', { role: 'assistant', type: 'chat', content: data.assistantReply, timestamp: new Date() });
+            } else if (data.success && data.taskId) {
+              eventBus.emit('notification', { message: 'Task started', type: 'success' });
+            } else {
+              throw new Error(data.error || 'No response');
+            }
+            promptInput.value = '';
+          } catch (err) {
+            eventBus.emit('new-message', { role: 'system', type: 'error', content: 'Failed to send message', error: err.message, timestamp: new Date() });
+            eventBus.emit('notification', { message: 'Failed to send message', type: 'error' });
+          } finally {
+            if (submitButton) submitButton.disabled = false;
+          }
+        });
+        unifiedForm._hasHandler = true;
+      }
+    }, 700);
+
+    // --- Animate timeline on new message ---
+    eventBus.on('new-message', (msg) => {
+      const timelineEl = document.getElementById('message-timeline');
+      if (timelineEl) {
+        timelineEl.classList.remove('animate-pop');
+        void timelineEl.offsetWidth; // trigger reflow
+        timelineEl.classList.add('animate-pop');
+        setTimeout(() => timelineEl.classList.remove('animate-pop'), 800);
+      }
+    });
   }
 
   /**
@@ -704,13 +899,11 @@ export default {
   initialize: initializeModernUI
 };
 
-// Expose mountApp globally for 3D→React transition
-window.mountApp = (selector) => {
-  const rootEl = document.querySelector(selector);
-  if (!rootEl) {
-    console.error(`mountApp: container '${selector}' not found`);
-    return;
-  }
-  // Initialize React UI into the root element
-  initializeModernUI({ rootElement: rootEl, skipRoomExperience: true });
+// Provide global mountApp entry point for legacy bootstrap
+window.mountApp = (selectorOrElement, options = {}) => {
+  const container = typeof selectorOrElement === 'string'
+    ? document.querySelector(selectorOrElement)
+    : selectorOrElement;
+  if (!container) throw new Error(`mountApp: container ${selectorOrElement} not found`);
+  return initializeModernUI({ rootElement: container, ...options });
 };
