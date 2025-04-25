@@ -1,0 +1,133 @@
+/* LEGACY FILE - Styles migrated to src/styles/command-center.css and other modular CSS */
+
+/* Import all modular CSS files */
+@import 'variables.css';
+@import 'base.css';
+@import 'header.css';
+@import 'command-center.css';
+@import 'timeline.css';
+@import 'task-results.css';
+@import 'animations.css';
+@import 'futuristic.css'; /* Enhanced futuristic UI elements */
+
+/* Any additional custom styles can be added here */
+
+/* Responsive Design for Small Screens */
+@media (max-width: 768px) {
+  .container {
+    padding: 0 15px;
+  }
+  
+  .command-center-container {
+    margin-top: 60px;
+  }
+  
+  .fixed-command-center {
+    margin-bottom: 70px; /* Add space for mobile nav */
+  }
+  
+  .unified-input-bar {
+    padding: 10px 15px;
+  }
+  
+  .unified-input-textarea {
+    font-size: 15px;
+    min-height: 50px;
+  }
+  
+  .btn-unified-send {
+    width: 42px;
+    height: 42px;
+  }
+  
+  .history-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Additional Style Overrides and Refinements */
+.active-task {
+  background: var(--dark-light);
+  border-radius: var(--border-radius-md);
+  padding: 15px;
+  margin-bottom: 15px;
+  border-left: 3px solid var(--primary);
+  transition: var(--transition-fast);
+}
+
+.active-task:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-subtle);
+}
+
+.cancel-task-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  background: var(--danger-light);
+  color: var(--danger);
+}
+
+.cancel-task-btn:hover {
+  background: var(--danger);
+  color: white;
+}
+
+/* Ensure all modals have consistent styling */
+.modal, .history-modal {
+  background: var(--dark-light);
+  border-radius: var(--border-radius-lg);
+  padding: 25px;
+  position: relative;
+  border: 1px solid var(--dark-border);
+  box-shadow: var(--shadow-elevated);
+}
+
+/* Style close buttons consistently */
+.close-popup {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--dark-medium);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  border: none;
+  cursor: pointer;
+}
+
+.close-popup:hover {
+  color: var(--text);
+  background: var(--dark-border);
+}
+
+/* Enhance form inputs */
+input[type="number"], input[type="text"], input[type="date"], input[type="time"] {
+  background: var(--dark-medium);
+  border: 1px solid var(--dark-border);
+  border-radius: var(--border-radius-md);
+  color: var(--text);
+  padding: 10px 15px;
+  font-size: 15px;
+  outline: none;
+  transition: var(--transition-fast);
+}
+
+input[type="number"]:focus, input[type="text"]:focus, input[type="date"]:focus, input[type="time"]:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-light);
+}
+
+/* Add glowing effect to focused elements */
+*:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--primary-light);
+}
+
+/* Make scrolling smooth */
+html {
+  scroll-behavior: smooth;
+}

@@ -1761,7 +1761,7 @@ async function loadHistory(page = 1) {
 
     // Check content type
     const contentType = response.headers.get('content-type');
-    if (!contentType || !contentType.includes('application/json')) {
+    if ((!contentType || !contentType.includes('application/json')) && !window.location.pathname.includes('old.html')) {
       window.location.href = '/login.html';
       return;
     }

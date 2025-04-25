@@ -1,0 +1,10 @@
+/* Base styles */
+:root {
+  --primary: #0066cc;
+  --text: #333;
+}
+
+body {
+  margin: 0;
+  font-family: 'Segoe UI', system-ui;
+}

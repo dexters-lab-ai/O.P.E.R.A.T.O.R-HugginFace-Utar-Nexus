@@ -8,6 +8,15 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   plugins: [react()],
+  css: {
+    devSourcemap: true,
+    modules: false,
+    preprocessorOptions: {
+      scss: {
+        additionalData: `@import "@/styles/theme.css";`
+      }
+    }
+  },
   // Support .js/.jsx files containing JSX
   resolve: { 
     extensions: ['.js', '.jsx', 'ts', 'tsx'],
@@ -24,16 +33,6 @@ export default defineConfig({
   server: {
     port: 3000,
     strictPort: true,
-    watch: {
-      usePolling: true,
-      interval: 100
-    },
-    headers: {
-      'Cache-Control': 'no-store'
-    },
-    mimeTypes: {
-      'application/javascript': ['jsx', 'tsx']
-    },
     proxy: {
       '/api': {
         target: 'http://localhost:3420',
@@ -53,7 +52,22 @@ export default defineConfig({
         target: 'ws://localhost:3420',
         changeOrigin: true,
         ws: true
+      },
+      '/auth': {
+        target: 'http://localhost:3420',
+        changeOrigin: true,
+        secure: false
       }
+    },
+    hmr: {
+      overlay: false
+    },
+    watch: {
+      usePolling: true,
+      interval: 100
+    },
+    mimeTypes: {
+      'application/javascript': ['jsx', 'tsx']
     }
   },
   preview: {
@@ -88,6 +102,7 @@ export default defineConfig({
     exclude: ['three/examples/js/libs/draco/draco_decoder.js']
   },
   build: {
+    cssCodeSplit: true,
     assetsDir: 'vendors/webfonts',
     outDir: 'dist',  // New interface output
     emptyOutDir: true,
@@ -103,7 +118,9 @@ export default defineConfig({
             return 'assets/[name].[hash][extname]';
           }
           return 'assets/[name][extname]';
-        }
+        },
+        chunkFileNames: 'assets/[name]-[hash].js',
+        entryFileNames: 'assets/[name]-[hash].js'
       }
     }
   }

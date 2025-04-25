@@ -585,12 +585,27 @@ export function initializeModernUI(options = {}) {
     // Finally, initialize room experience or show app directly
     initRoomExperience();
     
+    // Timeline hover effects
+    const timelineItems = document.querySelectorAll('.message');
+    timelineItems.forEach(item => {
+      item.addEventListener('mouseenter', () => {
+        item.style.transform = 'perspective(500px) rotateY(5deg)';
+        item.style.boxShadow = '0 0 15px var(--cyberpunk-neon)';
+      });
+      
+      item.addEventListener('mouseleave', () => {
+        item.style.transform = '';
+        item.style.boxShadow = '';
+      });
+    });
+    
     // Return component references
     return components;
   }
   
   // Animation helpers
   const animateIn = (el) => {
+    if (!el) return;
     el.style.transform = 'translateY(8px)';
     el.style.opacity = '0';
     requestAnimationFrame(() => {
@@ -601,10 +616,14 @@ export function initializeModernUI(options = {}) {
   };
 
   // Apply to components
-  components.layoutManager.show = () => {
-    animateIn(document.querySelector('.message-timeline'));
-    animateIn(document.querySelector('.command-center'));
-  };
+  if (components.layoutManager) {
+    const originalShow = components.layoutManager.show;
+    components.layoutManager.show = function() {
+      originalShow?.call(this);
+      animateIn(document.querySelector('.message-timeline'));
+      animateIn(document.querySelector('.command-center'));
+    };
+  }
   
   // Initialize everything and return component references
   return initializeAll();

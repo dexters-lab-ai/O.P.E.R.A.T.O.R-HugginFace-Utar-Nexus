@@ -1,0 +1,242 @@
+/*!
+ * Font Awesome Free 5.15.4 - Basic minimal version for OPERATOR
+ * License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License)
+ */
+
+/* Core styles */
+.fa,
+.fas,
+.far,
+.fal,
+.fad,
+.fab {
+  /* Browser-specific font smoothing properties removed for better compatibility */
+  display: inline-block;
+  font-style: normal;
+  font-variant: normal;
+  text-rendering: auto;
+  line-height: 1;
+}
+
+/* Font weight classes */
+.fa,
+.fas {
+  font-weight: 900;
+}
+
+.far {
+  font-weight: 400;
+}
+
+.fab {
+  font-weight: normal;
+}
+
+/* Base icon styling */
+.fa,
+.fas,
+.far,
+.fal,
+.fad,
+.fab {
+  font-family: 'FontAwesome';
+}
+
+/* Icon size classes */
+.fa-xs {
+  font-size: 0.75em;
+}
+
+.fa-sm {
+  font-size: 0.875em;
+}
+
+.fa-lg {
+  font-size: 1.33333em;
+  line-height: 0.75em;
+  vertical-align: -0.0667em;
+}
+
+.fa-fw {
+  width: 1.25em;
+  text-align: center;
+}
+
+/* Icon rotation classes */
+.fa-rotate-90 {
+  transform: rotate(90deg);
+}
+
+.fa-rotate-180 {
+  transform: rotate(180deg);
+}
+
+.fa-rotate-270 {
+  transform: rotate(270deg);
+}
+
+/* Commonly used icons */
+.fa-check:before {
+  content: "\f00c";
+}
+
+.fa-times:before {
+  content: "\f00d";
+}
+
+.fa-search:before {
+  content: "\f002";
+}
+
+.fa-user:before {
+  content: "\f007";
+}
+
+.fa-cog:before {
+  content: "\f013";
+}
+
+.fa-home:before {
+  content: "\f015";
+}
+
+.fa-download:before {
+  content: "\f019";
+}
+
+.fa-bookmark:before {
+  content: "\f02e";
+}
+
+.fa-info-circle:before {
+  content: "\f05a";
+}
+
+.fa-exclamation-triangle:before {
+  content: "\f071";
+}
+
+.fa-bars:before {
+  content: "\f0c9";
+}
+
+.fa-copy:before {
+  content: "\f0c5";
+}
+
+.fa-save:before {
+  content: "\f0c7";
+}
+
+.fa-envelope:before {
+  content: "\f0e0";
+}
+
+.fa-angle-left:before {
+  content: "\f104";
+}
+
+.fa-angle-right:before {
+  content: "\f105";
+}
+
+.fa-angle-up:before {
+  content: "\f106";
+}
+
+.fa-angle-down:before {
+  content: "\f107";
+}
+
+.fa-terminal:before {
+  content: "\f120";
+}
+
+.fa-question-circle:before {
+  content: "\f059";
+}
+
+.fa-bell:before {
+  content: "\f0f3";
+}
+
+.fa-history:before {
+  content: "\f1da";
+}
+
+.fa-chevron-left:before {
+  content: "\f053";
+}
+
+.fa-chevron-right:before {
+  content: "\f054";
+}
+
+.fa-chevron-up:before {
+  content: "\f077";
+}
+
+.fa-chevron-down:before {
+  content: "\f078";
+}
+
+.fa-moon:before {
+  content: "\f186";
+}
+
+.fa-sun:before {
+  content: "\f185";
+}
+
+.fa-trash:before {
+  content: "\f1f8";
+}
+
+.fa-edit:before {
+  content: "\f044";
+}
+
+.fa-ellipsis-v:before {
+  content: "\f142";
+}
+
+.fa-columns:before {
+  content: "\f0db";
+}
+
+.fa-tachometer-alt:before {
+  content: "\f3fd";
+}
+
+.fa-book:before {
+  content: "\f02d";
+}
+
+.fa-puzzle-piece:before {
+  content: "\f12e";
+}
+
+/* In HTML, use fallback content for users who don't have the font loaded */
+@font-face {
+  font-family: 'FontAwesome';
+  font-style: normal;
+  font-weight: 900;
+  font-display: block;
+  src: url('./webfonts/fa-solid-900.woff2') format('woff2');
+}
+
+/* Rules to show text as fallback if font fails to load */
+.fa:not(:empty):before,
+.fas:not(:empty):before,
+.far:not(:empty):before,
+.fal:not(:empty):before,
+.fad:not(:empty):before,
+.fab:not(:empty):before {
+  display: none;
+}
+
+/* Font Awesome uses a 1em default width and height */
+.fa, .fas, .far, .fal, .fad, .fab {
+  width: 1em;
+  height: 1em;
+}

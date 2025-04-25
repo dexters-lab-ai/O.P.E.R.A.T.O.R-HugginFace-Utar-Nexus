@@ -4,13 +4,10 @@
  */
 
 // Core Styles
-import './styles/command-center.css';
-import './styles/main.css';
-import './styles/components.css';
-import './styles/futuristic.css';
-import './styles/layouts.css';
-import './styles/backbutton.css';
-import './styles/3d-experience.css';
+import '@/styles/main.css';
+import '@/styles/components/command-center.css';
+import '@/styles/components/layouts.css';
+import '@/styles/components/timeline.css';
 
 // Vendor CSS (must remain in HTML)
 // <link rel="stylesheet" href="/vendors/fontawesome/all.min.css">

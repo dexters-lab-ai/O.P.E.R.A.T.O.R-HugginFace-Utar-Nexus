@@ -23,7 +23,7 @@ export async function fetchAPI(url, options = {}) {
 
     // Handle error responses
     if (response.status === 401) {
-      window.location.href = '/login';
+      window.location.href = '/login.html';
       return;
     }
     if (!response.ok) {

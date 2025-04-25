@@ -1,0 +1,121 @@
+/* Main CSS for OPERATOR Modern Interface */
+
+/* Add your main cyberpunk styles here */
+
+@import './theme.css';
+@import './components/animations.css';
+@import './components/command-center.css';
+@import './components/layouts.css';
+@import './components/timeline.css';
+@import './components/message-timeline.css';
+
+/* Global styles only */
+body {
+  font-family: 'Google Sans', Roboto, sans-serif;
+}
+
+:root {
+  --cyberpunk-neon: #0ff4f6;
+  --cyberpunk-purple: #5f1fff;
+  --cyberpunk-bg: rgba(25,28,40,0.88);
+  --cyberpunk-glass: rgba(25,28,40,0.72);
+  --cyberpunk-border: rgba(0,255,255,0.18);
+  --primary-text: var(--text-primary);
+  --secondary-text: var(--text-secondary);
+  --text-color: var(--text-primary);
+  --text-color-hover: var(--text-secondary);
+  --background-hover: var(--bg-medium);
+  --primary-color-hover: var(--primary-light);
+  --secondary-color-hover: var(--secondary-color);
+  --card-background: var(--bg-medium);
+  --card-shadow: var(--shadow-small);
+  --card-shadow-hover: var(--shadow-medium);
+  --border-color: var(--bg-light);
+  --card-footer-background: var(--bg-dark);
+  --primary-color-transparent: rgba(52, 152, 219, 0.15);
+}
+
+/* Enhanced Component Styles */
+/* ===== Modern Chat Area ===== */
+.message-timeline {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(8px);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  max-width: 800px;
+  margin: 0 auto;
+  border: 1px solid rgba(0,0,0,0.08);
+}
+
+.message {
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  transition: transform 0.2s, box-shadow 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+
+.message:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.message::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: var(--primary);
+}
+
+/* Removed command-center styles - now in components/command-center.css */
+
+/* Dark Mode */
+@media (prefers-color-scheme: dark) {
+  .message-timeline, 
+  .message {
+    background: rgba(32, 33, 36, 0.92);
+    border-color: rgba(255,255,255,0.08);
+  }
+  
+  .message {
+    background: #202124;
+  }
+}
+
+/* Back button fade animations */
+.btn-back.fade-in {
+  opacity: 0;
+  animation: fadeInBtn 0.4s forwards;
+}
+.btn-back.fade-out {
+  opacity: 1;
+  animation: fadeOutBtn 0.35s forwards;
+}
+@keyframes fadeInBtn {
+  to { opacity: 1; }
+}
+@keyframes fadeOutBtn {
+  to { opacity: 0; }
+}
+
+.container.fade-in {
+  opacity: 0;
+  animation: fadeInApp 0.4s forwards;
+}
+.container.fade-out {
+  opacity: 1;
+  animation: fadeOutApp 0.35s forwards;
+}
+@keyframes fadeInApp {
+  to { opacity: 1; }
+}
+@keyframes fadeOutApp {
+  to { opacity: 0; }
+}

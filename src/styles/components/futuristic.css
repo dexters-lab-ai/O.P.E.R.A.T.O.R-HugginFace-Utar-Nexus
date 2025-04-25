@@ -1,0 +1,434 @@
+/**
+ * OPERATOR - Futuristic UI Styles
+ * 
+ * This file contains advanced visual effects and animations
+ * to create a cutting-edge, futuristic interface
+ */
+
+:root {
+  /* Glow effects */
+  --glow-primary: 0 0 10px rgba(var(--primary-color-rgb), 0.5);
+  --glow-accent: 0 0 15px rgba(var(--accent-color-rgb), 0.6);
+  --glow-success: 0 0 10px rgba(var(--success-color-rgb), 0.5);
+  --glow-error: 0 0 10px rgba(var(--error-color-rgb), 0.5);
+  
+  /* Glassmorphism */
+  --glass-background: rgba(20, 25, 40, 0.7);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.1);
+  --glass-backdrop-filter: blur(10px);
+  
+  /* Gradients */
+  --gradient-primary: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+  --gradient-dark: linear-gradient(135deg, rgba(20, 25, 40, 0.9), rgba(15, 20, 35, 0.8));
+  --gradient-glass: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+  
+  /* 3D effects */
+  --depth-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+  --card-lift: translateY(-3px);
+}
+
+/* Glassmorphism Cards */
+.card, .command-center, .message-timeline, .task-results {
+  background: var(--glass-background);
+  backdrop-filter: var(--glass-backdrop-filter);
+  -webkit-backdrop-filter: var(--glass-backdrop-filter);
+  border: var(--glass-border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s ease;
+}
+
+.card:hover, .command-center:hover, .task-results:hover {
+  box-shadow: var(--depth-shadow), 0 0 20px rgba(var(--primary-color-rgb), 0.15);
+  transform: var(--card-lift);
+}
+
+/* Glowing borders and accents */
+.card.active, .btn-primary, .tab-btn.active {
+  box-shadow: var(--glow-primary);
+}
+
+/* Animated gradients for loading states */
+.loading, .task-progress {
+  background: var(--gradient-primary);
+  background-size: 200% 200%;
+  animation: gradient-shift 2s ease infinite;
+}
+
+@keyframes gradient-shift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* Futuristic buttons */
+.btn {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateX(-100%);
+  transition: transform 0.3s ease;
+}
+
+.btn:hover::before {
+  transform: translateX(0);
+}
+
+.btn-primary {
+  background: var(--gradient-primary);
+  border: none;
+}
+
+/* Glowing text for important elements */
+.header-title h1, .card-title {
+  text-shadow: 0 0 10px rgba(var(--primary-color-rgb), 0.3);
+}
+
+/* Futuristic input fields */
+input, textarea, select {
+  background: rgba(10, 15, 30, 0.6);
+  border: 1px solid rgba(var(--primary-color-rgb), 0.3);
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  transition: all 0.3s ease;
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: var(--primary-color);
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.2), 0 0 8px rgba(var(--primary-color-rgb), 0.4);
+}
+
+/* Command center special effects */
+.unified-input-bar {
+  border: 1px solid rgba(var(--primary-color-rgb), 0.3);
+  background: rgba(10, 15, 30, 0.6);
+  box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s ease;
+}
+
+.unified-input-bar:focus-within {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 15px rgba(var(--primary-color-rgb), 0.3);
+}
+
+/* Message timeline futuristic styling */
+.message-timeline-container {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--primary-color-rgb), 0.5) rgba(0, 0, 0, 0.2);
+}
+
+.message-timeline-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.message-timeline-container::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+.message-timeline-container::-webkit-scrollbar-thumb {
+  background: rgba(var(--primary-color-rgb), 0.5);
+  border-radius: 3px;
+}
+
+.msg-item {
+  position: relative;
+  transition: all 0.3s ease;
+  transform-origin: center left;
+}
+
+.msg-item::before {
+  content: '';
+  position: absolute;
+  left: -10px;
+  top: 50%;
+  width: 3px;
+  height: 0;
+  background: var(--primary-color);
+  transform: translateY(-50%);
+  transition: height 0.3s ease;
+}
+
+.msg-item:hover::before {
+  height: 70%;
+}
+
+/* Message roles styling */
+.msg-user .msg-role {
+  background: var(--gradient-primary);
+}
+
+.msg-assistant .msg-role {
+  background: linear-gradient(135deg, var(--accent-color), #9370DB);
+}
+
+.msg-system .msg-role {
+  background: linear-gradient(135deg, #607D8B, #455A64);
+}
+
+/* Task results futuristic styling */
+.task-result-card {
+  transition: all 0.3s ease;
+  border-left: 3px solid transparent;
+}
+
+.task-result-card.success {
+  border-left-color: var(--success-color);
+}
+
+.task-result-card.error {
+  border-left-color: var(--error-color);
+}
+
+.task-result-card.processing {
+  border-left-color: var(--primary-color);
+}
+
+/* Futuristic notifications */
+.notification {
+  backdrop-filter: var(--glass-backdrop-filter);
+  -webkit-backdrop-filter: var(--glass-backdrop-filter);
+  background: var(--glass-background);
+  border-left: 4px solid var(--primary-color);
+  box-shadow: var(--depth-shadow), 0 0 10px rgba(var(--primary-color-rgb), 0.2);
+  transform: translateX(100%);
+  opacity: 0;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.notification.visible {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.notification.notification-success {
+  border-left-color: var(--success-color);
+  box-shadow: var(--depth-shadow), 0 0 10px rgba(var(--success-color-rgb), 0.2);
+}
+
+.notification.notification-error {
+  border-left-color: var(--error-color);
+  box-shadow: var(--depth-shadow), 0 0 10px rgba(var(--error-color-rgb), 0.2);
+}
+
+.notification.notification-warning {
+  border-left-color: var(--warning-color);
+  box-shadow: var(--depth-shadow), 0 0 10px rgba(var(--warning-color-rgb), 0.2);
+}
+
+.notification-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  width: 100%;
+  background: var(--primary-color);
+  transform-origin: left;
+  animation: progress-shrink linear forwards;
+}
+
+@keyframes progress-shrink {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+/* Animated history overlay */
+.history-overlay {
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+  background: rgba(10, 15, 30, 0.85);
+  opacity: 0;
+  transform: scale(1.05);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.history-overlay.visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Timeline visualization */
+.timeline-date-group {
+  position: relative;
+}
+
+.timeline-date-group::before {
+  content: '';
+  position: absolute;
+  top: 40px;
+  bottom: 0;
+  left: 15px;
+  width: 2px;
+  background: linear-gradient(to bottom, 
+    var(--primary-color), 
+    rgba(var(--primary-color-rgb), 0.1)
+  );
+}
+
+.timeline-item {
+  position: relative;
+  transform: translateX(20px);
+  opacity: 0;
+  animation: slide-in 0.3s ease forwards;
+  animation-delay: calc(var(--index, 0) * 0.05s);
+}
+
+@keyframes slide-in {
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.timeline-item-icon {
+  position: relative;
+  z-index: 1;
+  background: var(--card-background);
+  border: 2px solid var(--primary-color);
+  box-shadow: 0 0 10px rgba(var(--primary-color-rgb), 0.3);
+}
+
+/* Layout toggle transitions */
+.layout-preset-default,
+.layout-preset-centered,
+.layout-preset-focus,
+.layout-preset-expanded {
+  transition: grid-template-rows 0.5s ease, grid-template-columns 0.5s ease;
+}
+
+/* Sleek dropdown menus */
+.dropdown-menu {
+  background: var(--glass-background);
+  backdrop-filter: var(--glass-backdrop-filter);
+  -webkit-backdrop-filter: var(--glass-backdrop-filter);
+  border: var(--glass-border);
+  box-shadow: var(--depth-shadow), 0 0 20px rgba(0, 0, 0, 0.3);
+}
+
+.dropdown-item {
+  position: relative;
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
+
+.dropdown-item::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(to right, 
+    transparent, 
+    rgba(var(--primary-color-rgb), 0.5), 
+    transparent
+  );
+  transform: scaleX(0);
+  transition: transform 0.3s ease;
+}
+
+.dropdown-item:hover::after {
+  transform: scaleX(1);
+}
+
+/* Pulse animations for indicators */
+.status-indicator {
+  position: relative;
+}
+
+.status-indicator::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: inherit;
+  opacity: 0.5;
+  transform: translate(-50%, -50%) scale(0);
+  animation: pulse 2s ease infinite;
+}
+
+@keyframes pulse {
+  0% {
+    transform: translate(-50%, -50%) scale(0);
+    opacity: 0.7;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(2);
+    opacity: 0;
+  }
+}
+
+/* Interactive hover effects */
+.interactive {
+  position: relative;
+  overflow: hidden;
+}
+
+.interactive::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at center, 
+    rgba(255, 255, 255, 0.2) 0%, 
+    transparent 70%
+  );
+  transform: translate(-50%, -50%) scale(0);
+  opacity: 0;
+  transition: transform 0.5s ease, opacity 0.5s ease;
+  pointer-events: none;
+}
+
+.interactive:hover::after {
+  transform: translate(-50%, -50%) scale(1.5);
+  opacity: 1;
+}
+
+/* Responsive adaptations for futuristic elements */
+@media (max-width: 768px) {
+  :root {
+    --glow-primary: 0 0 5px rgba(var(--primary-color-rgb), 0.5);
+    --glass-backdrop-filter: blur(5px);
+  }
+  
+  .card:hover, .command-center:hover, .task-results:hover {
+    transform: none;
+  }
+}
+
+/* Dark theme optimizations */
+[data-theme="dark"] .card {
+  background: rgba(15, 20, 30, 0.7);
+}
+
+/* Light theme adjustments */
+[data-theme="light"] {
+  --glass-background: rgba(240, 245, 255, 0.7);
+  --glass-border: 1px solid rgba(0, 0, 0, 0.1);
+  --gradient-dark: linear-gradient(135deg, rgba(220, 225, 235, 0.9), rgba(200, 210, 225, 0.8));
+}
+
+[data-theme="light"] .card {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}

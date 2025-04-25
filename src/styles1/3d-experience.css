@@ -1,0 +1,264 @@
+/**
+ * OPERATOR - 3D Room Experience Styles
+ * 
+ * This file contains styles for the 3D room entry experience
+ */
+
+/* Room Entry Container */
+.room-entry-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 9000;
+  overflow: hidden;
+}
+
+/* Canvas Container */
+.room-canvas-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Loading Overlay */
+.room-loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(10, 15, 30, 0.95);
+  z-index: 9100;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: opacity 1s ease;
+}
+
+.room-loading-overlay.fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.room-loading-content {
+  text-align: center;
+  color: #fff;
+  max-width: 500px;
+  padding: 2rem;
+}
+
+.room-loading-content h2 {
+  font-size: 2rem;
+  margin-bottom: 2rem;
+  background: linear-gradient(90deg, var(--primary-color), var(--accent-color));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  position: relative;
+  display: inline-block;
+}
+
+.room-loading-content h2::after {
+  content: '';
+  position: absolute;
+  bottom: -10px;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, var(--primary-color), var(--accent-color));
+}
+
+/* Loading Progress */
+.loading-progress-container {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 1.5rem 0;
+  position: relative;
+}
+
+.loading-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary-color), var(--accent-color));
+  width: 0%;
+  transition: width 0.3s ease;
+  border-radius: 3px;
+}
+
+.loading-progress-text {
+  position: absolute;
+  top: -25px;
+  right: 0;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Skip Button */
+.skip-experience-button {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  padding: 0.6rem 1.5rem;
+  margin-top: 2rem;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 0.9rem;
+}
+
+.skip-experience-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+/* App Container */
+.app-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 9050;
+  opacity: 1;
+  transition: opacity 0.5s ease;
+}
+
+/* Help Tooltip */
+.room-help-tooltip {
+  position: absolute;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 8px;
+  padding: 1rem;
+  color: #fff;
+  z-index: 9150;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transition: all 0.5s ease;
+  pointer-events: none;
+}
+
+.room-help-tooltip.visible {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+
+.tooltip-content {
+  text-align: center;
+}
+
+.tooltip-content p {
+  margin: 0.5rem 0;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.tooltip-content strong {
+  color: #fff;
+  font-weight: 600;
+}
+
+/* Fade Overlay */
+.fade-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  z-index: 9999;
+  opacity: 0;
+  transition: opacity 1s ease;
+}
+
+.fade-overlay.visible {
+  opacity: 1;
+}
+
+/* Exit Button */
+.exit-to-room-button {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 9200;
+  transition: all 0.3s ease;
+}
+
+.exit-to-room-button:hover {
+  background: rgba(var(--primary-color-rgb), 0.8);
+  transform: scale(1.1);
+}
+
+.exit-to-room-button i {
+  font-size: 1.2rem;
+}
+
+/* Launch Button Animation */
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(var(--primary-color-rgb), 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(var(--primary-color-rgb), 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--primary-color-rgb), 0);
+  }
+}
+
+.launch-button {
+  animation: pulse 2s infinite;
+}
+
+/* Screen Glare Effect */
+.screen-glare {
+  position: absolute;
+  width: 150%;
+  height: 150%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(255, 255, 255, 0.2) 0%,
+    rgba(255, 255, 255, 0) 70%
+  );
+  top: -25%;
+  left: -25%;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+
+.computer-screen:hover .screen-glare {
+  opacity: 1;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+  .room-loading-content h2 {
+    font-size: 1.5rem;
+  }
+  
+  .room-help-tooltip {
+    max-width: 90%;
+  }
+}

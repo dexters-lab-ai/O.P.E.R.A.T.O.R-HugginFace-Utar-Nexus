@@ -138,6 +138,15 @@ app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
+// Root route - serve appropriate interface
+app.get('/', (req, res) => {
+  if (req.session.user) {
+    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  } else {
+    res.redirect('/login.html');
+  }
+});
+
 // ======================================
 // 9) ROUTERS (after session middleware)
 // ======================================
@@ -172,15 +181,16 @@ const guard = (req, res, next) => {
 }
 
 // Loop over the other .html endpoints
-const pages = ['modern', 'history', 'guide', 'settings'];
+const pages = ['history', 'guide', 'settings'];
 pages.forEach(page => {
   app.get(`/${page}.html`, guard, (req, res) => {
     res.sendFile(path.join(__dirname, 'dist', `${page}.html`));
   });
 });
 
-app.get('/login.html', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+// Old interface should be accessible without auth
+app.get('/old.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'old.html'));
 });
 
 // the app shell

@@ -34,7 +34,7 @@ export async function fetchAPI(url, options = {}) {
     // Handle error responses
     if (response.status === 401) {
       // Redirect to login page if not authenticated
-      window.location.href = '/login'; // Update to your login route if needed
+      window.location.href = '/login.html';
       return;
     }
     if (!response.ok) {
@@ -143,9 +143,9 @@ export const api = {
     delete: (id) => del(`/history/${id}`)
   },
   auth: {
-    login: (email, password) => post('/auth/login', { email, password }),
-    register: (email, password) => post('/auth/register', { email, password }),
-    logout: () => get('/auth/logout')
+    login: (email, password) => post('/api/auth/login', { email, password }),
+    register: (email, password) => post('/api/auth/register', { email, password }),
+    logout: () => get('/api/auth/logout')
   }
 };
 

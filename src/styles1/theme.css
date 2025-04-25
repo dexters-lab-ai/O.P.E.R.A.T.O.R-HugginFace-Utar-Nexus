@@ -1,0 +1,85 @@
+:root {
+  /* Color System */
+  --primary: #4285F4;
+  --primary-dark: #3367D6;
+  --secondary: #34A853;
+  --accent: #EA4335;
+  --text-primary: #202124;
+  --text-secondary: #5F6368;
+  
+  /* Core Colors */
+  --primary-alt: #7B4DFF;
+  --primary-dark-alt: #5C2EE5;
+  --primary-light-alt: rgba(123, 77, 255, 0.1);
+  
+  /* Cyberpunk Accents */
+  --cyber-blue: #00DDEB;
+  --cyber-pink: #FF00CC;
+  
+  /* Glassmorphism */
+  --glass-bg: rgba(20, 25, 40, 0.7);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.1);
+  
+  /* Animations */
+  --transition-fast: 0.15s;
+  --transition-normal: 0.3s;
+  
+  /* Elevation */
+  --shadow-1: 0 1px 2px rgba(0,0,0,0.08);
+  --shadow-2: 0 2px 8px rgba(0,0,0,0.12);
+  
+  /* Spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+}
+
+/* Base Styles */
+body {
+  font-family: 'Google Sans', Roboto, sans-serif;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+/* Buttons */
+.btn {
+  padding: var(--space-sm) var(--space-md);
+  border-radius: 4px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: var(--primary-dark);
+  transform: translateY(-1px);
+}
+
+/* Responsive Grid */
+@media (max-width: 768px) {
+  :root {
+    --space-md: 12px;
+    --space-lg: 20px;
+  }
+  
+  .message-timeline {
+    border-radius: 0;
+    margin: 0 -16px;
+  }
+}
+
+/* Dark Mode */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text-primary: #E8EAED;
+    --text-secondary: #9AA0A6;
+  }
+  
+  .message-timeline {
+    background: #202124;
+  }
+}
