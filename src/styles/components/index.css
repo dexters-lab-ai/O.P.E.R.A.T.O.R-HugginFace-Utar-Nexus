@@ -1,6 +1,7 @@
 /* LEGACY FILE - Styles migrated to src/styles/command-center.css and other modular CSS */
 
 /* Import all modular CSS files */
+@import 'components.css';
 @import 'variables.css';
 @import 'base.css';
 @import 'header.css';

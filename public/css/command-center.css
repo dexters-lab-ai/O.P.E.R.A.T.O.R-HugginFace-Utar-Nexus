@@ -31,37 +31,6 @@
   flex-direction: column;
 }
 
-/* Card Styling */
-.card {
-  background: var(--dark-light);
-  border-radius: var(--border-radius-lg);
-  padding: 20px;
-  box-shadow: var(--shadow-subtle);
-  transition: var(--transition-normal);
-  overflow: hidden;
-  position: relative;
-  border: 1px solid var(--dark-border);
-}
-
-.card:hover {
-  box-shadow: var(--shadow-elevated);
-  border-color: rgba(255, 255, 255, 0.1);
-}
-
-.card-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 20px;
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.card-title i {
-  color: var(--primary);
-}
-
 /* Tab Navigation */
 .tab-buttons {
   display: flex;

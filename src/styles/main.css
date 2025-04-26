@@ -2,8 +2,18 @@
 
 /* Add your main cyberpunk styles here */
 
-@import '../components/UnifiedCommandSection.css';
 @import './theme.css';
+@import './components/index.css';
+@import './components/animations.css';
+@import './components/command-center.css';
+@import './components/layouts.css';
+@import './components/timeline.css';
+@import './components/message-timeline.css';
+
+/* Global styles only */
+body {
+  font-family: 'Google Sans', Roboto, sans-serif;
+}
 
 :root {
   --cyberpunk-neon: #0ff4f6;
@@ -27,28 +37,42 @@
 }
 
 /* Enhanced Component Styles */
-.message-timeline {
-  background: white;
+/* ===== Modern Chat Area ===== */
+.message {
+  padding: 12px 16px;
+  margin-bottom: 12px;
   border-radius: 8px;
-  box-shadow: var(--shadow-1);
+  background: white;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
   transition: transform 0.2s, box-shadow 0.2s;
+  position: relative;
+  overflow: hidden;
 }
 
-.message-timeline:hover {
+.message:hover {
   transform: translateY(-2px);
-  box-shadow: var(--shadow-2);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
 }
 
-.command-center {
-  border: 1px solid #dfe1e5;
-  border-radius: 24px;
-  padding: 8px 16px;
-  transition: box-shadow 0.3s;
+.message::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: var(--primary);
 }
 
-.command-center:focus-within {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 2px #e8f0fe;
+/* Removed command-center styles - now in components/command-center.css */
+
+/* Dark Mode */
+@media (prefers-color-scheme: dark) {
+  .message-timeline, 
+  .message {
+    border-color: rgba(255,255,255,0.08);
+    /* background: #202124; */
+  }
 }
 
 /* Back button fade animations */

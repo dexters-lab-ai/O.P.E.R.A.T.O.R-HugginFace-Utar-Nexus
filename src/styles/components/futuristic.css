@@ -28,7 +28,7 @@
 }
 
 /* Glassmorphism Cards */
-.card, .command-center, .message-timeline, .task-results {
+.card, .command-center, .task-results {
   background: var(--glass-background);
   backdrop-filter: var(--glass-backdrop-filter);
   -webkit-backdrop-filter: var(--glass-backdrop-filter);
@@ -170,15 +170,15 @@ input:focus, textarea:focus, select:focus {
 }
 
 /* Message roles styling */
-.msg-user .msg-role {
+.msg-user.msg-role {
   background: var(--gradient-primary);
 }
 
-.msg-assistant .msg-role {
+.msg-assistant.msg-role {
   background: linear-gradient(135deg, var(--accent-color), #9370DB);
 }
 
-.msg-system .msg-role {
+.msg-system.msg-role {
   background: linear-gradient(135deg, #607D8B, #455A64);
 }
 
@@ -310,6 +310,8 @@ input:focus, textarea:focus, select:focus {
 .layout-preset-focus,
 .layout-preset-expanded {
   transition: grid-template-rows 0.5s ease, grid-template-columns 0.5s ease;
+  z-index: 1000;
+  position: relative;
 }
 
 /* Sleek dropdown menus */

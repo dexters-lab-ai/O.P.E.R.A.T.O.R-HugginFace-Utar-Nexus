@@ -15,7 +15,7 @@ import Button from './base/Button.jsx';
 export function Sidebar(props = {}) {
   const {
     containerId = 'sidebar',
-    position = 'left',
+    position = 'right',
     collapsed = false,
     items = [],
     width = '250px',
@@ -23,11 +23,11 @@ export function Sidebar(props = {}) {
   } = props;
 
   // State
-  let isCollapsed = collapsed;
+  let isCollapsed = true; // Always start collapsed
   
   // Create component container
   const container = document.createElement('div');
-  container.className = `sidebar ${position} ${isCollapsed ? 'collapsed' : ''}`;
+  container.className = `sidebar left${isCollapsed ? ' collapsed' : ''}`;
   container.style.width = isCollapsed ? minWidth : width;
   if (containerId) container.id = containerId;
   
@@ -36,14 +36,18 @@ export function Sidebar(props = {}) {
   header.className = 'sidebar-header';
   
   const toggleButton = Button({
-    icon: 'fa-chevron-left',
+    icon: isCollapsed ? 'fa-chevron-right' : 'fa-chevron-left',
     variant: Button.VARIANTS.TEXT,
     className: 'sidebar-toggle',
     onClick: () => {
       toggleCollapse();
     }
   });
-  
+  // Sidebar toggle always visible at left edge
+  toggleButton.style.position = 'absolute';
+  toggleButton.style.top = '10px';
+  toggleButton.style.left = '100%';
+  toggleButton.style.zIndex = '2001';
   header.appendChild(toggleButton);
   
   // Create content container
@@ -171,22 +175,23 @@ export function Sidebar(props = {}) {
    */
   function toggleCollapse() {
     isCollapsed = !isCollapsed;
-    
-    // Update container class and style
-    container.classList.toggle('collapsed', isCollapsed);
-    container.style.width = isCollapsed ? minWidth : width;
-    
+    // Update container class
+    if (isCollapsed) {
+      container.classList.add('collapsed');
+      container.style.width = minWidth;
+    } else {
+      container.classList.remove('collapsed');
+      container.style.width = width;
+    }
     // Update toggle button icon
     const icon = toggleButton.querySelector('i');
     if (icon) {
       icon.className = `fas ${isCollapsed ? 'fa-chevron-right' : 'fa-chevron-left'}`;
     }
-    
     // Update store state
     stores.ui.setState({
       sidebarCollapsed: isCollapsed
     });
-    
     // Emit event
     eventBus.emit('sidebar-toggled', { collapsed: isCollapsed });
   }

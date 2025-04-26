@@ -36,7 +36,7 @@ export function CommandCenter(props = {}) {
 
   // Create card container
   const card = document.createElement('div');
-  card.className = 'card';
+  card.className = 'command-center-card';
   card.id = 'task-input-card';
 
   // Create card title

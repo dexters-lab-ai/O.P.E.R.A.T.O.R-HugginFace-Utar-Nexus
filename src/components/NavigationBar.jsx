@@ -337,11 +337,13 @@ export function NavigationBar(props = {}) {
   function showUserMenu(button) {
     hideMenus();
     
+    // Show menu before measuring width
+    userMenu.style.display = 'block';
+
     // Position menu below button
     const rect = button.getBoundingClientRect();
     userMenu.style.left = `${rect.right - userMenu.offsetWidth}px`;
     userMenu.style.top = `${rect.bottom}px`;
-    userMenu.style.display = 'block';
     
     // Close menu when clicking outside
     const clickOutside = (e) => {

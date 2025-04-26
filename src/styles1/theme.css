@@ -1,9 +1,10 @@
 :root {
   /* Color System */
   --primary: #4285F4;
+  --primar-light: #78b3ff;
   --primary-dark: #3367D6;
   --secondary: #34A853;
-  --accent: #EA4335;
+  --accent-color: #6d25fc39;
   --text-primary: #202124;
   --text-secondary: #5F6368;
   

@@ -82,6 +82,7 @@
 }
 
 /* Base Card Component */
+/*
 .card {
   background-color: var(--card-background);
   border-radius: var(--border-radius);
@@ -97,7 +98,7 @@
 
 .card-title {
   padding: 1rem;
-  font-size: 1.1rem;
+  font-size: 1rem;
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -143,6 +144,7 @@
 .card.collapsed .card-footer {
   display: none;
 }
+*/
 
 /* Modal Component */
 .modal-container {
@@ -463,10 +465,12 @@
 }
 
 .nav-logo {
-  font-size: 1.5rem;
-  font-weight: 700;
   color: var(--primary-color);
-  margin-right: 2rem;
+  background: linear-gradient(90deg, #6e33ff, var(--secondary));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  letter-spacing: 1px;
 }
 
 .nav-links {
@@ -951,6 +955,7 @@ input:checked + .toggle-slider:before {
 .history-overlay.visible {
   opacity: 1;
   visibility: visible;
+  z-index: 3000;
 }
 
 .overlay-header {

@@ -8,6 +8,7 @@ import '@/styles/main.css';
 import '@/styles/components/command-center.css';
 import '@/styles/components/layouts.css';
 import '@/styles/components/timeline.css';
+import '@/styles/components/message-timeline.css';
 
 // Vendor CSS (must remain in HTML)
 // <link rel="stylesheet" href="/vendors/fontawesome/all.min.css">
@@ -53,6 +54,10 @@ async function initializeApp() {
     // Complete initialization
     finalizeInitialization();
     updateLoadingProgress(100, loadingProgress);
+
+    // Hide room container when PWA launches
+    const roomContainer = document.getElementById('room-experience-container');
+    if (roomContainer) roomContainer.style.display = 'none';
 
     // Hide splash screen when app is fully ready
     eventBus.once('application-ready', () => {

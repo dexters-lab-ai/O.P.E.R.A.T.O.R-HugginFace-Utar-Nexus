@@ -42,13 +42,18 @@ export function LayoutManager({
 
   // Internal state
   let activePreset = initialPreset;
-  const collapsibleStates = { sidebar: false, commandCenter: false, timeline: false };
+  const collapsibleStates = { sidebar: true, commandCenter: false, timeline: false };
 
   // Helper to update sidebar collapse
   function updateSidebarCollapse(collapsed) {
     collapsibleStates.sidebar = collapsed;
     element.classList.toggle('sidebar-collapsed', collapsed);
   }
+
+  // Listen for sidebar toggle events
+  eventBus.on('sidebar-toggled', ({ collapsed }) => {
+    updateSidebarCollapse(collapsed);
+  });
 
   // Apply layout preset
   function applyPreset(preset) {

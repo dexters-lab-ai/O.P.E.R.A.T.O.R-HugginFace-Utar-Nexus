@@ -1,23 +1,47 @@
 /* LEGACY FILE - Styles migrated to src/styles/command-center.css */
 
 .fixed-command-center {
+  position: relative;
+  z-index: 3000;
   display: flex;
   flex-direction: column;
-  margin: calc(var(--header-height) + 20px) auto 30px;
+  margin: calc(var(--header-height) + 20px) auto 2rem;
   width: 100%;
-  gap: 24px;
+  max-width: 700px;
+  gap: 2rem;
 }
 
 .command-center-container {
-  display: flex;
-  gap: 24px;
-  width: 100%;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: 0.5rem;
+  height: 100vh;
+  padding: 0.5rem;
+  background: rgba(15,15,25,0.8);
 }
 
-@media (max-width: 1024px) {
-  .command-center-container {
-    flex-direction: column;
-  }
+.message-timeline-container {
+  background: none !important;
+  border: none !important;
+  box-shadow: none !important;
+
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  background: var(--dark-light);
+  border-radius: 12px;
+  margin: 0.5rem;
+  backdrop-filter: blur(6px);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.command-input-container {
+  padding: 1.5rem;
+  background: var(--dark-light);
+  border-top: 1px solid rgba(255,255,255,0.1);
+  position: sticky;
+  bottom: 0;
 }
 
 .command-center {
@@ -53,9 +77,9 @@
   align-items: center;
   gap: 10px;
   margin-bottom: 20px;
-  font-size: 18px;
+  font-size: 1rem;
   font-weight: 600;
-  color: var(--text);
+  color: gainsboro;
 }
 
 .card-title i {
@@ -245,4 +269,11 @@
 
 .command-textarea::placeholder {
   color: var(--text-dim);
+}
+
+@media (max-width: 1024px) {
+  .command-center-container {
+    display: flex;
+    flex-direction: column;
+  }
 }
