@@ -8,6 +8,7 @@ import { uiStore, messagesStore } from '../store/index.js';
 import { submitNLI } from '../api/nli.js';
 import { getActiveTasks, cancelTask } from '../api/tasks.js';
 import Button from './base/Button.jsx';
+import Dropdown from './base/Dropdown.jsx';
 
 // Tab types
 export const TAB_TYPES = {
@@ -133,66 +134,36 @@ export function CommandCenter(props = {}) {
   textarea.placeholder = 'Type your message, command, or task...';
   textarea.required = true;
   
-  // Handle form submission
-  nliForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    
-    const inputText = textarea.value.trim();
-    if (!inputText) return;
-    
-    // Clear input
-    textarea.value = '';
-    
-    // Add user message to timeline
-    const userMessage = {
-      role: 'user',
-      type: 'chat',
-      content: inputText,
-      timestamp: new Date()
-    };
-    
-    // Add to store
-    const { timeline } = messagesStore.getState();
-    messagesStore.setState({ timeline: [...timeline, userMessage] });
-    
-    try {
-      // Send message to API (modularized)
-      const response = await submitNLI(inputText);
-      
-      if (response.success && response.assistantReply) {
-        // Add assistant response to timeline
-        const assistantMessage = {
-          role: 'assistant',
-          type: 'chat',
-          content: response.assistantReply,
-          timestamp: new Date()
-        };
-        
-        // Update store with response
-        const { timeline } = messagesStore.getState();
-        messagesStore.setState({ timeline: [...timeline, assistantMessage] });
-      } else {
-        throw new Error(response.error || 'Failed to get response');
+  // Engine dropdown
+  const engineDropdownContainer = document.createElement('div');
+  engineDropdownContainer.className = 'engine-dropdown-container';
+  const engineTrigger = document.createElement('button');
+  engineTrigger.type = 'button';
+  engineTrigger.className = 'engine-dropdown-trigger';
+  engineTrigger.innerHTML = '<i class="fas fa-brain"></i> <span class="engine-label">Nexus</span> <i class="fas fa-chevron-down dropdown-chevron"></i>';
+  engineDropdownContainer.appendChild(engineTrigger);
+  let selectedEngine = 'Nexus';
+  const engineIcons = { Nexus: 'fa-brain', UITars: 'fa-clipboard-list', browserless: 'fa-globe', YAML: 'fa-file-code' };
+  const engineDropdown = Dropdown({
+    trigger: engineTrigger,
+    items: Object.keys(engineIcons).map(engine => ({
+      text: engine,
+      icon: engineIcons[engine],
+      onClick: () => {
+        selectedEngine = engine;
+        const iconEl = engineTrigger.querySelector('i');
+        const labelEl = engineTrigger.querySelector('.engine-label');
+        iconEl.className = `fas ${engineIcons[engine]}`;
+        labelEl.textContent = engine;
       }
-    } catch (error) {
-      console.error('Chat error:', error);
-      
-      // Add error message
-      const errorMessage = {
-        role: 'system',
-        type: 'error',
-        content: 'Failed to send message',
-        error: error.message,
-        timestamp: new Date()
-      };
-      
-      // Update store with error
-      const { timeline } = messagesStore.getState();
-      messagesStore.setState({ timeline: [...timeline, errorMessage] });
-    }
+    })),
+    className: 'engine-dropdown',
+    id: 'engine-dropdown',
+    position: 'bottom-left',
+    width: 150
   });
+  engineDropdownContainer.appendChild(engineDropdown);
   
-  // Create send button
   const sendBtn = document.createElement('button');
   sendBtn.type = 'submit';
   sendBtn.className = 'btn btn-unified-send';
@@ -201,7 +172,13 @@ export function CommandCenter(props = {}) {
   sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i>';
   
   inputBar.appendChild(textarea);
-  inputBar.appendChild(sendBtn);
+  
+  const inputControls = document.createElement('div');
+  inputControls.className = 'input-controls';
+  inputControls.appendChild(engineDropdownContainer);
+  inputControls.appendChild(sendBtn);
+  inputBar.appendChild(inputControls);
+  
   nliForm.appendChild(inputBar);
   nliSection.appendChild(nliForm);
   taskSections.appendChild(nliSection);
@@ -452,6 +429,65 @@ export function CommandCenter(props = {}) {
     
     nliForm.removeEventListener('submit', null);
   };
+
+  // Handle form submission
+  nliForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const inputText = textarea.value.trim();
+    if (!inputText) return;
+    
+    // Clear input
+    textarea.value = '';
+    
+    // Add user message to timeline
+    const userMessage = {
+      role: 'user',
+      type: 'chat',
+      content: inputText,
+      timestamp: new Date()
+    };
+    
+    // Add to store
+    const { timeline } = messagesStore.getState();
+    messagesStore.setState({ timeline: [...timeline, userMessage] });
+    
+    try {
+      // Send message to API (modularized)
+      const response = await submitNLI(inputText);
+      
+      if (response.success && response.assistantReply) {
+        // Add assistant response to timeline
+        const assistantMessage = {
+          role: 'assistant',
+          type: 'chat',
+          content: response.assistantReply,
+          timestamp: new Date()
+        };
+        
+        // Update store with response
+        const { timeline } = messagesStore.getState();
+        messagesStore.setState({ timeline: [...timeline, assistantMessage] });
+      } else {
+        throw new Error(response.error || 'Failed to get response');
+      }
+    } catch (error) {
+      console.error('Chat error:', error);
+      
+      // Add error message
+      const errorMessage = {
+        role: 'system',
+        type: 'error',
+        content: 'Failed to send message',
+        error: error.message,
+        timestamp: new Date()
+      };
+      
+      // Update store with error
+      const { timeline } = messagesStore.getState();
+      messagesStore.setState({ timeline: [...timeline, errorMessage] });
+    }
+  });
 
   return container;
 }

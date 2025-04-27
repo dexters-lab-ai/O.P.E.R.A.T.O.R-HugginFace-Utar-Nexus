@@ -17,12 +17,14 @@ export const LAYOUT_PRESETS = {
  * @param {string} [props.initialPreset]
  * @param {string} [props.containerId]
  * @param {HTMLElement} [props.container]
+ * @param {boolean} [props.startCollapsed]
  * @returns {Object} API
  */
 export function LayoutManager({
   initialPreset = LAYOUT_PRESETS.DEFAULT,
   containerId = 'layout-manager',
   container = null,
+  startCollapsed = false,
 } = {}) {
   // Determine root element
   const element = (() => {
@@ -42,7 +44,7 @@ export function LayoutManager({
 
   // Internal state
   let activePreset = initialPreset;
-  const collapsibleStates = { sidebar: true, commandCenter: false, timeline: false };
+  const collapsibleStates = { sidebar: startCollapsed, commandCenter: false, timeline: false };
 
   // Helper to update sidebar collapse
   function updateSidebarCollapse(collapsed) {
@@ -73,7 +75,7 @@ export function LayoutManager({
         updateSidebarCollapse(false);
         break;
       default:
-        updateSidebarCollapse(false);
+        updateSidebarCollapse(collapsibleStates.sidebar);
     }
 
     stores.ui.setState({ layoutPreset: preset, taskResultsCollapsed: collapsibleStates.sidebar });
@@ -83,6 +85,8 @@ export function LayoutManager({
   // Toggle functions
   function toggleSidebar() {
     updateSidebarCollapse(!collapsibleStates.sidebar);
+    // Persist collapse state
+    localStorage.setItem('sidebar_collapsed', collapsibleStates.sidebar);
     stores.ui.setState({ taskResultsCollapsed: collapsibleStates.sidebar });
     eventBus.emit('sidebar-toggled', { collapsed: collapsibleStates.sidebar });
   }

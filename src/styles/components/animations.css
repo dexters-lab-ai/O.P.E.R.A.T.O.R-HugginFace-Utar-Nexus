@@ -26,4 +26,84 @@
   animation: glow 2s infinite;
 }
 
+/* Sidebar toggle icon rotation */
+.sidebar-toggle i {
+  transition: transform 0.3s ease;
+}
+.sidebar-toggle:hover i {
+  transform: rotate(90deg);
+}
+
+/* Toggle button hover effect */
+.sidebar-toggle {
+  transition: background 0.3s ease;
+}
+.sidebar-toggle:hover {
+  background: var(--cyberpunk-neon);
+}
+
+/* Content wrapper fade-in animation */
+.content-wrapper {
+  opacity: 0;
+  transform: translateY(10px);
+  animation: fadeUp 0.5s ease forwards;
+  animation-delay: 0.2s;
+}
+
+/* Staggered fade-up for timeline and command center */
+.content-wrapper .message-timeline,
+.content-wrapper .command-center {
+  opacity: 0;
+  animation: fadeUp 0.4s ease forwards;
+}
+.content-wrapper .message-timeline {
+  animation-delay: 0.4s;
+}
+.content-wrapper .command-center {
+  animation-delay: 0.6s;
+}
+
+/* Slide animation for sidebar */
+.layout-container .sidebar {
+  transition: transform 0.4s ease-in-out;
+}
+
+/* Message 3D hover effect */
+.message {
+  transform-origin: center center;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.message:hover {
+  transform: perspective(600px) translateZ(10px);
+  box-shadow: 0 10px 30px rgba(0,255,255,0.3);
+}
+
+/* Command center reveal */
+.command-center {
+  opacity: 0;
+  transform: translateY(20px);
+  animation: fadeUp 0.6s ease forwards;
+  animation-delay: 0.8s;
+}
+
+/* Timeline items stagger animation */
+.content-wrapper .message-timeline .message:nth-child(odd) {
+  animation-delay: 0.5s;
+}
+.content-wrapper .message-timeline .message:nth-child(even) {
+  animation-delay: 0.6s;
+}
+
+/* Keyframe for fadeUp */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* Rest of animations.css content... */

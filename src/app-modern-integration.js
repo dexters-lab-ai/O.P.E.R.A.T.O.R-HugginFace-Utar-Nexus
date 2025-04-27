@@ -7,6 +7,9 @@ import { eventBus } from './utils/events.js';
 import { stores } from './store/index.js';
 import { api, get, post } from './utils/api.js';
 
+// Main styles for modern interface
+import './styles/main.css';
+
 // Import base components
 import Button from './components/base/Button.jsx';
 import Modal from './components/base/Modal.jsx';
@@ -27,6 +30,7 @@ import HistoryOverlay from './components/HistoryOverlay.jsx';
 import Notifications from './components/Notifications.jsx';
 import ThemeController from './components/ThemeController.jsx';
 import LayoutManager from './components/LayoutManager.jsx';
+import ContentWrapper from './components/ContentWrapper.jsx';
 
 // Import 3D experience
 import RoomEntryPoint from './3d/RoomEntryPoint.js';
@@ -204,11 +208,14 @@ export function initializeModernUI(options = {}) {
    */
   function initLayoutManager() {
     const layoutPreset = localStorage.getItem('layout_preset') || 'default';
-    
-    // Create layout manager
+    const savedCollapsed = localStorage.getItem('sidebar_collapsed');
+    const startCollapsed = savedCollapsed !== null ? savedCollapsed === 'true' : true;
+
+    // Create layout manager with initial collapse state
     components.layoutManager = LayoutManager({
       containerId: 'layout-manager',
-      initialPreset: layoutPreset
+      initialPreset: layoutPreset,
+      startCollapsed
     });
     
     // Always append layout manager element (guaranteed to exist)
@@ -272,7 +279,7 @@ export function initializeModernUI(options = {}) {
     components.sidebar = Sidebar({
       containerId: 'main-sidebar',
       position: 'left',
-      collapsed: false,
+      collapsed: components.layoutManager.getCollapsibleStates().sidebar,
       items: sidebarItems
     });
     
@@ -310,12 +317,15 @@ export function initializeModernUI(options = {}) {
       initialTab: 'nli'
     });
     
-    // Add to layout with runtime check
+    // Wrap timeline and command center
+    const contentWrapper = ContentWrapper({
+      containerId: 'content-wrapper',
+      children: [components.messageTimeline, components.commandCenter]
+    });
+    
+    // Add as single content container
     if (typeof components.layoutManager.setContent === 'function') {
-      components.layoutManager.setContent({
-        messageTimeline: components.messageTimeline,
-        commandCenter: components.commandCenter
-      });
+      components.layoutManager.setContent({ contentWrapper });
     } else {
       console.error('LayoutManager is missing setContent method.');
     }

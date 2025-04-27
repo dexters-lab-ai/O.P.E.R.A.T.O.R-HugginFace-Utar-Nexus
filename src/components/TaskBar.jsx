@@ -22,9 +22,7 @@ export function TaskBar(props = {}) {
   // State
   let isMinimized = false;
   let activeTasks = [];
-  // Add: container for expandable active tasks
   let expanded = false;
-  let expandedTasksSection = null;
   
   // Create component container
   const container = document.createElement('div');
@@ -59,11 +57,6 @@ export function TaskBar(props = {}) {
   statusSection.appendChild(systemStatus);
   statusSection.appendChild(connectionStatus);
   
-  // Create expandable/collapsible active tasks section
-  expandedTasksSection = document.createElement('div');
-  expandedTasksSection.className = 'task-bar-expanded-tasks';
-  expandedTasksSection.style.display = 'none';
-
   // Create tasks section (summary/count)
   const tasksSection = document.createElement('div');
   tasksSection.className = 'task-bar-tasks';
@@ -74,10 +67,10 @@ export function TaskBar(props = {}) {
   
   // Minimize button
   const minimizeButton = Button({
-    icon: 'fa-chevron-down',
+    icon: 'fa-chevron-up',
     variant: Button.VARIANTS.TEXT,
     className: 'task-bar-control',
-    title: 'Minimize Task Bar',
+    title: 'Expand Tasks',
     onClick: () => {
       toggleMinimized();
     }
@@ -97,14 +90,7 @@ export function TaskBar(props = {}) {
   // Assemble layout
   container.appendChild(statusSection);
   container.appendChild(tasksSection);
-  container.appendChild(expandedTasksSection);
   container.appendChild(controlsSection);
-
-  // Expand/collapse handler for tasks
-  tasksSection.addEventListener('click', () => {
-    expanded = !expanded;
-    expandedTasksSection.style.display = expanded ? 'block' : 'none';
-  });
 
   // Expose public methods
   container.getActiveTasks = () => [...activeTasks];
@@ -113,22 +99,16 @@ export function TaskBar(props = {}) {
    * Toggle minimized state
    */
   function toggleMinimized() {
-    isMinimized = !isMinimized;
-    
-    // Update UI
-    container.classList.toggle('minimized', isMinimized);
-    
+    expanded = !expanded;
+    tasksSection.classList.toggle('expanded', expanded);
+
     // Update icon
     const icon = minimizeButton.querySelector('i');
     if (icon) {
-      icon.className = `fas ${isMinimized ? 'fa-chevron-up' : 'fa-chevron-down'}`;
+      icon.className = `fas ${expanded ? 'fa-chevron-down' : 'fa-chevron-up'}`;
     }
-    
     // Update button title
-    minimizeButton.title = isMinimized ? 'Expand Task Bar' : 'Minimize Task Bar';
-    
-    // Update store
-    stores.ui.setState({ taskBarMinimized: isMinimized });
+    minimizeButton.title = expanded ? 'Collapse Tasks' : 'Expand Tasks';
   }
   
   /**
@@ -137,7 +117,6 @@ export function TaskBar(props = {}) {
   function updateTasks() {
     // Clear tasks section
     tasksSection.innerHTML = '';
-    expandedTasksSection.innerHTML = '';
     
     // Update task count
     const countElement = taskCount.querySelector('.count');
@@ -195,7 +174,7 @@ export function TaskBar(props = {}) {
         </div>
       `;
       expandedTask.querySelector('.cancel-task').addEventListener('click', () => cancelTask(task._id));
-      expandedTasksSection.appendChild(expandedTask);
+      tasksSection.appendChild(expandedTask);
     });
   }
   
