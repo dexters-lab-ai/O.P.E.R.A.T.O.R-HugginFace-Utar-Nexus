@@ -575,8 +575,11 @@
   border-top: 1px solid var(--border-color);
   position: fixed;
   bottom: 0;
-  left: 0;
-  right: 0;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 820px;
   z-index: 100;
   transition: all 0.3s ease;
 }
@@ -623,6 +626,8 @@
   z-index: 1000;
   max-height: 50vh;
   overflow-y: auto;
+  flex-direction: column;
+  overflow-x: hidden;
 }
 
 .task-item {

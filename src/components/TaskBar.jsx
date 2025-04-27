@@ -101,13 +101,21 @@ export function TaskBar(props = {}) {
   function toggleMinimized() {
     expanded = !expanded;
     tasksSection.classList.toggle('expanded', expanded);
-
+    if (expanded) {
+      // calculate offset relative to container padding edge
+      const offset = statusSection.offsetLeft + statusSection.offsetWidth + 30;  // push 30px further right
+      tasksSection.style.left = `${offset}px`;
+      tasksSection.style.minWidth = `${statusSection.offsetWidth}px`;
+    } else {
+      // reset inline styles
+      tasksSection.style.left = '';
+      tasksSection.style.minWidth = '';
+    }
     // Update icon
     const icon = minimizeButton.querySelector('i');
     if (icon) {
       icon.className = `fas ${expanded ? 'fa-chevron-down' : 'fa-chevron-up'}`;
     }
-    // Update button title
     minimizeButton.title = expanded ? 'Collapse Tasks' : 'Expand Tasks';
   }
   
@@ -157,24 +165,6 @@ export function TaskBar(props = {}) {
         cancelTask(task._id);
       });
       tasksSection.appendChild(taskItem);
-
-      // Also add to expanded section with richer info
-      const expandedTask = document.createElement('div');
-      expandedTask.className = 'task-bar-expanded-task-card';
-      expandedTask.innerHTML = `
-        <div class="task-meta">
-          <span class="task-title">${getTaskTitle(task)}</span>
-          <span class="task-status">${task.status}</span>
-          <span class="task-desc">${task.description || ''}</span>
-        </div>
-        <div class="task-actions">
-          <button class="task-action cancel-task" title="Cancel Task">
-            <i class="fas fa-times"></i> Cancel
-          </button>
-        </div>
-      `;
-      expandedTask.querySelector('.cancel-task').addEventListener('click', () => cancelTask(task._id));
-      tasksSection.appendChild(expandedTask);
     });
   }
   
