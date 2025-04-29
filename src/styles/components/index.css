@@ -8,8 +8,11 @@
 @import 'command-center.css';
 @import 'timeline.css';
 @import 'task-results.css';
+@import 'intermediate-results.css';
 @import 'animations.css';
 @import 'futuristic.css'; /* Enhanced futuristic UI elements */
+@import 'task-bar.css';
+@import 'task-card.css';
 
 /* Any additional custom styles can be added here */
 

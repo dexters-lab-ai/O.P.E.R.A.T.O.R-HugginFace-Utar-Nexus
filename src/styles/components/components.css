@@ -374,6 +374,16 @@
   border-radius: var(--border-radius);
   box-shadow: var(--card-shadow);
   overflow-y: auto;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  display: none;
+}
+
+.dropdown-menu.open {
+  opacity: 1 !important;
+  pointer-events: auto;
+  display: block !important;
 }
 
 .dropdown-item {
@@ -410,6 +420,11 @@
   height: 1px;
   margin: 0.5rem 0;
   background-color: var(--border-color);
+}
+
+.dropdown-user-info, .user-avatar, .user-data, .user-name, .user-email {
+  opacity: 1 !important;
+  transition: opacity 0.2s ease;
 }
 
 .dropdown-user-info {
@@ -575,11 +590,11 @@
   border-top: 1px solid var(--border-color);
   position: fixed;
   bottom: 0;
-  left: 50%;
-  right: auto;
-  transform: translateX(-50%);
+  left: 0;
+  right: 0;
   width: 100%;
   max-width: 820px;
+  margin: 0 auto;
   z-index: 100;
   transition: all 0.3s ease;
 }
@@ -614,7 +629,7 @@
 .task-bar-tasks.expanded {
   position: absolute;
   bottom: 100%;
-  left: 0;
+  left: 0 !important;
   width: 100%;
   background: rgba(10, 15, 30, 0.6);
   border: 1px solid rgba(255,255,255,0.1);

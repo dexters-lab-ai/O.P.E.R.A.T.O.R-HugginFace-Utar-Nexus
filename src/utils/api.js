@@ -126,6 +126,14 @@ export async function del(url, data = null) {
 }
 
 /**
+ * Delete the user's own account
+ * @returns {Promise<any>} - Response data
+ */
+export async function deleteAccount() {
+  return del('/api/auth/account');
+}
+
+/**
  * API service object with endpoint-specific methods
  */
 export const api = {
@@ -145,7 +153,8 @@ export const api = {
   auth: {
     login: (email, password) => post('/api/auth/login', { email, password }),
     register: (email, password) => post('/api/auth/register', { email, password }),
-    logout: () => get('/api/auth/logout')
+    logout: () => get('/api/auth/logout'),
+    deleteAccount: () => del('/api/auth/account')
   }
 };
 

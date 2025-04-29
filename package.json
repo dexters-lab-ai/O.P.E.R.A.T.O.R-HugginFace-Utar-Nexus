@@ -6,7 +6,9 @@
         "start": "pm2 start ecosystem.config.yaml --no-daemon",
         "dev": "concurrently --names \"VITE,SERVER\" --prefix-colors \"green,blue\" --raw \"node --max-old-space-size=4096 node_modules/vite/bin/vite.js\" \"node --max-old-space-size=4096 server.js\"",
         "build": "vite build",
-        "serve": "node --max-old-space-size=4096 server.js"
+        "serve": "node --max-old-space-size=4096 server.js",
+        "postinstall": "npx puppeteer browsers install chrome",
+        "install:fontawesome": "npm install @fortawesome/fontawesome-free"
     },
     "dependencies": {
         "@fortawesome/fontawesome-free": "^6.7.2",
@@ -26,6 +28,7 @@
         "express-session": "^1.18.1",
         "gsap": "^3.12.7",
         "htmlparser2": "^10.0.0",
+        "http-proxy-middleware": "^2.0.6",
         "lil-gui": "^0.20.0",
         "marked": "^15.0.8",
         "mongoose": "^6.13.8",
@@ -40,7 +43,8 @@
         "three": "^0.175.0",
         "tweakpane": "^4.0.3",
         "winston": "^3.11.0",
-        "ws": "^8.18.1"
+        "ws": "^8.18.1",
+        "zustand": "^5.0.3"
     },
     "devDependencies": {
         "@types/node": "^22.14.1",

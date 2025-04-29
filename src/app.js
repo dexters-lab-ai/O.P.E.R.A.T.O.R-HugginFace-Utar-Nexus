@@ -1341,7 +1341,8 @@ function addTaskResult(result) {
   resultCard.dataset.taskId = result.taskId;
 
   const timestamp = new Date(result.timestamp);
-  const formattedTime = timestamp.toLocaleTimeString() + ' ' + timestamp.toLocaleDateString();
+  const formattedTime = `${timestamp.toLocaleTimeString()} ${timestamp.toLocaleDateString()}`;
+  const escapedCommand = result.command.replace(/'/g, "\\'");
 
   resultCard.innerHTML = `
     <div class="result-header">
@@ -2104,7 +2105,6 @@ function addToHistory(url, command, result) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-
   // Clear history button handler
   const clearHistoryButton = document.getElementById('clear-history');
   if (clearHistoryButton) {
@@ -2191,3 +2191,51 @@ window.deleteHistoryTask = async function(taskId) {
     console.error(error);
   }
 };
+
+// Handle overall task progress updates
+function updateTaskProgress(taskId, progress, status, error, milestone, subTask) {
+  const taskElement = document.querySelector(`.active-task[data-task-id="${taskId}"]`);
+  if (taskElement) {
+    const progressBar = taskElement.querySelector('.task-progress');
+    if (progressBar) progressBar.style.width = `${progress}%`;
+    const statusSpan = taskElement.querySelector('.task-status');
+    if (statusSpan) {
+      statusSpan.textContent = status;
+      statusSpan.className = `task-status ${status}`;
+    }
+    if (milestone) {
+      let milestoneEl = taskElement.querySelector('.task-milestone');
+      if (!milestoneEl) {
+        milestoneEl = document.createElement('div');
+        milestoneEl.className = 'task-milestone';
+        taskElement.appendChild(milestoneEl);
+      }
+      milestoneEl.textContent = milestone;
+    }
+    if (status === 'completed' || status === 'error') {
+      loadActiveTasks();
+    }
+  }
+}
+
+// Handle intermediate results streamed from server
+function handleIntermediateResult(taskId, result, subTask, streaming) {
+  const resultCard = document.querySelector(`.result-card[data-task-id="${taskId}"]`);
+  if (!resultCard) return;
+  const container = resultCard.querySelector('.intermediate-results');
+  const entry = document.createElement('div');
+  entry.className = 'intermediate-result';
+  entry.textContent = typeof result === 'object' ? JSON.stringify(result) : result;
+  container.appendChild(entry);
+}
+
+// Handle task completion, show final results
+function handleTaskCompletion(taskId, status, result = {}) {
+  updateTaskProgress(taskId, 100, status);
+  const resultCard = initializeResultCard(taskId, '');
+  const outputContainer = resultCard.querySelector('.outputs');
+  const pre = document.createElement('pre');
+  pre.textContent = typeof result === 'object' ? JSON.stringify(result, null, 2) : result;
+  outputContainer.appendChild(pre);
+  loadActiveTasks();
+}

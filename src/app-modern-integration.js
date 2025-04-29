@@ -642,3 +642,12 @@ export function initializeModernUI(options = {}) {
 export default {
   initialize: initializeModernUI
 };
+
+// Ensure command center mounts AI thoughts
+eventBus.on('application-ready', () => {
+  // Mount CommandCenter if not already
+  const appArea = document.getElementById('app-root');
+  if (appArea && !document.getElementById('command-center')) {
+    CommandCenter.mount(appArea);
+  }
+});

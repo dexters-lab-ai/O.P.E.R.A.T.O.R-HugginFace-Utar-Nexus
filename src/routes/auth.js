@@ -81,6 +81,22 @@ router.get('/logout', (req, res) => {
   });
 });
 
+// DELETE /api/auth/account
+router.delete('/account', async (req, res) => {
+  if (!req.session.user) {
+    return res.status(401).json({ success: false, error: 'Not authenticated' });
+  }
+  try {
+    const userId = req.session.user;
+    await User.deleteOne({ _id: userId });
+    req.session.destroy(() => {
+      res.json({ success: true });
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to delete account' });
+  }
+});
+
 // --- PASSWORD RESET ---
 // In-memory token store (for demo only)
 const passwordResetTokens = {};

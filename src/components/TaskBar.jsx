@@ -102,10 +102,9 @@ export function TaskBar(props = {}) {
     expanded = !expanded;
     tasksSection.classList.toggle('expanded', expanded);
     if (expanded) {
-      // calculate offset relative to container padding edge
-      const offset = statusSection.offsetLeft + statusSection.offsetWidth + 30;  // push 30px further right
-      tasksSection.style.left = `${offset}px`;
-      tasksSection.style.minWidth = `${statusSection.offsetWidth}px`;
+      // align popup flush with TaskBar edge
+      tasksSection.style.left = '0px';
+      tasksSection.style.minWidth = '';
     } else {
       // reset inline styles
       tasksSection.style.left = '';

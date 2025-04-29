@@ -1,0 +1,116 @@
+/* Task Bar Styles */
+
+.task-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background: var(--dark-light);
+  border-top: 1px solid var(--dark-border);
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  padding: 10px 20px;
+  z-index: 1000;
+}
+
+.task-bar-status {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.task-bar-status .status-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.task-bar-status .status-item .status-label {
+  color: var(--text);
+}
+
+.task-bar-status .status-item .status-value {
+  font-weight: bold;
+  color: var(--primary);
+}
+
+.task-bar-status .status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-left: 5px;
+}
+
+.status-indicator.online {
+  background: var(--success);
+}
+
+.status-indicator.offline {
+  background: var(--danger);
+}
+
+.task-bar-controls {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.task-bar-control {
+  background: transparent;
+  color: var(--text);
+  border: none;
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.task-bar-control:hover {
+  color: var(--primary);
+}
+
+.task-count {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: bold;
+}
+
+.task-count .count {
+  margin-left: 5px;
+}
+
+.task-bar-tasks {
+  position: absolute;
+  bottom: 100%;
+  right: 20px;
+  background: var(--dark-light);
+  border: 1px solid var(--dark-border);
+  border-radius: var(--border-radius-md);
+  box-shadow: var(--shadow-elevated);
+  max-height: 300px;
+  overflow-y: auto;
+  width: 300px;
+  transform: translateY(10px);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.task-bar-tasks.expanded {
+  transform: translateY(-10px);
+  opacity: 1;
+  visibility: visible;
+}
+
+.task-bar-tasks .empty-tasks {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-style: italic;
+}

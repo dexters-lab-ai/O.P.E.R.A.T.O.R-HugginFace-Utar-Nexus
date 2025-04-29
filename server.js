@@ -7,7 +7,7 @@ dotenv.config();
 import path             from 'path';
 import fs               from 'fs';
 import { fileURLToPath } from 'url';
-import { dirname }      from 'path';
+import { dirname } from 'path';
 
 import express          from 'express';
 import { createServer } from 'http';
@@ -19,6 +19,8 @@ import { WebSocketServer, WebSocket } from 'ws';
 import pRetry           from 'p-retry';
 import { v4 as uuidv4 } from 'uuid';
 import { Semaphore }    from 'async-mutex';
+import cors             from 'cors';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 
 // Puppeteer extras
 import puppeteerExtra   from 'puppeteer-extra';
@@ -32,8 +34,9 @@ import OpenAI from 'openai';
 // 3) MODEL IMPORTS
 // ======================================
 import User        from './src/models/User.js';
-import Message from './src/models/Message.js';
+import Message     from './src/models/Message.js';
 import Task        from './src/models/Task.js';
+import ChatHistory from './src/models/ChatHistory.js';
 
 // ======================================
 // 4) UTILS & REPORT GENERATORS
@@ -57,7 +60,8 @@ puppeteerExtra.use(StealthPlugin());
 const browserSemaphore = new Semaphore(5);
 
 // OpenAI “fallback” client (used for non‑user‑key operations)
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KAIL });
+// Use either OPENAI_API_KEY or fallback to OPENAI_API_KAIL
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_API_KAIL });
 
 // Ensure run/report directories exist
 const MIDSCENE_RUN_DIR = path.join(__dirname, 'midscene_run');
@@ -94,7 +98,25 @@ app.use((req, res, next) => {
   next();
 });
 
-// --- CORS for front-end dev server (allow requests from localhost) ---
+// Proxy middleware for Vite development server
+const viteProxy = createProxyMiddleware({
+  target: 'http://localhost:3000',
+  changeOrigin: true,
+  ws: true,
+  logLevel: 'debug'
+});
+
+// CORS configuration
+app.use(cors({
+  origin: function (origin, callback) {
+    const originIsWhitelisted = origin && origin.startsWith('http://localhost');
+    callback(null, originIsWhitelisted);
+  },
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+}));
+
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin && origin.startsWith('http://localhost')) {
@@ -107,14 +129,27 @@ app.use((req, res, next) => {
   next();
 });
 
-// 7.4 Serve static assets
-app.use(express.static(path.join(__dirname, 'dist')));
+// Serve static assets
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
+app.use('/vendors', express.static(path.join(__dirname, 'public', 'vendors'), {
+  setHeaders: (res, path) => {
+    if (path.match(/\.(woff2?|ttf|otf|eot)$/)) {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+  }
+}));
+app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
 app.use('/images', express.static(path.join(__dirname, 'public', 'assets', 'images')));
 app.use('/midscene_run', express.static(MIDSCENE_RUN_DIR));
 app.use('/models', express.static('public/models'));
 app.use('/draco', express.static('public/draco'));
+
+// Proxy requests to Vite development server in development mode
+if (process.env.NODE_ENV === 'development') {
+  app.use(viteProxy);
+} else {
+  app.use(express.static(path.join(__dirname, 'dist')));
+}
 
 // Serve default favicon
 app.get('/favicon.ico', (req, res) => {
@@ -126,7 +161,6 @@ app.get('/favicon.ico', (req, res) => {
 // ======================================
 import authRouter       from './src/routes/auth.js';
 import historyRouter    from './src/routes/history.js';
-import chatRouter       from './src/routes/chat.js';
 import tasksRouter      from './src/routes/tasks.js';
 import customUrlsRouter from './src/routes/customUrls.js';
 import settingsRouter   from './src/routes/settings.js';
@@ -209,6 +243,7 @@ const wss = new WebSocketServer({ server, path: '/ws' });
 wss.on('connection', (ws, req) => {
   let userIdParam = req.url.split('userId=')[1]?.split('&')[0];
   const userId = decodeURIComponent(userIdParam || '');
+  console.debug('[DEBUG] WebSocket connection received for userId:', userId);
   if (!userId) {
     console.error('[WebSocket] Connection rejected: Missing userId');
     ws.send(JSON.stringify({ event: 'error', message: 'Missing userId' }));
@@ -277,8 +312,8 @@ async function startApp() {
       }
     });
     console.log('✅ MongoDB connected');
-    // await clearDatabaseOnce();
-    await ensureIndexes();
+    //await clearDatabaseOnce();
+    //await ensureIndexes();
     
     const PORT = process.env.PORT || 3420;
     server.listen(PORT, () => console.log(`🚀 Server on http://localhost:${PORT}`));
@@ -321,6 +356,7 @@ async function sleep(ms) {
 }
 
 function sendWebSocketUpdate(userId, data) {
+  console.debug('[DEBUG] sendWebSocketUpdate: userId', userId, 'connections', userConnections.get(userId) ? userConnections.get(userId).size : 0);
   const connections = userConnections.get(userId);
   if (connections && connections.size > 0) {
     connections.forEach(ws => {
@@ -335,7 +371,7 @@ function sendWebSocketUpdate(userId, data) {
       }
     });
   } else {
-    console.warn(`[WebSocket] No active connections for userId=${userId}. Queuing message.`);
+    console.debug(`[WebSocket] No active connections for userId=${userId}. Queuing message.`);
     if (!unsentMessages.has(userId)) {
       unsentMessages.set(userId, []);
     }
@@ -353,7 +389,7 @@ async function clearDatabaseOnce() {
     return;
   }
   try {
-    await User.deleteMany({});
+    //await User.deleteMany({});
     await ChatHistory.deleteMany({});
     await Task.deleteMany({});
     console.log('Successfully cleared User, ChatHistory, and Task collections.');
@@ -404,13 +440,24 @@ async function updateTaskInDatabase(taskId, updates) {
   }
   console.log(`[Database] Updating task ${taskId}:`, updates);
   try {
-    await Task.updateOne({ _id: new mongoose.Types.ObjectId(taskId) }, { $set: updates });
-    const task = await Task.findById(new mongoose.Types.ObjectId(taskId));
-    if (task && task.userId) {
-      sendWebSocketUpdate(task.userId.toString(), { event: 'taskUpdate', taskId, ...updates });
-    } else {
-      console.warn(`[Database] Task ${taskId} not found or missing userId`);
+    // Atomically update task and retrieve the modified document
+    const task = await Task.findByIdAndUpdate(
+      new mongoose.Types.ObjectId(taskId),
+      { $set: updates },
+      { new: true }
+    );
+    if (!task) {
+      console.error(`[Database] Task ${taskId} not found`);
+      return;
     }
+    let eventName;
+    if (updates.status === 'pending') eventName = 'taskStart';
+    else if (updates.status === 'completed') eventName = 'taskComplete';
+    else if (updates.status === 'error') eventName = 'taskError';
+    else if ('progress' in updates) eventName = 'stepProgress';
+    else if ('intermediateResults' in updates) eventName = 'intermediateResult';
+    else eventName = 'taskUpdate';
+    sendWebSocketUpdate(task.userId.toString(), { event: eventName, payload: { taskId, ...updates } });
   } catch (error) {
     console.error(`[Database] Error updating task:`, error);
   }
@@ -454,7 +501,8 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
       originalPrompt,
       intermediateResults,
       finalScreenshotUrl,
-      runId
+      runId,
+      REPORT_DIR
     );
     let midsceneReportPath = null;
     let midsceneReportUrl = null;
@@ -524,7 +572,11 @@ async function processTaskCompletion(userId, taskId, intermediateResults, origin
           try {
             await session.browser.close();
             if (typeof session.release === 'function') {
-              session.release();
+              try {
+                session.release();
+              } catch (e) {
+                console.debug(`[TaskCompletion] Error releasing semaphore for session ${id}:`, e);
+              }
             } else {
               console.error(`[TaskCompletion] release is not a function for session ${id}, skipping release`);
             }
@@ -762,8 +814,7 @@ Proceed with actions toward the Main Task: "${this.prompt}".
       this.runId,
       this.runDir,
       stepIndex,
-      this.browserSession,
-      this.userOpenaiKey
+      this.browserSession
     );
   }
 
@@ -775,8 +826,7 @@ Proceed with actions toward the Main Task: "${this.prompt}".
       this.runId,
       this.runDir,
       stepIndex,
-      this.browserSession,
-      this.userOpenaiKey
+      this.browserSession
     );
   }
 
@@ -864,12 +914,9 @@ class PlanStep {
       let result;
       if (this.type === 'action') {
         result = await plan.executeBrowserAction(this.args, this.index);
-      } else if (this.type === 'query') {
-        result = await plan.executeBrowserQuery(this.args, this.index);
       } else {
-        throw new Error(`Unknown step type: ${this.type}`);
+        result = await plan.executeBrowserQuery(this.args, this.index);
       }
-  
       this.result = result;
       this.status = result.success ? 'completed' : 'failed';
       this.endTime = new Date();
@@ -942,6 +989,8 @@ class PlanStep {
         success: false,
         error: error.message,
         actionLog: trimmedLogs,
+        currentUrl: plan.currentUrl,
+        task_id: this.taskId,
         stepIndex: this.index
       };
     }
@@ -1004,7 +1053,7 @@ async function getUserOpenAiClient(userId) {
 async function handleBrowserAction(args, userId, taskId, runId, runDir, currentStep = 0, existingSession) {
   console.log(`[BrowserAction] Received currentStep: ${currentStep}`); // Debug log
   const openaiClient = await getUserOpenAiClient(userId);
-  const { command, url: providedUrl, task_id } = args;
+  const { command, url: providedUrl } = args;
   let browser, agent, page, release;
 
   const actionLog = [];
@@ -1036,6 +1085,10 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       throw new Error("URL required for new tasks");
     }
 
+    // Override session using taskId to ensure unique session per task
+    args.task_id = taskId;
+    existingSession = activeBrowsers.get(taskId);
+
     // Browser session management.
     if (existingSession) {
       logAction("Using existing browser session");
@@ -1051,7 +1104,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
           apiKey: process.env.HF_API_KEY, 
           model: 'bytedance/ui-tars-72b'
         });
-        activeBrowsers.set(task_id, { browser, agent, page, release, closed: false, hasReleased: false });
+        activeBrowsers.set(taskId, { browser, agent, page, release, closed: false, hasReleased: false });
       }
 
       // Force navigation if a navigation command is provided and the current URL differs from the target.
@@ -1061,9 +1114,9 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
         await page.goto(effectiveUrl, { waitUntil: 'domcontentloaded', timeout: 300000 });
         logAction("Navigation completed successfully");
       }
-    } else if (task_id && activeBrowsers.has(task_id)) {
+    } else if (taskId && activeBrowsers.has(taskId)) {
       logAction("Retrieving existing browser session from active browsers");
-      ({ browser, agent, page, release } = activeBrowsers.get(task_id));
+      ({ browser, agent, page, release } = activeBrowsers.get(taskId));
       if (!page || page.isClosed()) {
         logAction("Page is invalid or closed, creating a new one");
         page = await browser.newPage();
@@ -1073,7 +1126,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
           apiKey: process.env.HF_API_KEY,
           model: 'bytedance/ui-tars-72b'
         });
-        activeBrowsers.set(task_id, { browser, agent, page, release, closed: false, hasReleased: false });
+        activeBrowsers.set(taskId, { browser, agent, page, release, closed: false, hasReleased: false });
       }
     } else {
       // Create new session and navigate.
@@ -1122,7 +1175,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
         model: 'bytedance/ui-tars-72b'
       });
       logAction("PuppeteerAgent initialized");
-      activeBrowsers.set(task_id, { browser, agent, page, release, closed: false, hasReleased: false });
+      activeBrowsers.set(taskId, { browser, agent, page, release, closed: false, hasReleased: false });
       logAction("Browser session stored in active browsers");
     }
 
@@ -1170,11 +1223,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
         const newPage = pages[pages.length - 1];
         if (newPage !== page) {
           page = newPage;
-          agent = new PuppeteerAgent(page, { 
-            provider: 'huggingface', 
-            apiKey: process.env.HF_API_KEY, 
-            model: 'bytedance/ui-tars-72b'
-          });
+          agent = new PuppeteerAgent(page);
           logAction("Switched to new page and reinitialized agent");
         }
       }
@@ -1231,7 +1280,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
     // Trim action log before returning.
     const trimmedActionLog = actionLog.map(entry => {
       const truncatedMessage = entry.message.length > 700 
-        ? entry.message.substring(0, 700) + '...' 
+        ? entry.message.substring(0, 700) + '...'
         : entry.message;
       return { ...entry, message: truncatedMessage };
     });
@@ -1241,7 +1290,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
     return {
       success: true,
       error: null,
-      task_id,
+      task_id: taskId,
       closed: false,
       currentUrl,
       stepIndex: currentStep,
@@ -1253,8 +1302,8 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       screenshotPath: screenshotUrl,
       state: {
         assertion: extractedInfo && extractedInfo.pageContent 
-      ? extractedInfo.pageContent 
-      : 'No content extracted'
+        ? extractedInfo.pageContent 
+        : 'No content extracted'
       }
     };
 
@@ -1265,7 +1314,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
     // Trim action log on error.
     const trimmedActionLog = actionLog.map(entry => {
       const shortMsg = entry.message.length > 150 
-        ? entry.message.substring(0, 150) + '...' 
+        ? entry.message.substring(0, 150) + '...'
         : entry.message;
       return { ...entry, message: shortMsg };
     });
@@ -1275,7 +1324,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
       error: error.message,
       actionLog: trimmedActionLog,
       currentUrl: page ? await page.url() : null,
-      task_id,
+      task_id: taskId,
       stepIndex: currentStep
     };
   }
@@ -1287,7 +1336,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
  * @param {Object} args - Query arguments
  * @param {string} userId - User ID
  * @param {string} taskId - Task ID
- * @param {string} runId - Run ID
+ * @param {string} runId - Run ID 
  * @param {string} runDir - Run directory
  * @param {number} currentStep - Current step number
  * @param {Object} existingSession - Existing browser session
@@ -1296,7 +1345,7 @@ async function handleBrowserAction(args, userId, taskId, runId, runDir, currentS
 async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentStep = 0, existingSession) {
   console.log(`[BrowserQuery] Received currentStep: ${currentStep}`);
   const openaiClient = await getUserOpenAiClient(userId);
-  const { query, url: providedUrl, task_id } = args;
+  const { query, url: providedUrl } = args;
   let browser, agent, page, release;
 
   const actionLog = [];
@@ -1314,7 +1363,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
   try {
     logQuery(`Starting query: "${query}"`);
 
-    const taskKey = task_id || taskId;
+    const taskKey = taskId;
 
     if (existingSession) {
       logQuery("Using existing browser session");
@@ -1328,7 +1377,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
           apiKey: process.env.HF_API_KEY,
           model: 'bytedance/ui-tars-72b'
         });
-        activeBrowsers.set(taskKey, { browser, agent, page, release, closed: false, hasReleased: false });
+        activeBrowsers.set(taskId, { browser, agent, page, release, closed: false, hasReleased: false });
       }
     } else if (taskKey && activeBrowsers.has(taskKey)) {
       const session = activeBrowsers.get(taskKey);
@@ -1340,9 +1389,10 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
           args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-web-security"],
           defaultViewport: { width: 1280, height: 720 }
         });
+        logQuery("Browser launched successfully");
         page = await browser.newPage();
         logQuery("New page created");
-        await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
+        await page.setDefaultNavigationTimeout(60000); // 60 seconds
         agent = new PuppeteerAgent(page, {
           provider: 'huggingface',
           apiKey: process.env.HF_API_KEY,
@@ -1367,7 +1417,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
       logQuery("Browser launched successfully");
       page = await browser.newPage();
       logQuery("New page created");
-      await page.setDefaultNavigationTimeout(60000);
+      await page.setDefaultNavigationTimeout(60000); // 60 seconds
       // Set up event listeners.
       page.on('console', msg => {
         debugLog(`Console: ${msg.text().substring(0, 150)}`);
@@ -1489,7 +1539,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
 
     const trimmedActionLog = actionLog.map(entry => {
       const truncatedMessage = entry.message.length > 700 
-        ? entry.message.substring(0, 700) + '...' 
+        ? entry.message.substring(0, 700) + '...'
         : entry.message;
       return { ...entry, message: truncatedMessage };
     });
@@ -1513,7 +1563,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
     return {
       success: true,
       error: null,
-      task_id,
+      task_id: taskId,
       closed: false,
       currentUrl,
       stepIndex: currentStep,
@@ -1543,7 +1593,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
       error: error.message,
       actionLog: trimmedActionLog,
       currentUrl: page ? await page.url() : null,
-      task_id,
+      task_id: taskId,
       stepIndex: currentStep
     };
   }
@@ -1585,8 +1635,16 @@ async function openaiClassifyPrompt(prompt, userId) {
  * - If we detect it's “chat,” stream partial output from the LLM directly.
  */
 app.post('/nli', requireAuth, async (req, res) => {
-  const { prompt } = req.body;
-  if (!prompt)  return res.status(400).json({ success: false, error: 'Prompt is required' });
+  // Accept both { prompt } and legacy { inputText }
+  let prompt = req.body.prompt;
+  if (!prompt && req.body.inputText) {
+    prompt = req.body.inputText;
+    console.debug('[DEBUG] /nli: Using legacy inputText as prompt:', prompt);
+  }
+  if (typeof prompt !== 'string') {
+    console.error('[ERROR] /nli: Prompt must be a string. Got:', typeof prompt, prompt);
+    return res.status(400).json({ success: false, error: 'Prompt must be a string.' });
+  }
 
   const userId = req.session.user;
   const user   = await User.findById(userId).select('email openaiApiKey').lean();
@@ -1615,6 +1673,7 @@ app.post('/nli', requireAuth, async (req, res) => {
     await new Task({ _id: taskId, userId, command: prompt, status: 'pending', progress: 0, startTime: new Date(), runId }).save();
     await User.updateOne({ _id: userId }, { $push: { activeTasks: { _id: taskId.toString(), command: prompt, status: 'pending', startTime: new Date() } } });
 
+    sendWebSocketUpdate(userId, { event: 'taskStart', payload: { taskId: taskId.toString(), command: prompt, startTime: new Date() } });
     processTask(userId, user.email, taskId.toString(), runId, runDir, prompt, null);
     return res.json({ success: true, taskId: taskId.toString(), runId });
   } else {
@@ -1641,11 +1700,45 @@ app.post('/nli', requireAuth, async (req, res) => {
       const assistantReply = completion.choices[0].message.content;
       await Message.create({ userId, role: 'assistant', type: 'chat', content: assistantReply, timestamp: new Date() });
 
+      sendWebSocketUpdate(userId, { event: 'chat_response_stream', payload: { assistantReply } });
       return res.json({ success: true, assistantReply }); // Message already saved above.
     } catch (err) {
       console.error('Chat error', err);
+      // Save error as assistant message for continuity
+      await Message.create({ userId, role: 'assistant', type: 'chat', content: `Error: ${err.message}`, timestamp: new Date(), meta: { error: err.message } });
       return res.status(500).json({ success:false, error: err.message });
     }
+  }
+});
+
+// --- Unified Message Retrieval Endpoint (backward compatible) ---
+app.get('/messages', requireAuth, async (req, res) => {
+  try {
+    const userId = req.session.user;
+    const limit = parseInt(req.query.limit, 10) || 20;
+    // New schema: unified Message collection
+    let messages = await Message.find({ userId })
+      .sort({ timestamp: -1 })
+      .limit(limit)
+      .lean();
+    // Backward compatibility: if empty, try ChatHistory
+    if (!messages.length) {
+      const chatHistory = await ChatHistory.findOne({ userId });
+      if (chatHistory && chatHistory.messages) {
+        messages = chatHistory.messages.slice(-limit).reverse().map(m => ({
+          userId,
+          role: m.role,
+          type: 'chat',
+          content: m.content,
+          timestamp: m.timestamp || null,
+          legacy: true
+        }));
+      }
+    }
+    return res.json({ success: true, messages: messages.reverse() }); // oldest first
+  } catch (err) {
+    console.error('[GET /messages] Error:', err);
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 
@@ -1667,6 +1760,12 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
 
   const plan = new TaskPlan(userId, taskId, prompt, url, runDir, runId);
   plan.log("Plan created.");
+
+  // Clean up any existing browser session for this task
+  if (activeBrowsers.has(taskId)) {
+    console.log(`[ProcessTask] Cleaning up stale session for task ${taskId}`);
+    await cleanupBrowserSession(taskId);
+  }
 
   try {
     await Task.updateOne({ _id: taskId }, { status:'processing', progress:5 });
@@ -1752,20 +1851,20 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
         model: "gpt-4o-mini",
         messages,
         stream: true,
-        temperature: 0.2,
+        temperature: 0.3,
         max_tokens: 700,
         tools: [
           {
             type: "function",
             function: {
               name: "browser_action",
-              description: "Executes a browser action (e.g., click, scroll, type) on the page.",
+              description: "Executes a browser action by specifying a complete natural language instruction, e.g., 'navigate to https://example.com', 'type Sony Wireless headphones into the search bar', or 'click the search button'. The 'command' parameter must include both the verb and the target details.",
               parameters: {
                 type: "object",
                 properties: {
-                  command: { type: "string" },
-                  url: { type: "string" },
-                  task_id: { type: "string" }
+                  command: { type: "string", description: "Natural language instruction for the browser action, including verb and target" },
+                  url: { type: "string", description: "The page URL on which to perform the action" },
+                  task_id: { type: "string", description: "Identifier for the current task" }
                 },
                 required: ["command"]
               }
@@ -1775,13 +1874,13 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
             type: "function",
             function: {
               name: "browser_query",
-              description: "Extracts information from the webpage.",
+              description: "Extracts information from the webpage by performing the specified query, e.g., 'list all clickable elements on the page'. The 'query' parameter must clearly state what to extract.",
               parameters: {
                 type: "object",
                 properties: {
-                  query: { type: "string" },
-                  url: { type: "string" },
-                  task_id: { type: "string" }
+                  query: { type: "string", description: "Natural language query describing what information to extract from the page" },
+                  url: { type: "string", description: "The page URL from which to extract information" },
+                  task_id: { type: "string", description: "Identifier for the current task" }
                 },
                 required: ["query"]
               }
@@ -1893,7 +1992,9 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
 
                     await Task.updateOne(
                       { _id: taskId },
-                      { $set: { status: 'completed', progress: 100, result: cleanedFinal, endTime: new Date() } }
+                      { 
+                        $set: { status: 'completed', progress: 100, result: cleanedFinal, endTime: new Date() } 
+                      }
                     );
 
                     let taskChatHistory = await ChatHistory.findOne({ userId });
@@ -1906,6 +2007,16 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
                       timestamp: new Date()
                     });
                     await taskChatHistory.save();
+
+                    await Message.create({
+                      userId,
+                      role: 'assistant',
+                      type: 'command',
+                      content: finalExtracted,
+                      taskId,
+                      timestamp: new Date(),
+                      meta: { summary }
+                    });
 
                     sendWebSocketUpdate(userId, {
                       event: 'taskComplete',
@@ -1922,36 +2033,35 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
               }
             }
           }
+        }}
+      
+        if (thoughtBuffer) {
+          sendWebSocketUpdate(userId, { event: 'thoughtComplete', taskId, thought: thoughtBuffer });
+          thoughtBuffer = "";
         }
-      }
       
-      if (thoughtBuffer) {
-        sendWebSocketUpdate(userId, { event: 'thoughtComplete', taskId, thought: thoughtBuffer });
-        thoughtBuffer = "";
-      }
+        if (taskCompleted) {
+          plan.log(`Task completed after ${plan.currentStepIndex + 1} steps.`);
+          break;
+        }
       
-      if (taskCompleted) {
-        plan.log(`Task completed after ${plan.currentStepIndex + 1} steps.`);
-        break;
-      }
+        if (!functionCallReceived) {
+          plan.log(`No tool call received for step ${plan.currentStepIndex + 1}`);
+          const recoveryStep = plan.createStep('query', 'Describe the current page state and available actions', {
+            query: 'Describe the current page state and available actions',
+            task_id: taskId,
+            url: plan.currentUrl
+          });
+          await recoveryStep.execute(plan);
+          consecutiveFailures = 0;
+        }
       
-      if (!functionCallReceived) {
-        plan.log(`No tool call received for step ${plan.currentStepIndex + 1}`);
-        const recoveryStep = plan.createStep('query', 'Describe the current page state and available actions', {
-          query: 'Describe the current page state and available actions',
-          task_id: taskId,
-          url: plan.currentUrl
-        });
-        await recoveryStep.execute(plan);
-        consecutiveFailures = 0;
-      }
-      
-      const progress = Math.min(95, Math.floor((plan.currentStepIndex + 1) / plan.maxSteps * 100));
-      await Task.updateOne(
-        { _id: taskId },
-        { $set: { status: 'running', progress, currentStepIndex: plan.currentStepIndex, currentUrl: plan.currentUrl } }
-      );
-      plan.log(`Task progress updated in DB: ${progress}%`);
+        const progress = Math.min(95, Math.floor((plan.currentStepIndex + 1) / plan.maxSteps * 100));
+        await Task.updateOne(
+          { _id: taskId },
+          { $set: { status: 'running', progress, currentStepIndex: plan.currentStepIndex, currentUrl: plan.currentUrl } }
+        );
+        plan.log(`Task progress updated in DB: ${progress}%`);
     }
     
     if (!taskCompleted) {
@@ -1971,7 +2081,7 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
         { $set: { status: 'completed', progress: 100, result: finalResult, endTime: new Date(), summary } }
       );
       
-      // --- Save final assistant message to chat history (max steps case) ---
+      // --- Save final assistant message to both ChatHistory and Message ---
       let taskChatHistory = await ChatHistory.findOne({ userId });
       if (!taskChatHistory) taskChatHistory = new ChatHistory({ userId, messages: [] });
       taskChatHistory.messages.push({
@@ -2011,7 +2121,7 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
       { _id: taskId },
       { $set: { status: 'error', error: error.message, endTime: new Date() } }
     );
-    // --- Save error message as assistant message to chat history ---
+    // --- Save error message as assistant message to both ChatHistory and Message ---
     let taskChatHistory = await ChatHistory.findOne({ userId });
     if (!taskChatHistory) taskChatHistory = new ChatHistory({ userId, messages: [] });
     taskChatHistory.messages.push({
@@ -2031,27 +2141,9 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
     });
     // -------------------------------------------------------------
   } finally {
-    if (plan.browserSession) {
-      try {
-        const { browser, release, hasReleased } = plan.browserSession;
-        if (browser && !browser.process()?.killed) {
-          await browser.close();
-        }
-        if (!hasReleased && typeof release === 'function') {
-          release();
-          plan.browserSession.hasReleased = true;
-        } else {
-          console.warn(`[ProcessTask] Expected release as function but got ${typeof release} for session ${plan.taskId}.`);
-        }
-        plan.browserSession.closed = true;
-        activeBrowsers.delete(plan.taskId);
-        console.log(`[ProcessTask] Closed browser session ${plan.taskId}`);
-        plan.log("Browser session closed and removed from active browsers.");
-      } catch (error) {
-        console.error(`[ProcessTask] Error closing browser session ${plan.taskId}:`, error);
-      }
-    }
-    
+    console.log(`[ProcessTask] Cleaning up browser session for task ${taskId}`);
+    await cleanupBrowserSession(taskId);
+
     console.log(`[ProcessTask] Task ${taskId} finished with ${plan.steps.length} steps executed.`);
     
     try {
@@ -2358,3 +2450,99 @@ async function handlePageObstacles(page, agent) {
     return results;
   }
 }
+
+// Browser session cleanup utilities
+
+async function cleanupBrowserSession(taskId) {
+  try {
+    if (!activeBrowsers.has(taskId)) return;
+    
+    const { browser, page, release } = activeBrowsers.get(taskId);
+    
+    // Close browser resources
+    if (page && !page.isClosed()) await page.close();
+    if (browser) await browser.close();
+    if (release) release();
+    
+    // Remove from tracking
+    activeBrowsers.delete(taskId);
+    
+    console.log(`Successfully cleaned up browser session for task ${taskId}`);
+    return true;
+  } catch (err) {
+    console.error(`Failed to cleanup browser session for task ${taskId}:`, err);
+    return false;
+  }
+}
+
+// Add cleanup handler to process termination events
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received - cleaning up browser sessions');
+  for (const [taskId] of activeBrowsers) {
+    await cleanupBrowserSession(taskId);
+  }
+});
+
+process.on('SIGINT', async () => {
+  console.log('SIGINT received - cleaning up browser sessions');
+  for (const [taskId] of activeBrowsers) {
+    await cleanupBrowserSession(taskId);
+  }
+  process.exit(0);
+});
+
+// --- Helper: Ensure userId is present in session, generate guest if needed ---
+function ensureUserId(req, res, next) {
+  if (!req.session.user) {
+    req.session.user = 'guest_' + Date.now() + '_' + Math.floor(Math.random()*100000);
+    console.debug('[DEBUG] ensureUserId: Generated guest userId', req.session.user);
+  } else {
+    console.debug('[DEBUG] ensureUserId: Found userId in session', req.session.user);
+  }
+  next();
+}
+
+// --- API: Who Am I (userId sync endpoint) ---
+app.get('/api/whoami', (req, res) => {
+  try {
+    let userId = null;
+    if (req.session && req.session.user) {
+      userId = req.session.user;
+      console.debug('[whoami] Returning userId from session:', userId);
+    } else if (req.session) {
+      userId = 'guest_' + Date.now() + '_' + Math.floor(Math.random()*100000);
+      req.session.user = userId;
+      console.debug('[whoami] Generated new guest userId:', userId);
+    } else {
+      // Session middleware is broken or not present
+      userId = 'guest_' + Date.now() + '_' + Math.floor(Math.random()*100000);
+      console.warn('[whoami] WARNING: req.session missing, returning fallback guest userId:', userId);
+    }
+    res.json({ userId });
+  } catch (err) {
+    console.error('[whoami] ERROR:', err);
+    res.status(500).json({ error: 'Failed to get userId', detail: err.message });
+  }
+});
+
+// --- Robust API: Who Am I (no /api prefix, for proxy rewrite) ---
+app.get('/whoami', (req, res) => {
+  try {
+    let userId = null;
+    if (req.session && req.session.user) {
+      userId = req.session.user;
+      console.debug('[whoami] Returning userId from session:', userId);
+    } else if (req.session) {
+      userId = 'guest_' + Date.now() + '_' + Math.floor(Math.random()*100000);
+      req.session.user = userId;
+      console.debug('[whoami] Generated new guest userId:', userId);
+    } else {
+      userId = 'guest_' + Date.now() + '_' + Math.floor(Math.random()*100000);
+      console.warn('[whoami] WARNING: req.session missing, returning fallback guest userId:', userId);
+    }
+    res.json({ userId });
+  } catch (err) {
+    console.error('[whoami] ERROR:', err);
+    res.status(500).json({ error: 'Failed to get userId', detail: err.message });
+  }
+});

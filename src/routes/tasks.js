@@ -89,7 +89,7 @@ router.get('/:id/stream', requireAuth, (req, res) => {
       });
 
       res.write(`data: ${JSON.stringify(update)}\n\n`);
-      logger.info(`Task update sent for ${req.params.id}`, update);
+      logger.debug(`Task update sent for ${req.params.id}`, update);
 
       if (update.done) {
         clearInterval(interval);
@@ -114,6 +114,102 @@ router.get('/:id/stream', requireAuth, (req, res) => {
     res.end();
     logger.info(`Task stream closed (client disconnected): ${req.params.id}`);
   });
+});
+
+/**
+ * DELETE /tasks/:id
+ * Cancel or remove a task
+ */
+router.delete('/:id', requireAuth, async (req, res) => {
+  try {
+    const { deletedCount } = await Task.deleteOne({ _id: req.params.id, userId: req.session.user });
+    if (!deletedCount) return res.status(404).json({ success: false, error: 'Task not found' });
+    return res.json({ success: true });
+  } catch (err) {
+    logger.error('Delete task error:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * PUT /tasks/:id/cancel
+ * Cancel a running task
+ */
+router.put('/:id/cancel', requireAuth, async (req, res) => {
+  try {
+    const task = await Task.findOneAndUpdate(
+      { 
+        _id: req.params.id, 
+        userId: req.session.user,
+        status: { $in: ['pending', 'processing'] }
+      },
+      { 
+        $set: { 
+          status: 'cancelled',
+          cancelledAt: new Date(),
+          cancellationReason: req.body.reason || 'User requested cancellation',
+          progress: 0,
+          endTime: new Date()
+        }
+      },
+      { new: true }
+    );
+
+    if (!task) {
+      return res.status(404).json({ success: false, error: 'Task not found or not cancellable' });
+    }
+
+    // Trigger cleanup if browser session exists
+    if (task.browserSessionId) {
+      await cleanupBrowserSession(task.browserSessionId);
+    }
+
+    return res.json({ 
+      success: true,
+      taskId: task._id,
+      status: 'cancelled'
+    });
+  } catch (err) {
+    logger.error('Task cancellation error:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+async function cleanupBrowserSession(sessionId) {
+  try {
+    // Implementation would depend on your browser session management
+    // This is a placeholder for actual cleanup logic
+    console.log(`Cleaning up browser session ${sessionId}`);
+    return true;
+  } catch (err) {
+    console.error('Cleanup failed:', err);
+    return false;
+  }
+}
+
+/**
+ * POST /tasks
+ * Create a new task for the authenticated user
+ */
+router.post('/', requireAuth, async (req, res) => {
+  const { command, url } = req.body;
+  if (!command) return res.status(400).json({ success: false, error: 'Task command is required' });
+  try {
+    const task = new Task({
+      userId: req.session.user,
+      command,
+      url,
+      status: 'pending',
+      progress: 0,
+      startTime: new Date()
+    });
+    await task.save();
+    logger.info('New task created', { taskId: task._id, userId: req.session.user });
+    return res.json({ success: true, taskId: task._id });
+  } catch (err) {
+    logger.error('Create task error:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 export default router;

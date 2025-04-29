@@ -1,0 +1,139 @@
+/* Task Card Styles */
+
+.task-card {
+  background: var(--dark-medium);
+  border-radius: var(--border-radius-md);
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow-elevated);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+.task-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+}
+
+.task-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.task-card-header .title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+}
+.task-card-header .meta {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.task-progress-container {
+  width: 100%;
+  background: var(--dark-border);
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 12px 0;
+}
+.task-progress-container .progress {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary-light), var(--primary));
+  transition: width var(--transition-fast) ease;
+}
+
+.task-status {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: var(--border-radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: #fff;
+  background: var(--info);
+  text-transform: capitalize;
+}
+.task-status.success { background: var(--success); }
+.task-status.error   { background: var(--danger); }
+.task-status.processing { background: var(--warning); }
+
+.task-result {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--dark);
+  border-radius: var(--border-radius-sm);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+/* CommandCenter Active Tasks Overrides */
+.active-tasks-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+  padding: 20px 0;
+}
+#no-active-tasks {
+  grid-column: 1 / -1;
+  text-align: center;
+  font-style: italic;
+  color: var(--text-muted);
+  font-size: 16px;
+  padding: 40px 0;
+}
+.task-command {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.task-cancel-btn {
+  background: transparent;
+  border: none;
+  color: var(--danger);
+  font-size: 14px;
+  cursor: pointer;
+  transition: color var(--transition-fast);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.task-cancel-btn i {
+  font-size: 14px;
+  margin-right: 4px;
+}
+.task-cancel-btn:hover {
+  color: var(--danger-dark);
+}
+/* Progress bar style override */
+.task-progress-container progress {
+  width: 100%;
+  height: 8px;
+  appearance: none;
+  border: none;
+  background: var(--dark-border);
+}
+.task-progress-container progress::-webkit-progress-bar {
+  background: var(--dark-border);
+  border-radius: 4px;
+}
+.task-progress-container progress::-webkit-progress-value {
+  background: linear-gradient(90deg, var(--primary-light), var(--primary));
+  border-radius: 4px;
+}
+.task-progress-container span {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: 8px;
+}
+/* Status tweaks */
+.task-status {
+  margin-top: 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}

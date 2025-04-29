@@ -7,7 +7,11 @@ console.log('[NAVIGATION-BAR] Component file loaded');
 
 import { eventBus } from '../utils/events.js';
 import { stores } from '../store/index.js';
+import api from '../utils/api.js';
+// UI and Task stores
+const { ui: uiStore, tasks: tasksStore } = stores;
 import Button from './base/Button.jsx';
+import HistoryOverlay from './HistoryOverlay.jsx';
 
 // DEBUG: Log initialization
 console.log('[NAVIGATION-BAR] Component initialized');
@@ -104,10 +108,11 @@ export function NavigationBar(props = {}) {
     className: 'nav-tool layout-toggle',
     title: 'Change layout',
     onClick: () => {
-      // Show layout menu
       showLayoutMenu(layoutToggle);
     }
   });
+  // hide removed layout toggle
+  layoutToggle.style.display = 'none';
   
   // Create settings button
   const settingsButton = Button({
@@ -120,10 +125,153 @@ export function NavigationBar(props = {}) {
     }
   });
   
-  // Create user profile button
+  // Task indicator button
+  const tasksButton = document.createElement('div');
+  tasksButton.className = 'nav-tool tasks-button';
+  tasksButton.title = 'Active Tasks';
+  // Badge element
+  const tasksBadge = document.createElement('span');
+  tasksBadge.className = 'badge';
+  tasksBadge.style.display = 'none';
+  tasksButton.innerHTML = '<i class="fas fa-tasks"></i>';
+  tasksButton.appendChild(tasksBadge);
+  tasksButton.addEventListener('click', () => uiStore.setState({ activeTab: 'active-tasks' }));
+  // Subscribe to task count
+  tasksStore.subscribe(state => {
+    const count = state.active.length;
+    tasksBadge.textContent = count;
+    tasksBadge.style.display = count > 0 ? 'inline-block' : 'none';
+  });
+  
+  // --- USER MENU ---
+  // Create user menu button (avatar)
   const userButton = document.createElement('div');
-  userButton.className = 'user-profile';
-  userButton.innerHTML = `
+  userButton.className = 'nav-tool user-menu-btn';
+  userButton.title = 'User Menu';
+  userButton.innerHTML = '<i class="fas fa-user-circle"></i>';
+  userButton.style.position = 'relative';
+  tools.appendChild(userButton);
+
+  // Create dropdown menu container
+  const userMenu = document.createElement('div');
+  userMenu.className = 'user-dropdown-menu';
+  userMenu.style.display = 'none';
+  userMenu.tabIndex = -1;
+  userMenu.setAttribute('role', 'menu');
+  userMenu.innerHTML = `
+    <div class="dropdown-arrow"></div>
+    <div class="user-menu-header">
+      <div class="user-avatar"><i class="fas fa-user"></i></div>
+      <div class="user-info">
+        <div class="user-name">User</div>
+        <div class="user-email">user@example.com</div>
+      </div>
+    </div>
+    <div class="dropdown-divider"></div>
+    <button class="user-menu-item" data-action="profile" tabindex="0"><i class="fas fa-id-badge"></i> Profile</button>
+    <button class="user-menu-item" data-action="preferences" tabindex="0"><i class="fas fa-sliders-h"></i> Preferences</button>
+    <button class="user-menu-item" data-action="theme" tabindex="0"><i class="fas fa-adjust"></i> Switch Theme</button>
+    <button class="user-menu-item" data-action="copy-id" tabindex="0"><i class="fas fa-copy"></i> Copy User ID</button>
+    <div class="dropdown-divider"></div>
+    <button class="user-menu-item" data-action="logout" tabindex="0"><i class="fas fa-sign-out-alt"></i> Logout</button>
+    <button class="user-menu-item delete-account" data-action="delete-account" tabindex="0"><i class="fas fa-user-slash"></i> Delete Account</button>
+  `;
+  userButton.appendChild(userMenu);
+
+  // --- Dropdown Positioning ---
+  function showUserMenu() {
+    userMenu.style.display = 'block';
+    userMenu.focus();
+    // Position absolutely below userButton, right aligned
+    const rect = userButton.getBoundingClientRect();
+    userMenu.style.position = 'absolute';
+    userMenu.style.top = rect.height + 8 + 'px';
+    userMenu.style.right = '0px';
+    userMenu.style.left = 'auto';
+    userMenu.style.minWidth = '220px';
+    userMenu.style.zIndex = 9999;
+  }
+  function hideUserMenu() {
+    userMenu.style.display = 'none';
+  }
+  userButton.onclick = (e) => {
+    e.stopPropagation();
+    if (userMenu.style.display === 'block') hideUserMenu();
+    else showUserMenu();
+  };
+  // Hide menu on outside click or ESC
+  document.addEventListener('mousedown', (e) => {
+    if (!userMenu.contains(e.target) && !userButton.contains(e.target)) hideUserMenu();
+  });
+  userMenu.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hideUserMenu();
+  });
+
+  // --- User Menu Actions ---
+  userMenu.addEventListener('click', async (e) => {
+    if (!e.target.classList.contains('user-menu-item')) return;
+    const action = e.target.getAttribute('data-action');
+    switch (action) {
+      case 'profile':
+        eventBus.emit('open-profile');
+        break;
+      case 'preferences':
+        eventBus.emit('toggle-settings');
+        break;
+      case 'theme':
+        eventBus.emit('theme-change', { theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark' });
+        break;
+      case 'copy-id':
+        const uid = localStorage.getItem('userId') || 'unknown';
+        navigator.clipboard.writeText(uid).then(() => {
+          e.target.textContent = 'Copied!';
+          setTimeout(() => { e.target.innerHTML = '<i class="fas fa-copy"></i> Copy User ID'; }, 1200);
+        });
+        break;
+      case 'logout':
+        try {
+          await api.auth.logout();
+        } catch (err) {}
+        window.location.href = '/login.html';
+        break;
+      case 'delete-account':
+        if (confirm('Are you sure you want to delete your account? This cannot be undone.')) {
+          try {
+            const res = await api.auth.deleteAccount();
+            if (res && res.success) {
+              window.location.href = '/login.html';
+            } else {
+              alert(res && res.error ? res.error : 'Failed to delete account.');
+            }
+          } catch (err) {
+            alert('Failed to delete account.');
+          }
+        }
+        break;
+    }
+    hideUserMenu();
+  });
+
+  // Keyboard navigation for accessibility
+  userMenu.addEventListener('keydown', (e) => {
+    const items = Array.from(userMenu.querySelectorAll('.user-menu-item'));
+    let idx = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      items[(idx + 1) % items.length].focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      items[(idx - 1 + items.length) % items.length].focus();
+    }
+  });
+
+  // Add to tools section (top right)
+  tools.appendChild(userButton);
+
+  // Create user profile button
+  const userButtonOld = document.createElement('div');
+  userButtonOld.className = 'user-profile';
+  userButtonOld.innerHTML = `
     <div class="user-avatar">
       <i class="fas fa-user"></i>
     </div>
@@ -135,17 +283,84 @@ export function NavigationBar(props = {}) {
       </div>
     </div>
   `;
-  
-  userButton.addEventListener('click', () => {
-    showUserMenu(userButton);
+
+  // --- User Menu Dropdown ---
+  const userMenuOld = document.createElement('div');
+  userMenuOld.className = 'dropdown-menu';
+  userMenuOld.style.display = 'none';
+
+  // Add user info to menu
+  const userInfo = document.createElement('div');
+  userInfo.className = 'dropdown-user-info';
+  userInfo.innerHTML = `
+    <div class="user-avatar">
+      <i class="fas fa-user"></i>
+    </div>
+    <div class="user-data">
+      <div class="user-name">User</div>
+      <div class="user-email">user@example.com</div>
+    </div>
+  `;
+  userMenuOld.appendChild(userInfo);
+
+  // Add divider
+  const divider = document.createElement('div');
+  divider.className = 'dropdown-divider';
+  userMenuOld.appendChild(divider);
+
+  // Create menu items
+  const menuItems = [
+    { text: 'Profile', icon: 'fa-user', action: 'profile' },
+    { text: 'Preferences', icon: 'fa-sliders-h', action: 'toggle-settings' },
+    { text: 'Logout', icon: 'fa-sign-out-alt', action: 'logout' }
+  ];
+  menuItems.forEach(item => {
+    const menuItem = document.createElement('a');
+    menuItem.href = '#';
+    menuItem.className = 'dropdown-item';
+    menuItem.innerHTML = `<i class="fas ${item.icon}"></i> ${item.text}`;
+    menuItem.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (item.action === 'logout') {
+        window.location.href = '/logout';
+      } else {
+        eventBus.emit(item.action);
+      }
+      userMenuOld.classList.remove('open');
+      userMenuOld.style.display = 'none';
+    });
+    userMenuOld.appendChild(menuItem);
   });
-  
+
+  document.body.appendChild(userMenuOld);
+
+  userButtonOld.addEventListener('click', (e) => {
+    e.stopPropagation();
+    // Toggle open state
+    const isOpen = userMenuOld.classList.contains('open');
+    document.querySelectorAll('.dropdown-menu.open').forEach(menu => menu.classList.remove('open'));
+    if (!isOpen) {
+      userMenuOld.classList.add('open');
+      userMenuOld.style.display = 'block';
+    } else {
+      userMenuOld.classList.remove('open');
+      userMenuOld.style.display = 'none';
+    }
+  });
+  window.addEventListener('click', (e) => {
+    if (!userMenuOld.contains(e.target) && !userButtonOld.contains(e.target)) {
+      userMenuOld.classList.remove('open');
+      userMenuOld.style.display = 'none';
+    }
+  });
+
   // Add tools to container
   tools.appendChild(themeToggle);
   tools.appendChild(layoutToggle);
   tools.appendChild(settingsButton);
-  tools.appendChild(userButton);
-  
+  tools.appendChild(tasksButton);
+  // tools.appendChild(userButtonOld);
+
   // Assemble navbar
   container.appendChild(branding);
   container.appendChild(navigation);
@@ -155,10 +370,20 @@ export function NavigationBar(props = {}) {
   const layoutMenu = document.createElement('div');
   layoutMenu.className = 'dropdown-menu';
   layoutMenu.style.display = 'none';
-  
-  const userMenu = document.createElement('div');
-  userMenu.className = 'dropdown-menu';
-  userMenu.style.display = 'none';
+
+  // Helper to hide all dropdown menus
+  function hideMenus() {
+    userMenuOld.style.display = 'none';
+  }
+
+  // Show layout menu positioned below button
+  function showLayoutMenu(button) {
+    hideMenus();
+    layoutMenu.style.display = 'block';
+    const rect = button.getBoundingClientRect();
+    layoutMenu.style.left = `${rect.right - layoutMenu.offsetWidth}px`;
+    layoutMenu.style.top = `${rect.bottom}px`;
+  }
 
   // Create layout menu items
   const layoutPresets = [
@@ -243,118 +468,7 @@ export function NavigationBar(props = {}) {
     layoutMenu.appendChild(menuItem);
   });
 
-  // Create user menu with full original functionality
-  const menuItems = [
-    { text: 'Profile', icon: 'fa-user', action: 'profile' },
-    { text: 'Preferences', icon: 'fa-sliders-h', action: 'toggle-settings' },
-    { text: 'Logout', icon: 'fa-sign-out-alt', action: 'logout' }
-  ];
-  
-  // Add user info to menu
-  const userInfo = document.createElement('div');
-  userInfo.className = 'dropdown-user-info';
-  userInfo.innerHTML = `
-    <div class="user-avatar">
-      <i class="fas fa-user"></i>
-    </div>
-    <div class="user-data">
-      <div class="user-name">User</div>
-      <div class="user-email">user@example.com</div>
-    </div>
-  `;
-  
-  userMenu.appendChild(userInfo);
-  
-  // Add divider
-  const divider = document.createElement('div');
-  divider.className = 'dropdown-divider';
-  userMenu.appendChild(divider);
-  
-  // Create menu items with full original functionality
-  menuItems.forEach(item => {
-    const menuItem = document.createElement('a');
-    menuItem.href = '#';
-    menuItem.className = 'dropdown-item';
-    menuItem.innerHTML = `<i class="fas ${item.icon}"></i> ${item.text}`;
-    
-    menuItem.addEventListener('click', (e) => {
-      e.preventDefault();
-      
-      // Handle special actions
-      if (item.action === 'logout') {
-        window.location.href = '/logout';
-      } else {
-        // Emit event for other actions
-        eventBus.emit(item.action);
-      }
-      
-      hideMenus();
-    });
-    
-    userMenu.appendChild(menuItem);
-  });
-
-  // Add menus to DOM
   document.body.appendChild(layoutMenu);
-  document.body.appendChild(userMenu);
-
-  /**
-   * Hide all menus
-   */
-  function hideMenus() {
-    layoutMenu.style.display = 'none';
-    userMenu.style.display = 'none';
-  }
-
-  /**
-   * Show layout menu
-   * @param {HTMLElement} button - Button that triggered the menu
-   */
-  function showLayoutMenu(button) {
-    hideMenus();
-    
-    // Position menu below button
-    const rect = button.getBoundingClientRect();
-    layoutMenu.style.left = `${rect.left}px`;
-    layoutMenu.style.top = `${rect.bottom}px`;
-    layoutMenu.style.display = 'block';
-    
-    // Close menu when clicking outside
-    const clickOutside = (e) => {
-      if (!layoutMenu.contains(e.target) && e.target !== button) {
-        hideMenus();
-        document.removeEventListener('click', clickOutside);
-      }
-    };
-    
-    document.addEventListener('click', clickOutside);
-  }
-
-  /**
-   * Show user menu
-   * @param {HTMLElement} button - Button that triggered the menu
-   */
-  function showUserMenu(button) {
-    hideMenus();
-    
-    // Show menu before measuring width
-    userMenu.style.display = 'block';
-
-    // Position menu below button
-    const rect = button.getBoundingClientRect();
-    userMenu.style.left = `${rect.right - userMenu.offsetWidth}px`;
-    userMenu.style.top = `${rect.bottom}px`;
-    
-    // Close menu when clicking outside
-    const clickOutside = (e) => {
-      if (!userMenu.contains(e.target) && e.target !== button) {
-        hideMenus();
-        document.removeEventListener('click', clickOutside);
-      }
-    };
-    
-    document.addEventListener('click', clickOutside);
-  }
 
   console.log('[DEBUG] NavigationBar container:', container);
 
@@ -481,6 +595,9 @@ export function NavigationBar(props = {}) {
     
     userButton.removeEventListener('click', null);
   };
+
+  // Mount history overlay for toggle via eventBus
+  HistoryOverlay.mount();
 
   return container;
 }

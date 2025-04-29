@@ -7,7 +7,6 @@ import { eventBus } from '../utils/events.js';
 import { stores } from '../store/index.js';
 import MessageTimeline from './MessageTimeline.jsx';
 import BackButton from './BackButton.jsx';
-import { mountUnifiedCommandSection } from './UnifiedCommandSection.mount.jsx';
 
 /**
  * Create the main application component
@@ -47,9 +46,7 @@ export function App(props = {}) {
   const commandCenterContainer = document.createElement('div');
   commandCenterContainer.className = 'fixed-command-center';
 
-  // Mount the new React UnifiedCommandSection
-  let destroyUnifiedSection = null;
-  destroyUnifiedSection = mountUnifiedCommandSection(commandCenterContainer);
+  // UnifiedCommandSection removed.
 
   // Create message timeline
   const messageTimeline = MessageTimeline({
@@ -68,13 +65,68 @@ export function App(props = {}) {
   const theme = stores.ui.getState().theme || 'dark';
   document.documentElement.setAttribute('data-theme', theme);
 
+  // --- User Menu Dropdown (Glassy, Futuristic) ---
+  const userMenuContainer = document.createElement('div');
+  userMenuContainer.className = 'user-menu-container';
+
+  const userAvatar = document.createElement('div');
+  userAvatar.className = 'user-avatar';
+  userAvatar.innerHTML = '<i class="fas fa-user-circle"></i>';
+  userMenuContainer.appendChild(userAvatar);
+
+  // Dropdown
+  const dropdown = document.createElement('div');
+  dropdown.className = 'user-menu-dropdown glassy-dropdown';
+  dropdown.style.display = 'none';
+  dropdown.style.zIndex = '1002'; // Above sidebar
+
+  // Dropdown items
+  const preferencesItem = document.createElement('div');
+  preferencesItem.className = 'user-menu-item';
+  preferencesItem.innerHTML = '<i class="fas fa-user-cog"></i> Preferences';
+  preferencesItem.onclick = () => {
+    eventBus.emit('toggle-settings');
+    dropdown.style.display = 'none';
+  };
+  dropdown.appendChild(preferencesItem);
+
+  // Add more items as needed (e.g., logout)
+  const logoutItem = document.createElement('div');
+  logoutItem.className = 'user-menu-item';
+  logoutItem.innerHTML = '<i class="fas fa-sign-out-alt"></i> Logout';
+  logoutItem.onclick = () => {
+    eventBus.emit('logout');
+    dropdown.style.display = 'none';
+  };
+  dropdown.appendChild(logoutItem);
+
+  userMenuContainer.appendChild(dropdown);
+
+  // Toggle dropdown visibility
+  userAvatar.onclick = (e) => {
+    e.stopPropagation();
+    dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+    dropdown.classList.toggle('visible', dropdown.style.display === 'block');
+  };
+  // Hide dropdown on outside click
+  document.addEventListener('click', (e) => {
+    if (!userMenuContainer.contains(e.target)) {
+      dropdown.style.display = 'none';
+      dropdown.classList.remove('visible');
+    }
+  });
+
+  // Insert user menu at the top right
+  userMenuContainer.style.position = 'absolute';
+  userMenuContainer.style.top = '24px';
+  userMenuContainer.style.right = '32px';
+  userMenuContainer.style.zIndex = '2002'; // Ensure above sidebar
+  container.appendChild(userMenuContainer);
+
   // Method to destroy the component and clean up
   container.destroy = () => {
     // Defensive: Remove fade classes
     container.classList.remove('fade-in','fade-out');
-    if (typeof destroyUnifiedSection === 'function') {
-      destroyUnifiedSection();
-    }
     if (typeof messageTimeline.destroy === 'function') {
       messageTimeline.destroy();
     }

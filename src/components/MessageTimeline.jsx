@@ -12,7 +12,8 @@ export const MESSAGE_TYPES = {
   CHAT: 'chat',
   COMMAND: 'command',
   SYSTEM: 'system',
-  ERROR: 'error'
+  ERROR: 'error',
+  THOUGHT: 'thought'
 };
 
 // Message role constants
@@ -85,15 +86,24 @@ export function MessageTimeline(props = {}) {
   messagesContainer.className = 'message-timeline-container';
   container.appendChild(messagesContainer);
 
+  // --- Thought Streaming Bubble Logic ---
+  // Only one active thought bubble per session
+  let activeThoughtId = null;
+
   // Function to create a single message item
   function createMessageItem(message) {
-    const { role, type, content, timestamp } = message;
+    const { role, type, content, timestamp, id, streaming } = message;
     
     // Create message element
     const msgEl = document.createElement('div');
-    msgEl.className = `msg-item msg-${role}`;
+    msgEl.className = `msg-item msg-${role || 'unknown'}`;
     if (type) msgEl.classList.add(`msg-${type}`);
-    
+    if (id) msgEl.dataset.messageId = id; // Add message ID for potential updates
+
+    // Add fade-in animation for new messages
+    msgEl.classList.add('fade-in-message');
+    setTimeout(() => msgEl.classList.remove('fade-in-message'), 500);
+
     // Message metadata
     const metaEl = document.createElement('div');
     metaEl.className = 'msg-meta';
@@ -101,8 +111,6 @@ export function MessageTimeline(props = {}) {
     // Role badge
     const roleEl = document.createElement('div');
     roleEl.className = 'msg-role';
-    
-    // Set icon based on role
     let roleIcon = '';
     switch (role) {
       case MESSAGE_ROLES.USER:
@@ -112,12 +120,12 @@ export function MessageTimeline(props = {}) {
         roleIcon = 'fa-robot';
         break;
       case MESSAGE_ROLES.SYSTEM:
-        roleIcon = 'fa-cog';
+        roleIcon = 'fa-info-circle';
         break;
       default:
         roleIcon = 'fa-comment';
     }
-    
+    // Use FontAwesome solid style
     roleEl.innerHTML = `<i class="fas ${roleIcon}"></i>`;
     metaEl.appendChild(roleEl);
     
@@ -125,7 +133,8 @@ export function MessageTimeline(props = {}) {
     if (type && type !== MESSAGE_TYPES.CHAT) {
       const typeEl = document.createElement('div');
       typeEl.className = `msg-type msg-${type}`;
-      typeEl.textContent = type;
+      // Make thought type less prominent
+      typeEl.textContent = type === MESSAGE_TYPES.THOUGHT ? 'Thinking...' : type;
       metaEl.appendChild(typeEl);
     }
     
@@ -144,7 +153,14 @@ export function MessageTimeline(props = {}) {
     // Message content
     const contentEl = document.createElement('div');
     contentEl.className = 'msg-content';
-    contentEl.textContent = content;
+    const sanitizedContent = (content || '')
+        .replace(/</g, "&lt;").replace(/>/g, "&gt;"); // Basic HTML entity encoding
+
+    contentEl.innerHTML = sanitizedContent
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Bold
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')       // Italics
+        .replace(/\n/g, '<br>') // Convert newlines to <br>
+        .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'); // Links
     msgEl.appendChild(contentEl);
     
     // Check if message has error
@@ -154,7 +170,21 @@ export function MessageTimeline(props = {}) {
       errorEl.textContent = message.error;
       msgEl.appendChild(errorEl);
     }
-    
+
+    // Specific styling for thoughts
+    if (type === MESSAGE_TYPES.THOUGHT) {
+        msgEl.style.opacity = '0.6';
+        msgEl.style.fontStyle = 'italic';
+        msgEl.style.fontSize = '0.9em'; // Make thoughts slightly smaller
+        msgEl.classList.add('msg-thought-item'); // Add class for CSS targeting
+        if (streaming) {
+          const typingEl = document.createElement('span');
+          typingEl.className = 'typing-indicator';
+          typingEl.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
+          msgEl.appendChild(typingEl);
+        }
+    }
+
     return msgEl;
   }
 
@@ -176,10 +206,14 @@ export function MessageTimeline(props = {}) {
     }
     
     // Filter messages if needed
-    const filteredMessages = filter === 'all' 
-      ? timeline 
-      : timeline.filter(msg => msg.type === filter);
-    
+    const filteredMessages = timeline.filter(msg => {
+        if (filter === 'all') return true;
+        if (filter === 'chat') return msg.type === MESSAGE_TYPES.CHAT || msg.type === MESSAGE_TYPES.THOUGHT;
+        if (filter === 'command') return msg.type === MESSAGE_TYPES.COMMAND; // Assumes command results have this type
+        if (filter === 'system') return msg.type === MESSAGE_TYPES.SYSTEM || msg.type === MESSAGE_TYPES.ERROR;
+        return false; // Default case
+    });
+
     // Render messages
     filteredMessages.forEach(message => {
       const msgEl = createMessageItem(message);
@@ -190,58 +224,114 @@ export function MessageTimeline(props = {}) {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
 
-  // Load initial messages
-  function loadMessages() {
-    messagesStore.setState({ loading: true, error: null });
-    
-    getMessageHistory()
-      .then(data => {
-        if (data && Array.isArray(data.items)) {
-          messagesStore.setState({ 
-            timeline: data.items,
-            pagination: {
-              page: data.currentPage || 1,
-              totalItems: data.totalItems || 0,
-              totalPages: data.totalPages || 1
-            },
-            loading: false
-          });
-          
-          updateVisibleMessages();
+  // Update handleChatUpdate to merge thought streaming
+  function handleChatUpdate(message) {
+    console.log("MessageTimeline received chat-update:", message);
+    const { timeline } = messagesStore.getState();
+    let newMessage = null;
+
+    switch (message.type) {
+      case 'user_message':
+        newMessage = {
+          id: message.id || `local-${Date.now()}`,
+          role: MESSAGE_ROLES.USER,
+          type: MESSAGE_TYPES.CHAT,
+          content: message.payload?.text || '',
+          timestamp: message.timestamp || Date.now()
+        };
+        break;
+      case 'ai_thought_stream':
+        // Streaming: update or create single thought bubble
+        if (!activeThoughtId) {
+          activeThoughtId = message.id || `thought-${Date.now()}`;
+          newMessage = {
+            id: activeThoughtId,
+            role: MESSAGE_ROLES.ASSISTANT,
+            type: MESSAGE_TYPES.THOUGHT,
+            content: message.payload?.text || '',
+            timestamp: message.timestamp || Date.now(),
+            streaming: true
+          };
+          messagesStore.setState({ timeline: [...timeline, newMessage] });
+        } else {
+          // Update existing bubble's content
+          const updatedTimeline = timeline.map(msg =>
+            msg.id === activeThoughtId ? { ...msg, content: message.payload?.text || '', streaming: true } : msg
+          );
+          messagesStore.setState({ timeline: updatedTimeline });
         }
-      })
-      .catch(error => {
-        console.error('Failed to load messages:', error);
-        messagesStore.setState({ 
-          error: error.message || 'Failed to load messages',
-          loading: false
-        });
-        
-        // Show error in timeline
-        messagesContainer.innerHTML = `
-          <div class="message-timeline-empty error">
-            <i class="fas fa-exclamation-triangle"></i>
-            <p>Failed to load messages</p>
-          </div>
-        `;
-      });
+        return;
+      case 'chat_response':
+        // Final AI response: render below thought bubble, mark bubble as done
+        if (activeThoughtId) {
+          const updatedTimeline = timeline.map(msg =>
+            msg.id === activeThoughtId ? { ...msg, streaming: false } : msg
+          );
+          // Add final message
+          const finalMsg = {
+            id: message.id || `server-${Date.now()}`,
+            role: MESSAGE_ROLES.ASSISTANT,
+            type: MESSAGE_TYPES.CHAT,
+            content: message.payload?.text || '',
+            timestamp: message.timestamp || Date.now()
+          };
+          messagesStore.setState({ timeline: [...updatedTimeline, finalMsg] });
+          activeThoughtId = null;
+          return;
+        }
+        newMessage = {
+          id: message.id || `server-${Date.now()}`,
+          role: MESSAGE_ROLES.ASSISTANT,
+          type: MESSAGE_TYPES.CHAT,
+          content: message.payload?.text || '',
+          timestamp: message.timestamp || Date.now()
+        };
+        break;
+      default:
+        console.warn(`MessageTimeline received unhandled chat-update type: ${message.type}`);
+        return;
+    }
+
+    if (newMessage) {
+      if (!timeline.some(msg => msg.id === newMessage.id)) {
+        messagesStore.setState({ timeline: [...timeline, newMessage] });
+        if (newMessage.type === MESSAGE_TYPES.THOUGHT) activeThoughtId = newMessage.id;
+      }
+    }
   }
 
+  // Initialize with empty state
+  messagesStore.setState({ 
+    timeline: [],
+    loading: false,
+    error: null,
+    filter: 'all'
+  });
+
+  // Render error state if present
+  if (error) {
+    container.innerHTML = `
+      <div className="error-message">
+        <i className="fas fa-exclamation-triangle"></i>
+        <p>Failed to load messages</p>
+      </div>
+    `;
+    return;
+  }
+  }
+
+  // --- Internal State / Subscriptions ---
+  let storeUnsubscribe = null;
+  let chatUpdateUnsubscribe = null; // To store the unsubscribe function for chat-update
+
+  // --- Event Handling --- 
   // Subscribe to store changes
-  const unsubscribe = messagesStore.subscribe(() => {
+  storeUnsubscribe = messagesStore.subscribe(() => {
     updateVisibleMessages();
   });
 
-  // Listen for new messages from event bus
-  const unsubscribeEvent = eventBus.on('new-message', (message) => {
-    const { timeline } = messagesStore.getState();
-    messagesStore.setState({ 
-      timeline: [...timeline, message]
-    });
-    
-    // Update view
-    updateVisibleMessages();
-  });
+  // Subscribe to chat updates from WebSocket handler
+  chatUpdateUnsubscribe = eventBus.on('chat-update', handleChatUpdate);
 
   // Initialize component
   loadMessages();
@@ -256,13 +346,13 @@ export function MessageTimeline(props = {}) {
   
   // Cleanup method
   container.destroy = () => {
-    unsubscribe();
-    unsubscribeEvent();
-    
-    // Remove event listeners
-    filterToolbar.querySelectorAll('.timeline-filter-btn').forEach(btn => {
-      btn.removeEventListener('click', null);
-    });
+    if(storeUnsubscribe) storeUnsubscribe();
+    if (chatUpdateUnsubscribe) {
+        chatUpdateUnsubscribe(); // Unsubscribe from chat-update
+        chatUpdateUnsubscribe = null;
+    }
+
+    console.log("MessageTimeline destroyed");
   };
 
   return container;

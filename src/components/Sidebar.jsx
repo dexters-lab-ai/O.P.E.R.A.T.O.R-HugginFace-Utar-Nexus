@@ -28,7 +28,9 @@ export default function Sidebar(props = {}) {
     containerId = 'sidebar',
     items = []
   } = props;
-  let isCollapsed = collapsed;
+  let isCollapsed = (typeof localStorage !== 'undefined' && localStorage.getItem('sidebarDefault'))
+    ? localStorage.getItem('sidebarDefault') === 'collapsed'
+    : collapsed;
 
   // Default active section for tabs
   let activeSection = 'liveMaps';
@@ -78,6 +80,14 @@ export default function Sidebar(props = {}) {
   // Footer nav area (move original nav items here)
   const footer = document.createElement('div');
   footer.className = 'sidebar-footer';
+  footer.style.position = 'absolute';
+  footer.style.bottom = '0';
+  footer.style.width = '100%';
+  footer.style.height = 'var(--footer-height, 48px)';
+  footer.style.background = 'rgba(30, 34, 44, 0.7)';
+  footer.style.backdropFilter = 'blur(10px)';
+  footer.style.borderTop = '1px solid rgba(255,255,255,0.08)';
+  footer.style.zIndex = '2';
   const footerNav = document.createElement('nav');
   footerNav.className = 'sidebar-nav';
   // Only include Documentation and Extensions in footer
@@ -90,6 +100,14 @@ export default function Sidebar(props = {}) {
   wrapper.className = `sidebar-wrapper${isCollapsed ? ' collapsed' : ''}`;
   wrapper.appendChild(headerContent);
   wrapper.appendChild(content);
+
+  // Intermediate Results Container
+  const intermediateContainer = document.createElement('div');
+  intermediateContainer.id = 'intermediate-results-container';
+  intermediateContainer.className = 'intermediate-results';
+  intermediateContainer.innerHTML = '<h4>Intermediate Results</h4>';
+  wrapper.appendChild(intermediateContainer);
+
   wrapper.appendChild(footer);
   container.appendChild(wrapper);
 

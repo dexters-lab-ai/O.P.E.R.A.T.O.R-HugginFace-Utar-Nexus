@@ -1,4 +1,4 @@
-import { post } from '../utils/api-helpers.js';
+import { post } from '../utils/api.js';
 
 /**
  * Send a prompt to the NLI endpoint.

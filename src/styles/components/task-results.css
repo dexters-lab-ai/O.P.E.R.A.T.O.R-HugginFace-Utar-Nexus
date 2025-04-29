@@ -187,6 +187,25 @@
   font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
 }
 
+/* Added rule for the container holding the task cards */
+.active-tasks-container {
+  /* Set default text color for items inside */
+  color: white;
+}
+
+/* Ensure task titles and status text within the container are white by default */
+/* Specific status colors (like error/success) might override this later if defined elsewhere */
+.active-tasks-container .task-card .task-meta span,
+.active-tasks-container .task-card .task-status {
+  color: white;
+}
+
+/* Keep specific status progress text readable if needed */
+.active-tasks-container .task-card .task-status-progress span {
+   /* If this was also black/muted, change it. If it was already okay, leave it */
+   color: white; /* Or adjust as needed */
+}
+
 /* No Results State */
 #no-results {
   display: flex;
@@ -249,4 +268,205 @@
 
 @keyframes blink {
   50% { opacity: 0; }
+}
+
+#intermediate-results-container {
+  width: 100%;
+  min-height: 180px;
+  max-height: 350px;
+  overflow-y: auto;
+  background: #23272e;
+  border-radius: var(--border-radius-md);
+  border: 1px solid #3a3f4b;
+  padding: 18px 18px 10px 18px;
+  margin: 10px 0 18px 0;
+  box-shadow: 0 1px 8px 0 rgba(0,0,0,0.10);
+  color: #fff;
+  font-size: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.intermediate-result-item {
+  color: #fff;
+  background: rgba(255,255,255,0.03);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 7px;
+  font-size: 15px;
+  line-height: 1.7;
+  border-left: 3px solid var(--primary);
+  position: relative;
+  box-shadow: 0 1px 3px 0 rgba(0,0,0,0.06);
+}
+
+.intermediate-result-item .step-icon {
+  color: var(--primary);
+  margin-right: 7px;
+  font-size: 16px;
+}
+
+.intermediate-result-item .step-label {
+  color: var(--primary);
+  font-weight: 500;
+  margin-right: 10px;
+}
+
+.intermediate-result-item .result-tooltip {
+  color: var(--secondary);
+  margin-left: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.intermediate-result-item.final-result {
+  border-left: 3px solid var(--success);
+  background: rgba(0,255,100,0.07);
+  box-shadow: 0 2px 8px 0 rgba(0,255,100,0.07);
+}
+
+.intermediate-result-item pre {
+  color: #fff;
+  background: #23272e;
+  border-radius: 5px;
+  margin: 8px 0 0 0;
+  padding: 7px 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-x: auto;
+}
+
+/* --- User Dropdown Menu Styling --- */
+.user-menu-btn {
+  position: relative;
+  cursor: pointer;
+  margin-left: 12px;
+  display: flex;
+  align-items: center;
+}
+.user-menu-btn i {
+  font-size: 1.9em;
+  color: var(--primary);
+  transition: color 0.15s;
+}
+.user-menu-btn:hover i,
+.user-menu-btn:focus i {
+  color: var(--secondary);
+}
+
+.user-dropdown-menu {
+  position: absolute;
+  top: 48px;
+  right: 0;
+  left: auto;
+  min-width: 220px;
+  background: #fff;
+  color: #23272e;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px 0 rgba(0,0,0,0.15), 0 1.5px 4px rgba(0,0,0,0.08);
+  z-index: 9999;
+  padding: 10px 0 8px 0;
+  border: 1px solid #e9e9f1;
+  display: none;
+  animation: fadeInMenu 0.22s;
+}
+@keyframes fadeInMenu {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.user-dropdown-menu .dropdown-arrow {
+  position: absolute;
+  top: -10px;
+  right: 18px;
+  width: 18px;
+  height: 10px;
+  overflow: hidden;
+}
+.user-dropdown-menu .dropdown-arrow::after {
+  content: '';
+  display: block;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-left: 1px solid #e9e9f1;
+  border-top: 1px solid #e9e9f1;
+  transform: rotate(45deg);
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  box-shadow: -2px -2px 6px rgba(0,0,0,0.04);
+}
+.user-dropdown-menu .user-menu-header {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 8px 18px 4px 18px;
+}
+.user-dropdown-menu .user-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 1.45em;
+}
+.user-dropdown-menu .user-info {
+  display: flex;
+  flex-direction: column;
+}
+.user-dropdown-menu .user-name {
+  font-weight: 600;
+  font-size: 1.07em;
+  margin-bottom: 2px;
+}
+.user-dropdown-menu .user-email {
+  font-size: 0.97em;
+  color: #888;
+}
+.user-dropdown-menu .dropdown-divider {
+  border-top: 1px solid #ececec;
+  margin: 8px 0 8px 0;
+}
+.user-dropdown-menu .user-menu-item {
+  width: 100%;
+  background: none;
+  border: none;
+  outline: none;
+  color: #23272e;
+  font-size: 1em;
+  padding: 10px 22px;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  border-radius: 7px;
+}
+.user-dropdown-menu .user-menu-item:hover,
+.user-dropdown-menu .user-menu-item:focus {
+  background: var(--primary);
+  color: #fff;
+}
+.user-dropdown-menu .user-menu-item i {
+  font-size: 1.1em;
+  opacity: 0.8;
+}
+.user-dropdown-menu .delete-account {
+  color: #c82333;
+  font-weight: 600;
+}
+.user-dropdown-menu .delete-account:hover,
+.user-dropdown-menu .delete-account:focus {
+  background: #f8d7da;
+  color: #c82333;
+}
+
+/* Remove old dropdown-menu styles if they conflict */
+.dropdown-menu, .dropdown-menu.open {
+  display: none !important;
 }

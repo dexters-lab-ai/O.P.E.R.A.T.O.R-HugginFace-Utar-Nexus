@@ -7,6 +7,30 @@ import { requireAuth } from '../middleware/requireAuth.js';
 const router = express.Router();
 
 /**
+ * GET /messages
+ * Fetch recent messages for the logged-in user
+ */
+router.get('/', requireAuth, async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      throw new Error('Database is not connected');
+    }
+    const userId = req.session.user;
+    const limit = parseInt(req.query.limit, 10) || 100;
+
+    const messages = await Message.find({ userId })
+      .sort({ timestamp: -1 })
+      .limit(limit)
+      .lean();
+
+    res.json({ success: true, messages });
+  } catch (err) {
+    console.error('Messages fetch error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
  * GET /messages/history
  * Fetch unified message history (chat + commands) for the logged-in user, paginated.
  * Query: ?page=1&limit=30

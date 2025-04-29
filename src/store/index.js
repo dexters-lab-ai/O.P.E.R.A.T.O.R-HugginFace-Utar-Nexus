@@ -105,8 +105,30 @@ export const tasksStore = createStore({
   scheduled: [],
   repetitive: [],
   loading: false,
-  error: null
+  error: null,
+  streams: {}
 });
+
+// Task store helper methods
+tasksStore.setActiveTasks = tasks => tasksStore.setState({ active: tasks });
+tasksStore.updateTask = (taskId, patch) => tasksStore.setState(state => ({
+  active: state.active.map(task => task._id === taskId ? { ...task, ...patch } : task)
+}));
+tasksStore.removeTask = taskId => tasksStore.setState(state => ({
+  active: state.active.filter(task => task._id !== taskId)
+}));
+tasksStore.addStream = (taskId, es) => tasksStore.setState(state => ({
+  streams: { ...state.streams, [taskId]: es }
+}));
+tasksStore.closeStream = taskId => {
+  const es = tasksStore.getState().streams[taskId];
+  if (es) es.close();
+  tasksStore.setState(state => {
+    const streams = { ...state.streams };
+    delete streams[taskId];
+    return { streams };
+  });
+};
 
 /**
  * History Store
