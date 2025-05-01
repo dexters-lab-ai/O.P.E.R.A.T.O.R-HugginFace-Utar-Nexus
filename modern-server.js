@@ -1,9 +1,8 @@
-// =========================
-// OPERATOR Modern Interface Server
-// =========================
-// Organized for clarity and maintainability
+/**
+ * OPERATOR Modern Interface Server
+ * A simplified Express server that properly serves ES modules with correct MIME types
+ */
 
-// --- 0. IMPORTS & GLOBALS ---
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -14,63 +13,28 @@ import MongoStore from 'connect-mongo';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import mime from 'mime';
-
-// --- Routers & Models ---
 import messagesRouter from './src/routes/messages.js';
 import tasksRouter from './src/routes/tasks.js';
 import authRouter from './src/routes/auth.js';
 import ChatHistory from './src/models/ChatHistory.js';
 import User from './src/models/User.js';
 
-// --- Path helpers ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// =========================
-// 1. ENVIRONMENT CONFIG
-// =========================
+// --- 1. ENV CONFIG ---
 const PORT = process.env.PORT || 8080;
 const MONGO_URI = process.env.MONGO_URI;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 
-// =========================
-// 2. APP INITIALIZATION
-// =========================
+// --- 2. EXPRESS APP ---
 const app = express();
 
-// =========================
-// 3. STATIC FILE MIDDLEWARE
-// =========================
-// Ensure correct MIME types for .js, .css, .glb, etc.
-mime.define({'application/javascript': ['js']}, true);
-mime.define({'text/css': ['css']}, true);
-mime.define({'model/gltf-binary': ['glb']}, true);
-
-// Serve static files
-app.use('/css', express.static(path.join(__dirname, 'public/css'), { 
-  setHeaders: (res) => {
-    res.set('Content-Type', 'text/css');
-  }
-}));
-app.use('/js', express.static(path.join(__dirname, 'public/js')));
-app.use('/src', express.static(path.join(__dirname, 'src')));  // Only for development
-app.use('/vendors', express.static(path.join(__dirname, 'public/vendors')));
-
-app.use('/models', express.static(path.join(__dirname, 'public/models')));
-// Serve /js/components for ES module imports
-app.use('/js/components', express.static(path.join(__dirname, 'public/js/components')));
-// --- End static file serving ---
-
-// =========================
-// 4. BODY PARSERS
-// =========================
+// --- 3. BODY PARSERS ---
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// =========================
-// 5. SESSION STORE
-// =========================
+// --- 4. SESSION STORE (connect-mongo, always, like legacy) ---
 app.use(session({
   secret: SESSION_SECRET,
   resave: false,
@@ -95,12 +59,6 @@ app.use(express.static(path.join(__dirname, 'public'), {
     }
   }
 }));
-
-// Serve Bruno Simon's original assets (models, environment)
-app.use(
-  '/bruno_demo_temp/static',
-  express.static(path.join(__dirname, 'bruno_demo_temp', 'static'))
-);
 
 // Legacy compatibility for /styles -> /css
 express.static.mime.define({'text/css': ['css']});
@@ -264,15 +222,6 @@ app.use('/src', express.static(path.join(__dirname, 'src'), {
   }
 }));
 
-// Serve 3D experience scripts
-app.use('/js/3d', express.static(path.join(__dirname, 'src', '3d'), {
-  setHeaders: (res, path) => {
-    if (path.endsWith('.js')) {
-      res.setHeader('Content-Type', 'text/javascript');
-    }
-  }
-}));
-
 // Three.js CDN middleware
 app.use((req, res, next) => {
   const threePaths = [
@@ -335,19 +284,12 @@ app.get('/login.html', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
-// Support '/login' path by redirecting to login.html
-app.get('/login', (req, res) => {
-  res.redirect('/login.html');
-});
-
-// Redirect root to modern interface
 app.get('/', guard, (req, res) => {
-  res.redirect('/modern.html');
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-// Support '/modern' path by redirecting to modern.html
 app.get('/modern', guard, (req, res) => {
-  res.redirect('/modern.html');
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
 // --- 12. 404 HANDLER ---

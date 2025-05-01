@@ -224,100 +224,115 @@ export function MessageTimeline(props = {}) {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
 
-  // Update handleChatUpdate to merge thought streaming
+  // Handle chat updates with fresh messages
   function handleChatUpdate(message) {
     console.log("MessageTimeline received chat-update:", message);
     const { timeline } = messagesStore.getState();
-    let newMessage = null;
 
+    // Create base message structure
+    const baseMessage = {
+      role: message.role || MESSAGE_ROLES.ASSISTANT,
+      type: message.type || MESSAGE_TYPES.CHAT,
+      content: message.payload?.text || '',
+      timestamp: message.timestamp || Date.now(),
+      id: message.id // Use server-provided ID if available
+    };
+
+    // Handle different message types
     switch (message.type) {
       case 'user_message':
-        newMessage = {
-          id: message.id || `local-${Date.now()}`,
-          role: MESSAGE_ROLES.USER,
-          type: MESSAGE_TYPES.CHAT,
-          content: message.payload?.text || '',
-          timestamp: message.timestamp || Date.now()
-        };
+        // User messages should always have a unique ID
+        baseMessage.id = message.id || `user-${Date.now()}`;
+        baseMessage.role = MESSAGE_ROLES.USER;
         break;
+
       case 'ai_thought_stream':
-        // Streaming: update or create single thought bubble
-        if (!activeThoughtId) {
-          activeThoughtId = message.id || `thought-${Date.now()}`;
-          newMessage = {
-            id: activeThoughtId,
-            role: MESSAGE_ROLES.ASSISTANT,
-            type: MESSAGE_TYPES.THOUGHT,
-            content: message.payload?.text || '',
-            timestamp: message.timestamp || Date.now(),
-            streaming: true
-          };
-          messagesStore.setState({ timeline: [...timeline, newMessage] });
-        } else {
-          // Update existing bubble's content
+        // Handle thought streaming
+        if (message.id) {
+          // If we have an ID, use it to update the existing message
           const updatedTimeline = timeline.map(msg =>
-            msg.id === activeThoughtId ? { ...msg, content: message.payload?.text || '', streaming: true } : msg
+            msg.id === message.id ? { ...msg, content: message.payload?.text || '', streaming: true } : msg
           );
           messagesStore.setState({ timeline: updatedTimeline });
-        }
-        return;
-      case 'chat_response':
-        // Final AI response: render below thought bubble, mark bubble as done
-        if (activeThoughtId) {
-          const updatedTimeline = timeline.map(msg =>
-            msg.id === activeThoughtId ? { ...msg, streaming: false } : msg
-          );
-          // Add final message
-          const finalMsg = {
-            id: message.id || `server-${Date.now()}`,
-            role: MESSAGE_ROLES.ASSISTANT,
-            type: MESSAGE_TYPES.CHAT,
-            content: message.payload?.text || '',
-            timestamp: message.timestamp || Date.now()
-          };
-          messagesStore.setState({ timeline: [...updatedTimeline, finalMsg] });
-          activeThoughtId = null;
           return;
         }
-        newMessage = {
-          id: message.id || `server-${Date.now()}`,
-          role: MESSAGE_ROLES.ASSISTANT,
-          type: MESSAGE_TYPES.CHAT,
-          content: message.payload?.text || '',
-          timestamp: message.timestamp || Date.now()
-        };
+        // If no ID, create a new thought
+        baseMessage.id = `thought-${Date.now()}`;
+        baseMessage.type = MESSAGE_TYPES.THOUGHT;
+        baseMessage.streaming = true;
         break;
+
+      case 'chat_response':
+        // Handle final responses
+        if (message.id) {
+          // If we have an ID, use it to update the existing message
+          const updatedTimeline = timeline.map(msg =>
+            msg.id === message.id ? { ...msg, content: message.payload?.text || '', streaming: false } : msg
+          );
+          messagesStore.setState({ timeline: updatedTimeline });
+          return;
+        }
+        // If no ID, create a new message
+        baseMessage.id = `response-${Date.now()}`;
+        break;
+
       default:
         console.warn(`MessageTimeline received unhandled chat-update type: ${message.type}`);
         return;
     }
 
-    if (newMessage) {
-      if (!timeline.some(msg => msg.id === newMessage.id)) {
-        messagesStore.setState({ timeline: [...timeline, newMessage] });
-        if (newMessage.type === MESSAGE_TYPES.THOUGHT) activeThoughtId = newMessage.id;
-      }
-    }
+    // Remove any existing messages with the same content
+    const uniqueTimeline = timeline.filter(msg => 
+      !(msg.content === baseMessage.content && msg.type === baseMessage.type)
+    );
+
+    // Add the new message
+    const newTimeline = [...uniqueTimeline, baseMessage];
+    
+    // Sort by timestamp to maintain proper order
+    const sortedTimeline = newTimeline.sort((a, b) => a.timestamp - b.timestamp);
+    
+    // Update the store with the fresh timeline
+    messagesStore.setState({
+      timeline: sortedTimeline
+    });
   }
 
-  // Initialize with empty state
-  messagesStore.setState({ 
-    timeline: [],
-    loading: false,
-    error: null,
-    filter: 'all'
-  });
-
-  // Render error state if present
-  if (error) {
-    container.innerHTML = `
-      <div className="error-message">
-        <i className="fas fa-exclamation-triangle"></i>
-        <p>Failed to load messages</p>
-      </div>
-    `;
-    return;
-  }
+  // Load initial messages
+  function loadMessages() {
+    messagesStore.setState({ loading: true, error: null });
+    
+    getMessageHistory()
+      .then(data => {
+        if (data && Array.isArray(data.items)) {
+          messagesStore.setState({ 
+            timeline: data.items,
+            pagination: {
+              page: data.currentPage || 1,
+              totalItems: data.totalItems || 0,
+              totalPages: data.totalPages || 1
+            },
+            loading: false
+          });
+          
+          updateVisibleMessages();
+        }
+      })
+      .catch(error => {
+        console.error('Failed to load messages:', error);
+        messagesStore.setState({ 
+          error: error.message || 'Failed to load messages',
+          loading: false
+        });
+        
+        // Show error in timeline
+        messagesContainer.innerHTML = `
+          <div class="message-timeline-empty error">
+            <i class="fas fa-exclamation-triangle"></i>
+            <p>Failed to load messages</p>
+          </div>
+        `;
+      });
   }
 
   // --- Internal State / Subscriptions ---

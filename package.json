@@ -3,6 +3,7 @@
     "version": "1.0.0",
     "type": "module",
     "scripts": {
+        "prepare": "npx puppeteer browsers install chrome",
         "start": "pm2 start ecosystem.config.yaml --no-daemon",
         "dev": "concurrently --names \"VITE,SERVER\" --prefix-colors \"green,blue\" --raw \"node --max-old-space-size=4096 node_modules/vite/bin/vite.js\" \"node --max-old-space-size=4096 server.js\"",
         "build": "vite build",
@@ -11,6 +12,7 @@
         "install:fontawesome": "npm install @fortawesome/fontawesome-free"
     },
     "dependencies": {
+        "@puppeteer/browsers": "^1.29.0",
         "@fortawesome/fontawesome-free": "^6.7.2",
         "@midscene/web": "^0.12.7",
         "@nut-tree-fork/nut-js": "^4.2.6",
@@ -28,7 +30,6 @@
         "express-session": "^1.18.1",
         "gsap": "^3.12.7",
         "htmlparser2": "^10.0.0",
-        "http-proxy-middleware": "^2.0.6",
         "lil-gui": "^0.20.0",
         "marked": "^15.0.8",
         "mongoose": "^6.13.8",

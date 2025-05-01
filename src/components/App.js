@@ -7,7 +7,6 @@ import { eventBus } from '../utils/events.js';
 import { stores } from '../store/index.js';
 import CommandCenter from './CommandCenter.js';
 import MessageTimeline from './MessageTimeline.js';
-import BackButton from './BackButton.js';
 
 /**
  * Create the main application component
@@ -23,25 +22,6 @@ export function App(props = {}) {
   const container = document.createElement('div');
   container.className = 'container';
   if (containerId) container.id = containerId;
-
-  // Create back button
-  const backButton = BackButton({
-    onBack: () => {
-      // Animate fade out, then destroy app and show 3D
-      container.classList.add('fade-out');
-      setTimeout(() => {
-        if (typeof container.destroy === 'function') {
-          container.destroy();
-        }
-        if (container.parentElement) {
-          container.parentElement.removeChild(container);
-        }
-        // Emit event for RoomEntryPoint to restore 3D
-        eventBus.emit('exit-application');
-      }, 350);
-    }
-  });
-  container.appendChild(backButton);
 
   // Create command center container
   const commandCenterContainer = document.createElement('div');
@@ -99,33 +79,23 @@ export function App(props = {}) {
   commandCenterContainer.appendChild(messageTimeline);
   container.appendChild(commandCenterContainer);
 
-  // Animate fade-in on mount
-  container.classList.add('fade-in');
-  setTimeout(() => container.classList.remove('fade-in'), 400);
-
   // Initialize dark/light mode
   const theme = stores.ui.getState().theme || 'dark';
   document.documentElement.setAttribute('data-theme', theme);
 
   // Method to destroy the component and clean up
   container.destroy = () => {
-    // Defensive: Remove fade classes
-    container.classList.remove('fade-in','fade-out');
     if (typeof commandCenter.destroy === 'function') {
       commandCenter.destroy();
     }
+    
     if (typeof messageTimeline.destroy === 'function') {
       messageTimeline.destroy();
     }
+    
     if (clearButton) {
       clearButton.removeEventListener('click', null);
     }
-    if (backButton) {
-      backButton.onclick = null;
-      if (backButton.parentElement) backButton.parentElement.removeChild(backButton);
-    }
-    // Clean up any subscriptions, listeners, and UI state
-    // (add more here as needed for memory safety)
   };
 
   return container;

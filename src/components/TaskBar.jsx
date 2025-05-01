@@ -6,7 +6,8 @@
 import { eventBus } from '../utils/events.js';
 import { stores } from '../store/index.js';
 import Button from './base/Button.jsx';
-import { getActiveTasks, cancelTask as cancelTaskApi } from '../api/tasks.js';
+import { cancelTask as cancelTaskApi } from '../api/tasks.js';
+const tasksStore = stores.tasks;
 
 /**
  * Create a task bar component
@@ -22,6 +23,7 @@ export function TaskBar(props = {}) {
   // State
   let isMinimized = false;
   let activeTasks = [];
+  let intermediateResults = {};
   let expanded = false;
   
   // Create component container
@@ -158,6 +160,20 @@ export function TaskBar(props = {}) {
           </button>
         </div>
       `;
+      // Render intermediate screenshots
+      const items = intermediateResults[task._id] || [];
+      if (items.length) {
+        const interContainer = document.createElement('div');
+        interContainer.className = 'intermediate-results';
+        items.forEach((item, idx) => {
+          const img = document.createElement('img');
+          img.src = item.screenshotUrl;
+          img.alt = `Step ${idx+1}`;
+          img.title = `Step ${idx+1}`;
+          interContainer.appendChild(img);
+        });
+        taskItem.appendChild(interContainer);
+      }
       // Add cancel handler
       const cancelButton = taskItem.querySelector('.cancel-task');
       cancelButton.addEventListener('click', () => {
@@ -293,104 +309,19 @@ export function TaskBar(props = {}) {
   }
   
   /**
-   * Fetch active tasks from API
-   */
-  async function fetchActiveTasks() {
-    try {
-      const response = await getActiveTasks();
-      
-      if (response && Array.isArray(response.tasks)) {
-        activeTasks = response.tasks;
-        updateTasks();
-      }
-    } catch (error) {
-      console.error('Failed to fetch active tasks:', error);
-    }
-  }
-  
-  /**
    * Initialize the component
    */
   function initialize() {
-    // Initial tasks update
+    // Subscribe to tasksStore for active tasks & intermediate results
+    activeTasks = tasksStore.getState().active;
+    intermediateResults = tasksStore.getState().intermediateResults;
     updateTasks();
-    
-    // Fetch active tasks
-    fetchActiveTasks();
-    
-    // Set up task polling
-    const taskPollInterval = setInterval(fetchActiveTasks, 5000);
-    
-    // Set up event listeners
-    const unsubscribeTaskAdded = eventBus.on('task-added', (task) => {
-      activeTasks.push(task);
+    const unsubscribe = tasksStore.subscribe(state => {
+      activeTasks = state.active;
+      intermediateResults = state.intermediateResults;
       updateTasks();
     });
-    
-    const unsubscribeTaskUpdated = eventBus.on('task-updated', ({ taskId, status, progress }) => {
-      // Update task in array
-      activeTasks = activeTasks.map(task => {
-        if (task._id === taskId) {
-          return { 
-            ...task, 
-            status: status || task.status, 
-            progress: progress !== undefined ? progress : task.progress 
-          };
-        }
-        return task;
-      });
-      
-      // Remove completed tasks
-      if (status === 'completed' || status === 'failed') {
-        // Keep task visible for a few seconds before removing
-        setTimeout(() => {
-          activeTasks = activeTasks.filter(task => task._id !== taskId);
-          updateTasks();
-        }, 3000);
-      }
-      
-      updateTasks();
-    });
-    
-    const unsubscribeTaskRemoved = eventBus.on('task-removed', (taskId) => {
-      activeTasks = activeTasks.filter(task => task._id !== taskId);
-      updateTasks();
-    });
-    
-    // Subscribe to store changes
-    const unsubscribeStore = stores.ui.subscribe((state) => {
-      if (state.taskBarMinimized !== undefined && state.taskBarMinimized !== isMinimized) {
-        isMinimized = state.taskBarMinimized;
-        container.classList.toggle('minimized', isMinimized);
-        
-        // Update icon
-        const icon = minimizeButton.querySelector('i');
-        if (icon) {
-          icon.className = `fas ${isMinimized ? 'fa-chevron-up' : 'fa-chevron-down'}`;
-        }
-      }
-    });
-    
-    // Listen for system status updates
-    const unsubscribeSystemStatus = eventBus.on('system-status-update', (status) => {
-      updateSystemStatus(status);
-    });
-    
-    // Listen for connection status updates
-    const unsubscribeConnectionStatus = eventBus.on('connection-status-update', (status) => {
-      updateConnectionStatus(status);
-    });
-    
-    // Return cleanup function
-    return () => {
-      clearInterval(taskPollInterval);
-      unsubscribeTaskAdded();
-      unsubscribeTaskUpdated();
-      unsubscribeTaskRemoved();
-      unsubscribeStore();
-      unsubscribeSystemStatus();
-      unsubscribeConnectionStatus();
-    };
+    return () => unsubscribe();
   }
   
   // Initialize component
@@ -411,7 +342,7 @@ export function TaskBar(props = {}) {
   
   container.getActiveTasks = () => [...activeTasks];
   
-  container.refreshTasks = fetchActiveTasks;
+  container.refreshTasks = () => updateTasks();
   
   // Cleanup method
   container.destroy = () => {

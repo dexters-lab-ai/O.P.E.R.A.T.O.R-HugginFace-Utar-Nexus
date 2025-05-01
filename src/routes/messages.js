@@ -65,4 +65,9 @@ router.get('/history', requireAuth, async (req, res) => {
   }
 });
 
+// Deprecated: Use /nli for sending messages
+router.post('/', requireAuth, (req, res) => {
+  return res.status(405).json({ success: false, error: 'Use POST /nli for sending messages' });
+});
+
 export default router;

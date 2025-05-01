@@ -9,6 +9,7 @@ import { submitNLI } from '../api/nli.js';
 import { getActiveTasks, cancelTask, createTask } from '../api/tasks.js';
 import Button from './base/Button.jsx';
 import Dropdown from './base/Dropdown.jsx';
+import api from '../utils/api.js';
 
 // Tab types
 export const TAB_TYPES = {
@@ -43,96 +44,6 @@ export function CommandCenter(props = {}) {
   // Initialize messages store with empty timeline
   messagesStore.setState({ timeline: [] });
 
-  // Load messages once we have a valid userId
-  function setupMessageLoading() {
-    // Remove any existing watcher
-    clearInterval(window.commandCenterMessageWatcher);
-
-    // Create new watcher
-    window.commandCenterMessageWatcher = setInterval(async () => {
-      try {
-        // First check if we have a valid session
-        const sessionResponse = await fetch('/api/whoami', {
-          credentials: 'include'
-        });
-        
-        if (!sessionResponse.ok) {
-          console.error('Session check failed:', sessionResponse.status);
-          return;
-        }
-
-        const sessionData = await sessionResponse.json();
-        const userId = sessionData.userId;
-        
-        if (userId) {
-          clearInterval(window.commandCenterMessageWatcher);
-          
-          // Now we have a userId, load messages with cache busting
-          try {
-            const cacheBust = Date.now();
-            const messagesResponse = await fetch(`/messages?limit=100&cache=${cacheBust}`, {
-              credentials: 'include',
-              headers: {
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache',
-                'Accept': 'application/json'
-              }
-            });
-            
-            if (!messagesResponse.ok) {
-              const errorText = await messagesResponse.text();
-              console.error('Messages request failed:', messagesResponse.status, errorText);
-              return;
-            }
-            
-            const contentType = messagesResponse.headers.get('content-type');
-            if (!contentType || !contentType.includes('application/json')) {
-              const text = await messagesResponse.text();
-              console.error('Response is not JSON:', contentType, text);
-              return;
-            }
-            
-            const data = await messagesResponse.json();
-            if (data.success && data.messages) {
-              // Update messagesStore with complete state
-              messagesStore.setState({ 
-                timeline: data.messages,
-                loading: false,
-                error: null
-              });
-              // Also update localStorage with latest messages
-              localStorage.setItem('messages_timeline', JSON.stringify(data.messages));
-            } else {
-              console.error('Invalid response format:', data);
-              return;
-            }
-          } catch (error) {
-            console.error('Error loading messages:', error);
-            // Fallback to localStorage if available
-            const savedMessages = localStorage.getItem('messages_timeline');
-            if (savedMessages) {
-              try {
-                const messages = JSON.parse(savedMessages);
-                messagesStore.setState({ 
-                  timeline: messages,
-                  loading: false,
-                  error: null
-                });
-              } catch (e) {
-                console.error('Error using localStorage fallback:', e);
-              }
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error checking user info:', error);
-      }
-    }, 1000);
-  }
-
-  // Start watching for userId
-  setupMessageLoading();
-
   // Create card title
   const cardTitle = document.createElement('h3');
   cardTitle.className = 'card-title';
@@ -157,7 +68,6 @@ export function CommandCenter(props = {}) {
   // Define tabs
   const tabs = [
     { id: TAB_TYPES.NLI, label: 'Chat', icon: 'fa-comments' },
-    { id: TAB_TYPES.ACTIVE_TASKS, label: 'Active Tasks', icon: 'fa-spinner fa-spin' },
     { id: TAB_TYPES.MANUAL, label: 'General Task', icon: 'fa-tasks' },
     { id: TAB_TYPES.REPETITIVE, label: 'Repetitive', icon: 'fa-sync' },
     { id: TAB_TYPES.SCHEDULED, label: 'Scheduled', icon: 'fa-calendar' }
@@ -169,6 +79,7 @@ export function CommandCenter(props = {}) {
   // WebSocket State
   let ws = null;
   let wsConnected = false;
+  let connecting = false;
   let reconnectAttempts = 0;
   let userId = null; // Will be fetched
 
@@ -182,17 +93,10 @@ export function CommandCenter(props = {}) {
       const resp = await fetch('/api/whoami');
       const data = await resp.json();
       if (data.userId) {
-        const oldUserId = localStorage.getItem('userId');
         localStorage.setItem('userId', data.userId);
         sessionStorage.setItem('userId', data.userId);
         console.debug('[DEBUG] syncUserIdWithBackend: Synced userId from /api/whoami:', data.userId);
-        if (oldUserId !== data.userId) {
-          console.debug('[DEBUG] syncUserIdWithBackend: userId changed, will re-init WebSocket');
-          if (window._ws && typeof window._ws.close === 'function') {
-            window._ws.close();
-          }
-          initWebSocket(data.userId);
-        }
+        initWebSocket(data.userId);
         return data.userId;
       }
     } catch (err) {
@@ -206,6 +110,7 @@ export function CommandCenter(props = {}) {
   (async () => {
     const userId = await syncUserIdWithBackend();
     console.debug('[DEBUG] App load: userId after sync', userId);
+    // WebSocket is initialized in syncUserIdWithBackend, no need to init twice
   })();
 
   // --- User ID Management Helper with /api/whoami sync ---
@@ -246,6 +151,12 @@ export function CommandCenter(props = {}) {
 
   // --- WebSocket Functions (adapted from UnifiedCommandSection) ---
   const initWebSocket = (currentUserId) => {
+    // Skip if already connected or in-flight
+    if (connecting || (ws && ws.readyState === WebSocket.OPEN)) {
+      console.debug('[DEBUG] CommandCenter: already connected or connecting – skipping init.');
+      return;
+    }
+    connecting = true;
     console.log('[DEBUG] CommandCenter: initWebSocket called with userId:', currentUserId);
     if (!currentUserId) {
       console.error('WebSocket: Cannot initialize without userId.');
@@ -265,12 +176,14 @@ export function CommandCenter(props = {}) {
       ws = new WebSocket(wsUrl);
       console.log('[DEBUG] CommandCenter: WebSocket object created.');
     } catch (e) {
-        console.error('[DEBUG] CommandCenter: Error creating WebSocket object:', e);
-        return; // Stop if creation fails
+      connecting = false;
+      console.error('[DEBUG] CommandCenter: Error creating WebSocket object:', e);
+      return; // Stop if creation fails
     }
 
     ws.onopen = () => {
       console.log(`[DEBUG] CommandCenter: WebSocket ONOPEN event for userId=${userId}`);
+      connecting = false;
       wsConnected = true;
       reconnectAttempts = 0; // Reset attempts on successful connection
 
@@ -309,34 +222,30 @@ export function CommandCenter(props = {}) {
             }
           }
 
-          // Update content
-          thoughtContainer.textContent = content;
+          const thoughtBuffers = {};
+          thoughtBuffers[message.task_id] = (thoughtBuffers[message.task_id] || '') + content;
+          if (!message.completed) return;
+          const fullContent = thoughtBuffers[message.task_id];
+          delete thoughtBuffers[message.task_id];
+          thoughtContainer.textContent = fullContent;
 
           // Handle completion
-          if (message.completed) {
-            thoughtContainer.classList.remove('loading');
+          thoughtContainer.classList.remove('loading');
             
-            // Add completion animation
-            thoughtContainer.style.animation = 'pulse 1.5s infinite';
+          // Add completion animation
+          thoughtContainer.style.animation = 'pulse 1.5s infinite';
             
-            // Emit completion event
-            eventBus.emit('thought_completed', {
-              taskId: message.task_id,
-              content: content,
-              url: message.url
-            });
-          }
+          // Emit completion event
+          eventBus.emit('thought_completed', {
+            taskId: message.task_id,
+            content: fullContent,
+            url: message.url
+          });
         }
 
         // Handle other message types
         if (message.event) {
           eventBus.emit(message.event, message);
-        }
-
-        // Handle legacy types
-        if (message.type && message.payload) {
-          console.log(`CommandCenter: Emitting legacy type '${message.type}' event via eventBus`);
-          eventBus.emit(message.type, message.payload);
         }
       } catch (error) {
         console.error('WebSocket message handling error:', error);
@@ -345,12 +254,14 @@ export function CommandCenter(props = {}) {
 
     ws.onerror = (error) => {
       console.error('[DEBUG] CommandCenter: WebSocket ONERROR event:', error);
+      connecting = false;
       // The 'close' event handler will manage reconnection logic.
     };
 
     ws.onclose = (event) => {
       console.log(`[DEBUG] CommandCenter: WebSocket ONCLOSE event. Code: ${event.code}, Reason: '${event.reason}'. Clean close: ${event.wasClean}`);
       wsConnected = false;
+      connecting = false;
       ws = null; // Null out on close
 
       // Avoid reconnecting on manual close (1000) or going away (1001) triggered by destroy()
@@ -390,7 +301,6 @@ export function CommandCenter(props = {}) {
         btn.classList.toggle('active', btn.dataset.taskType === activeTab);
       });
       
-      // Show active section
       showActiveSection(activeTab);
       
       // Update store
@@ -451,33 +361,88 @@ export function CommandCenter(props = {}) {
     const maxErrors = 3;
     es.onopen = () => console.info(`SSE connected for task ${taskId}`);
     es.onmessage = e => {
-      const now = Date.now();
-      if (now - lastEventTs < 200) return; // throttle updates to 200ms
-      lastEventTs = now;
+      const raw = e.data;
+      console.debug('[DEBUG] SSE raw event data:', raw);
       try {
-        const update = JSON.parse(e.data);
-        tasksStore.updateTask(taskId, update);
-        if (update.done) {
-          es.close(); // stop this source
-          tasksStore.closeStream(taskId);
+        const data = JSON.parse(raw);
+        console.debug('[DEBUG] Parsed SSE event:', data);
+        switch (data.event) {
+          case 'thoughtUpdate':
+            console.debug('[DEBUG] Appending thoughtUpdate chunk');
+            {
+              const { timeline: current } = messagesStore.getState();
+              messagesStore.setState({ timeline: current.map(msg => msg.id === thoughtId ? { ...msg, content: msg.content + data.text } : msg) });
+            }
+            break;
+          case 'functionCallPartial':
+            console.debug('[DEBUG] functionCallPartial:', data.functionName, data.partialArgs);
+            {
+              const { timeline: current } = messagesStore.getState();
+              const callMsg = current.find(msg => msg.id === thoughtId);
+              if (callMsg) {
+                messagesStore.setState({ timeline: current.map(msg => msg.id === thoughtId ? { ...msg, content: msg.content + data.partialArgs } : msg) });
+              }
+            }
+            break;
+          case 'planLog':
+            console.debug('[DEBUG] planLog event received:', data.message);
+            {
+              const { timeline: current } = messagesStore.getState();
+              messagesStore.setState({ timeline: current.map(msg =>
+                msg.id === thoughtId
+                  ? { ...msg, content: msg.content + '\n[LOG] ' + data.message }
+                  : msg
+              ) });
+            }
+            break;
+          case 'thoughtComplete':
+            console.debug('[DEBUG] SSE thoughtComplete received');
+            es.close();
+            // Finalize bubble: mark as chat complete
+            const { timeline: curr } = messagesStore.getState();
+            messagesStore.setState({ timeline: curr.map(msg =>
+              msg.id === thoughtId
+                ? { ...msg, type: 'chat', timestamp: new Date().toISOString() }
+                : msg
+            ) });
+            break;
+          default:
+            console.debug('[DEBUG] SSE event:', data.event, data.text || '');
+            // Handle other message types
+            if (data.event) {
+              eventBus.emit(data.event, data);
+            }
         }
-      } catch (err) {
-        console.error('Failed parsing SSE data for task', taskId, err);
+      } catch (error) {
+        console.error('SSE message handling error:', error);
       }
     };
-    es.onerror = (err) => {
-      errorCount++;
-      console.warn(`SSE error on task ${taskId}:`, err);
-      if (errorCount < maxErrors) {
-        eventBus.emit('notification', { message: `Connection lost for task ${taskId}, retrying... (${errorCount}/${maxErrors})`, type: 'warning' });
+
+    es.onerror = (error) => {
+      console.error('[DEBUG] CommandCenter: SSE ONERROR event:', error);
+      connecting = false;
+      // The 'close' event handler will manage reconnection logic.
+    };
+
+    es.onclose = (event) => {
+      console.log(`[DEBUG] CommandCenter: SSE ONCLOSE event. Code: ${event.code}, Reason: '${event.reason}'. Clean close: ${event.wasClean}`);
+      wsConnected = false;
+      connecting = false;
+      ws = null; // Null out on close
+
+      // Avoid reconnecting on manual close (1000) or going away (1001) triggered by destroy()
+      if (event.code !== 1000 && event.code !== 1001) {
+        reconnectAttempts++;
+        // Exponential backoff with cap
+        const delay = RETRY_DELAY * Math.pow(2, Math.min(reconnectAttempts - 1, 4)); 
+        console.log(`WebSocket: Attempting reconnect #${reconnectAttempts} in ${delay / 1000}s...`);
+        setTimeout(() => initWebSocket(userId), delay); // Use stored userId
       } else {
-        eventBus.emit('notification', { message: `Real-time failures detected; switching to polling for task ${taskId}.`, type: 'error' });
-        es.close();
-        tasksStore.closeStream(taskId);
-        subscribeToTaskPolling(taskId);
+          console.log("WebSocket: Closed cleanly or intentionally, no reconnect attempt.");
       }
     };
-  }
+  };
+  // --- End WebSocket Functions ---
 
   // Create sections for each tab
   
@@ -556,146 +521,100 @@ export function CommandCenter(props = {}) {
   
   nliForm.appendChild(inputBar);
   
+  nliForm.addEventListener('submit', async e => {
+    e.preventDefault();
+    const content = textarea.value.trim();
+    if (!content) return;
+    console.debug('[DEBUG] CommandCenter: sending message', content);
+    console.debug('[DEBUG] SSE connecting for chat prompt:', content);
+    const sseUrl = `/api/nli?prompt=${encodeURIComponent(content)}`;
+    console.debug('[DEBUG] SSE endpoint URL:', sseUrl);
+    const { timeline } = messagesStore.getState();
+    // Add user message locally
+    const userMsg = { id: `user-${Date.now()}`, role: 'user', type: 'chat', content, timestamp: new Date().toISOString() };
+    // Initialize thought bubble placeholder
+    const thoughtId = `thought-${Date.now()}`;
+    const thoughtMsg = { id: thoughtId, role: 'assistant', type: 'thought', content: '', timestamp: null };
+    messagesStore.setState({ timeline: [...timeline, userMsg, thoughtMsg] });
+    textarea.value = '';
+
+    // Stream thought updates via SSE
+    const es = new EventSource(sseUrl);
+    es.onopen = () => console.debug('[DEBUG] SSE connection opened');
+    es.onerror = err => console.error('[DEBUG] SSE error', err);
+    es.onmessage = e => {
+      const raw = e.data;
+      console.debug('[DEBUG] SSE raw event data:', raw);
+      try {
+        const data = JSON.parse(raw);
+        console.debug('[DEBUG] Parsed SSE event:', data);
+        switch (data.event) {
+          case 'taskStart':
+            console.debug('[DEBUG] taskStart:', data.payload);
+            tasksStore.addStream(data.payload.taskId, es);
+            handleTaskStart(data.payload);
+            break;
+          case 'stepProgress':
+            console.debug('[DEBUG] stepProgress:', data);
+            handleStepProgress(data);
+            break;
+          case 'taskComplete':
+            console.debug('[DEBUG] taskComplete:', data);
+            es.close();
+            handleTaskComplete(data);
+            break;
+          case 'taskError':
+            console.debug('[DEBUG] taskError:', data);
+            es.close();
+            handleTaskError(data);
+            break;
+          case 'thoughtUpdate':
+            console.debug('[DEBUG] Appending thoughtUpdate chunk');
+            {
+              const { timeline: current } = messagesStore.getState();
+              messagesStore.setState({ timeline: current.map(msg => msg.id === thoughtId ? { ...msg, content: msg.content + data.text } : msg) });
+            }
+            break;
+          case 'functionCallPartial':
+            console.debug('[DEBUG] functionCallPartial:', data.functionName, data.partialArgs);
+            {
+              const { timeline: current } = messagesStore.getState();
+              const callMsg = current.find(msg => msg.id === thoughtId);
+              if (callMsg) {
+                messagesStore.setState({ timeline: current.map(msg => msg.id === thoughtId ? { ...msg, content: msg.content + data.partialArgs } : msg) });
+              }
+            }
+            break;
+          case 'thoughtComplete':
+            console.debug('[DEBUG] SSE thoughtComplete received');
+            es.close();
+            // Finalize bubble: mark as chat complete
+            const { timeline: curr } = messagesStore.getState();
+            messagesStore.setState({ timeline: curr.map(msg =>
+              msg.id === thoughtId
+                ? { ...msg, type: 'chat', timestamp: new Date().toISOString() }
+                : msg
+            ) });
+            break;
+          default:
+            console.debug('[DEBUG] SSE event:', data.event, data.text || '');
+            // Handle other message types
+            if (data.event) {
+              eventBus.emit(data.event, data);
+            }
+        }
+      } catch (err) {
+        console.error('SSE parsing error:', err);
+      }
+    };
+  });
+  
   nliSection.appendChild(nliForm);
   taskSections.appendChild(nliSection);
   
   // 2. Active Tasks Section
-  const activeTasksSection = document.createElement('div');
-  activeTasksSection.className = 'task-section';
-  activeTasksSection.id = 'active-tasks-section';
-  if (activeTab === TAB_TYPES.ACTIVE_TASKS) activeTasksSection.classList.add('active');
+  // Removed
   
-  // Add subtabs
-  const subtabs = document.createElement('div');
-  subtabs.className = 'active-tasks-subtabs';
-  
-  ['Active', 'Scheduled', 'Repetitive'].forEach((tabName, index) => {
-    const subtabBtn = document.createElement('button');
-    subtabBtn.className = `tab-btn ${index === 0 ? 'active' : ''}`;
-    subtabBtn.dataset.subtab = tabName.toLowerCase();
-    subtabBtn.textContent = tabName;
-    
-    subtabBtn.addEventListener('click', () => {
-      // Update active subtab
-      subtabs.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.subtab === subtabBtn.dataset.subtab);
-      });
-      
-      // Show active content
-      activeTasksSection.querySelectorAll('.subtab-content').forEach(content => {
-        content.classList.toggle('active', content.id === `${subtabBtn.dataset.subtab}-tasks-content`);
-      });
-      
-      // Update store
-      uiStore.setState({ activeSubtab: subtabBtn.dataset.subtab });
-    });
-    
-    subtabs.appendChild(subtabBtn);
-  });
-  
-  activeTasksSection.appendChild(subtabs);
-  
-  // Active tasks content
-  const activeTasksContent = document.createElement('div');
-  activeTasksContent.id = 'active-tasks-content';
-  activeTasksContent.className = 'subtab-content active';
-  
-  const activeTasksContainer = document.createElement('div');
-  activeTasksContainer.id = 'active-tasks-container';
-  
-  activeTasksContent.appendChild(activeTasksContainer);
-  activeTasksSection.appendChild(activeTasksContent);
-  
-  // Scheduled tasks content
-  const scheduledTasksContent = document.createElement('div');
-  scheduledTasksContent.id = 'scheduled-tasks-content';
-  scheduledTasksContent.className = 'subtab-content';
-  scheduledTasksContent.innerHTML = `
-    <div id="scheduled-tasks-container">
-      <p id="no-scheduled-tasks" class="text-muted">
-        No scheduled tasks. Use the Scheduled Task tab to create one.
-      </p>
-    </div>
-  `;
-  
-  activeTasksSection.appendChild(scheduledTasksContent);
-  
-  // Repetitive tasks content
-  const repetitiveTasksContent = document.createElement('div');
-  repetitiveTasksContent.id = 'repetitive-tasks-content';
-  repetitiveTasksContent.className = 'subtab-content';
-  repetitiveTasksContent.innerHTML = `
-    <div id="repetitive-tasks-container">
-      <p id="no-repetitive-tasks" class="text-muted">
-        No repetitive tasks. Use the Repetitive Task tab to create one.
-      </p>
-    </div>
-  `;
-  
-  activeTasksSection.appendChild(repetitiveTasksContent);
-  taskSections.appendChild(activeTasksSection);
-  
-  // Render active tasks into container
-  function renderActiveTasksList({ active }) {
-    // Clear container
-    activeTasksContainer.innerHTML = '';
-    if (!active || active.length === 0) {
-      activeTasksContainer.innerHTML = '<p id="no-active-tasks" class="text-muted">No active tasks. Run a task to see it here.</p>';
-      return;
-    }
-    active.forEach(task => {
-      const card = document.createElement('div');
-      card.className = 'task-card';
-      card.id = `task-${task._id}`;
-
-      // Header with command and cancel
-      const header = document.createElement('div');
-      header.className = 'task-card-header';
-      const cmd = document.createElement('span');
-      cmd.className = 'task-command';
-      cmd.textContent = task.command;
-      const cancelBtn = document.createElement('button');
-      cancelBtn.className = 'task-cancel-btn';
-      cancelBtn.textContent = 'Cancel';
-      cancelBtn.addEventListener('click', async () => {
-        await handleTaskCancel(task._id);
-      });
-      header.append(cmd, cancelBtn);
-
-      // Progress bar
-      const progressContainer = document.createElement('div');
-      progressContainer.className = 'task-progress-container';
-      const progressBar = document.createElement('progress');
-      progressBar.value = task.progress || 0;
-      progressBar.max = 100;
-      const progressText = document.createElement('span');
-      progressText.textContent = `${task.progress || 0}%`;
-      progressContainer.append(progressBar, progressText);
-
-      // Status
-      const status = document.createElement('div');
-      status.className = 'task-status';
-      status.textContent = task.status;
-
-      // Detail (result or error)
-      let detail;
-      if (task.status === 'completed' || task.status === 'error') {
-        detail = document.createElement('pre');
-        detail.className = task.status === 'error' ? 'task-error' : 'task-result';
-        detail.textContent = task.status === 'error' ? task.error : JSON.stringify(task.result, null, 2);
-      }
-
-      // Assemble card
-      card.append(header, progressContainer, status);
-      if (detail) card.appendChild(detail);
-      activeTasksContainer.appendChild(card);
-    });
-  }
-
-  // Subscribe to store updates and initial render
-  tasksStore.subscribe(renderActiveTasksList);
-  renderActiveTasksList(tasksStore.getState());
-
   // Add other sections (manual, repetitive, scheduled)
   // For brevity, we're not implementing these fully now
   const otherSections = [
@@ -838,70 +757,6 @@ export function CommandCenter(props = {}) {
     unsubscribe();
   };
 
-  // Handle form submission
-  nliForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    
-    const inputText = textarea.value.trim();
-    if (!inputText) return;
-    
-    // Clear input
-    textarea.value = '';
-    
-    // Add user message to timeline
-    const userMessage = {
-      role: 'user',
-      type: 'chat',
-      content: inputText,
-      timestamp: new Date()
-    };
-    
-    // Add to store
-    const { timeline } = messagesStore.getState();
-    messagesStore.setState({ timeline: [...timeline, userMessage] });
-    
-    try {
-      eventBus.emit('notification', { message: 'Task started – please wait...', type: 'success' });
-      const response = await submitNLIWithUserId(inputText);
-      if (response.success && response.taskId) {
-        // TASK branch: switch UI, load tasks, subscribe to SSE
-        const taskId = response.taskId;
-        activeTab = TAB_TYPES.ACTIVE_TASKS;
-        tabButtons.querySelectorAll('.tab-btn')
-          .forEach(btn => btn.classList.toggle('active', btn.dataset.taskType === activeTab));
-        showActiveSection(activeTab);
-        uiStore.setState({ activeTab });
-        const tasksResp = await getActiveTasks();
-        if (tasksResp.tasks) {
-          tasksStore.setActiveTasks(tasksResp.tasks);
-          tasksResp.tasks.forEach(t => subscribeToTaskStream(t._id));
-        }
-      } else if (response.success && response.assistantReply) {
-        // CHAT branch: original response handling
-        const assistantMessage = { role: 'assistant', type: 'chat', content: response.assistantReply, timestamp: new Date() };
-        const { timeline } = messagesStore.getState();
-        messagesStore.setState({ timeline: [...timeline, assistantMessage] });
-      } else {
-        throw new Error(response.error || 'Failed to get response');
-      }
-    } catch (error) {
-      console.error('Chat error:', error);
-      
-      // Add error message
-      const errorMessage = {
-        role: 'system',
-        type: 'error',
-        content: 'Failed to send message',
-        error: error.message,
-        timestamp: new Date()
-      };
-      
-      // Update store with error
-      const { timeline } = messagesStore.getState();
-      messagesStore.setState({ timeline: [...timeline, errorMessage] });
-    }
-  });
-
   // Function to handle task cancellation
   const handleTaskCancel = async (taskId) => {
     try {
@@ -938,17 +793,6 @@ export function CommandCenter(props = {}) {
     }
   };
 
-  // --- Initialize WebSocket after component and eventBus setup ---
-  (async () => {
-    const currentUserId = await syncUserIdWithBackend();
-    console.debug('[DEBUG] Initializing WebSocket with userId:', currentUserId);
-    if (currentUserId) {
-      initWebSocket(currentUserId);
-    } else {
-      console.warn('CommandCenter: userId not found or created. WebSocket not initialized.');
-    }
-  })();
-
   // Event listeners for WebSocket messages routed through eventBus
   const handleChatResponse = (payload) => {
     console.log('CommandCenter eventBus received chat_response_stream:', payload);
@@ -966,14 +810,19 @@ export function CommandCenter(props = {}) {
   };
 
   const handleIntermediateResult = (payload) => {
+    // Store intermediate result in tasksStore
+    tasksStore.addIntermediate(payload.taskId, payload.result);
     // Update the specific task in the store with URL and screenshot
-    tasksStore.updateTask(payload.taskId, {
+    tasksStore.updateTask(payload.taskId, { 
       currentUrl: payload.result?.currentUrl,
       screenshotUrl: payload.result?.screenshotUrl
     });
     if (!payload.taskId) return;
     if (!intermediateResults[payload.taskId]) intermediateResults[payload.taskId] = [];
-    intermediateResults[payload.taskId].push(payload.result);
+    let finalRes = payload.result;
+    if (typeof finalRes === 'object') finalRes = { ...finalRes, __final: true };
+    else finalRes = { value: finalRes, __final: true };
+    intermediateResults[payload.taskId].push(finalRes);
     renderIntermediateResults(payload.taskId);
   };
 
@@ -1160,24 +1009,10 @@ export function CommandCenter(props = {}) {
 
   // Subscribe
   console.debug('[DEBUG] CommandCenter: registering eventBus listeners for chat and AI events');
-  eventBus.on('chat_response_stream', handleChatResponse);
-  eventBus.on('ai_thought_stream', handleAiThought); 
-  eventBus.on('intermediateResult', handleIntermediateResult);
-  eventBus.on('functionCallPartial', handleFunctionCallPartial);
-  eventBus.on('thoughtUpdate', handleThoughtUpdate); 
-  eventBus.on('thoughtComplete', handleThoughtComplete); 
   eventBus.on('stepProgress', handleStepProgress);
   eventBus.on('taskStart', handleTaskStart);
   eventBus.on('taskComplete', handleTaskComplete);
   eventBus.on('taskError', handleTaskError);
-
-  // Example for submitNLI:
-  const submitNLIWithUserId = async (inputText) => {
-    const userId = await getOrSyncUserId();
-    console.debug('[DEBUG] submitNLIWithUserId: Using userId', userId, 'with inputText', inputText);
-    // Only send string inputText and userId
-    return submitNLI(inputText);
-  };
 
   return container;
 }

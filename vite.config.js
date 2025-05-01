@@ -17,16 +17,22 @@ export default defineConfig({
       }
     }
   },
-  root: __dirname,
-  publicDir: 'public',
+  // Support .js/.jsx files containing JSX
+  resolve: { 
+    extensions: ['.js', '.jsx', 'ts', 'tsx'],
+    alias: {
+      '@': path.resolve(__dirname, 'src'),
+      '@utils': path.resolve(__dirname, 'src/utils'),
+      '@components': path.resolve(__dirname, 'src/components'),
+      '@store': path.resolve(__dirname, 'src/store'),
+      '@fortawesome/fontawesome-free/webfonts': path.resolve(__dirname, 'node_modules/@fortawesome/fontawesome-free/webfonts')
+    }
+  },
+  root: __dirname,  // Project root (not /public)
+  publicDir: 'public',  // Static files (old interface)
   server: {
     port: 3000,
     strictPort: true,
-    cors: true,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Content-Type': 'application/javascript'
-    },
     proxy: {
       '/api': {
         target: 'http://localhost:3420',
@@ -44,8 +50,8 @@ export default defineConfig({
       },
       '/ws': {
         target: 'ws://localhost:3420',
-        changeOrigin: true,
-        ws: true
+        ws: true,
+        changeOrigin: true
       },
       '/auth': {
         target: 'http://localhost:3420',
@@ -90,25 +96,18 @@ export default defineConfig({
   },
   clearScreen: false,
   cacheDir: '.vite-cache',
-  resolve: { 
-    extensions: ['.js', '.jsx', 'ts', 'tsx', '.json'],
-    alias: {
-      '@': path.resolve(__dirname, 'src'),
-      '@utils': path.resolve(__dirname, 'src/utils'),
-      '@components': path.resolve(__dirname, 'src/components'),
-      '@store': path.resolve(__dirname, 'src/store'),
-      '@fortawesome/fontawesome-free/webfonts': path.resolve(__dirname, 'node_modules/@fortawesome/fontawesome-free/webfonts')
-    }
-  },
   optimizeDeps: {
     include: ['three/examples/jsm/loaders/DRACOLoader'],
     exclude: ['three/examples/js/libs/draco/draco_decoder.js']
   },
   build: {
+    cssCodeSplit: true,
+    assetsDir: 'vendors/webfonts',
+    outDir: 'dist',  // New interface output
+    emptyOutDir: true,
     rollupOptions: {
       input: {
-        main: path.resolve(__dirname, 'index.html'),
-        modern: path.resolve(__dirname, 'src/modern.html')
+        modern: path.resolve(__dirname, 'src/modern.html')  // New entry
       },
       output: {
         assetFileNames: (assetInfo) => {
@@ -122,10 +121,6 @@ export default defineConfig({
         chunkFileNames: 'assets/[name]-[hash].js',
         entryFileNames: 'assets/[name]-[hash].js'
       }
-    },
-    cssCodeSplit: true,
-    assetsDir: 'vendors/webfonts',
-    outDir: 'dist',
-    emptyOutDir: true
+    }
   }
 })

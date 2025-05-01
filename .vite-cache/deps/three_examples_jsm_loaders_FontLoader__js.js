@@ -2,7 +2,7 @@ import {
   FileLoader,
   Loader,
   ShapePath
-} from "./chunk-FV24Y4CC.js";
+} from "./chunk-MYETRLG2.js";
 import "./chunk-BUSYA2B4.js";
 
 // node_modules/three/examples/jsm/loaders/FontLoader.js

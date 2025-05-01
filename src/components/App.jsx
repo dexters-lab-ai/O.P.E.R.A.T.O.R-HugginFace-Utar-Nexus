@@ -7,6 +7,8 @@ import { eventBus } from '../utils/events.js';
 import { stores } from '../store/index.js';
 import MessageTimeline from './MessageTimeline.jsx';
 import BackButton from './BackButton.jsx';
+import { CommandCenter } from './CommandCenter.jsx';
+import TaskBar from './TaskBar.jsx';
 
 /**
  * Create the main application component
@@ -46,7 +48,8 @@ export function App(props = {}) {
   const commandCenterContainer = document.createElement('div');
   commandCenterContainer.className = 'fixed-command-center';
 
-  // UnifiedCommandSection removed.
+  const commandCenter = CommandCenter();
+  commandCenterContainer.appendChild(commandCenter);
 
   // Create message timeline
   const messageTimeline = MessageTimeline({
@@ -56,6 +59,10 @@ export function App(props = {}) {
   // Assemble the layout
   commandCenterContainer.appendChild(messageTimeline);
   container.appendChild(commandCenterContainer);
+
+  // Mount TaskBar at bottom
+  const taskBar = TaskBar();
+  container.appendChild(taskBar);
 
   // Animate fade-in on mount
   container.classList.add('fade-in');

@@ -65,7 +65,7 @@ import {
   Vector2,
   Vector3,
   VectorKeyframeTrack
-} from "./chunk-FV24Y4CC.js";
+} from "./chunk-MYETRLG2.js";
 import "./chunk-BUSYA2B4.js";
 
 // node_modules/three/examples/jsm/utils/BufferGeometryUtils.js

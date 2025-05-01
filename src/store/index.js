@@ -80,23 +80,6 @@ export const uiStore = createStore({
 });
 
 /**
- * Messages Store
- * Manages the message timeline and related state
- */
-export const messagesStore = createStore({
-  timeline: [],
-  filter: 'all', // 'all', 'chat', 'command'
-  loading: false,
-  error: null,
-  pagination: {
-    page: 1,
-    limit: 30,
-    totalItems: 0,
-    totalPages: 0
-  }
-});
-
-/**
  * Tasks Store
  * Manages active tasks state
  */
@@ -106,7 +89,8 @@ export const tasksStore = createStore({
   repetitive: [],
   loading: false,
   error: null,
-  streams: {}
+  streams: {},
+  intermediateResults: {}
 });
 
 // Task store helper methods
@@ -129,6 +113,13 @@ tasksStore.closeStream = taskId => {
     return { streams };
   });
 };
+// Add helper for intermediate results
+tasksStore.addIntermediate = (taskId, item) => tasksStore.setState(state => ({
+  intermediateResults: {
+    ...state.intermediateResults,
+    [taskId]: [...(state.intermediateResults[taskId] || []), item]
+  }
+}));
 
 /**
  * History Store
@@ -147,10 +138,12 @@ export const historyStore = createStore({
   }
 });
 
+// Re-export messagesStore for legacy components
+export { messagesStore } from './messages.js';
+
 // Export all stores as a single object
 export const stores = {
   ui: uiStore,
-  messages: messagesStore,
   tasks: tasksStore,
   history: historyStore
 };

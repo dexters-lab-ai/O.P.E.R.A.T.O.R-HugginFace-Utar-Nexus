@@ -4,8 +4,7 @@
  */
 
 import { eventBus, addEvent } from '../utils/events.js';
-import { messagesStore } from '../store/index.js';
-import { getMessageHistory } from '../api/messages.js';
+import api from '../utils/api.js';
 
 // Message type constants
 export const MESSAGE_TYPES = {
@@ -33,6 +32,10 @@ export function MessageTimeline(props = {}) {
     initialFilter = 'all'
   } = props;
 
+  // Local state: messages list and current filter
+  let messages = [];
+  let activeFilter = initialFilter;
+
   // Create component container
   const container = document.createElement('div');
   container.id = containerId;
@@ -49,9 +52,6 @@ export function MessageTimeline(props = {}) {
     { text: 'Command', value: 'command' }
   ];
   
-  // Current active filter
-  let activeFilter = initialFilter;
-  
   // Add filter buttons
   filterButtons.forEach(filter => {
     const button = document.createElement('button');
@@ -63,15 +63,9 @@ export function MessageTimeline(props = {}) {
       // Update active filter
       activeFilter = filter.value;
       
-      // Update UI
-      filterToolbar.querySelectorAll('.timeline-filter-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.filter === activeFilter);
-      });
+      // Update UI button states
+      filterToolbar.querySelectorAll('.timeline-filter-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.filter === activeFilter));
       
-      // Update store
-      messagesStore.setState({ filter: activeFilter });
-      
-      // Update visible messages
       updateVisibleMessages();
     });
     
@@ -160,14 +154,11 @@ export function MessageTimeline(props = {}) {
 
   // Function to update visible messages based on filter
   function updateVisibleMessages() {
-    // Get messages from store
-    const { timeline, filter } = messagesStore.getState();
-    
     // Clear current messages
     messagesContainer.innerHTML = '';
     
-    // Check if empty
-    if (!timeline.length) {
+    // If no messages, show empty state
+    if (messages.length === 0) {
       const emptyEl = document.createElement('div');
       emptyEl.className = 'message-timeline-empty';
       emptyEl.innerHTML = '<i class="fas fa-comments"></i><p>No messages yet</p>';
@@ -176,12 +167,10 @@ export function MessageTimeline(props = {}) {
     }
     
     // Filter messages if needed
-    const filteredMessages = filter === 'all' 
-      ? timeline 
-      : timeline.filter(msg => msg.type === filter);
+    const filtered = activeFilter === 'all' ? messages : messages.filter(msg => msg.type === activeFilter);
     
     // Render messages
-    filteredMessages.forEach(message => {
+    filtered.forEach(message => {
       const msgEl = createMessageItem(message);
       messagesContainer.appendChild(msgEl);
     });
@@ -190,34 +179,17 @@ export function MessageTimeline(props = {}) {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
 
-  // Load initial messages
+  // Function to load initial messages
   function loadMessages() {
-    messagesStore.setState({ loading: true, error: null });
-    
-    getMessageHistory()
+    api.messages.getHistory()
       .then(data => {
         if (data && Array.isArray(data.items)) {
-          messagesStore.setState({ 
-            timeline: data.items,
-            pagination: {
-              page: data.currentPage || 1,
-              totalItems: data.totalItems || 0,
-              totalPages: data.totalPages || 1
-            },
-            loading: false
-          });
-          
+          messages = data.items;
           updateVisibleMessages();
         }
       })
       .catch(error => {
         console.error('Failed to load messages:', error);
-        messagesStore.setState({ 
-          error: error.message || 'Failed to load messages',
-          loading: false
-        });
-        
-        // Show error in timeline
         messagesContainer.innerHTML = `
           <div class="message-timeline-empty error">
             <i class="fas fa-exclamation-triangle"></i>
@@ -227,19 +199,9 @@ export function MessageTimeline(props = {}) {
       });
   }
 
-  // Subscribe to store changes
-  const unsubscribe = messagesStore.subscribe(() => {
-    updateVisibleMessages();
-  });
-
-  // Listen for new messages from event bus
-  const unsubscribeEvent = eventBus.on('new-message', (message) => {
-    const { timeline } = messagesStore.getState();
-    messagesStore.setState({ 
-      timeline: [...timeline, message]
-    });
-    
-    // Update view
+  // Listen for new persisted messages
+  eventBus.on('new-message', message => {
+    messages.push(message);
     updateVisibleMessages();
   });
 
@@ -250,19 +212,13 @@ export function MessageTimeline(props = {}) {
   container.refresh = loadMessages;
   container.filter = (filterType) => {
     activeFilter = filterType;
-    messagesStore.setState({ filter: filterType });
     updateVisibleMessages();
   };
   
   // Cleanup method
   container.destroy = () => {
-    unsubscribe();
-    unsubscribeEvent();
-    
-    // Remove event listeners
-    filterToolbar.querySelectorAll('.timeline-filter-btn').forEach(btn => {
-      btn.removeEventListener('click', null);
-    });
+    // Clean up filter button listeners by replacing nodes
+    filterToolbar.querySelectorAll('.timeline-filter-btn').forEach(btn => btn.replaceWith(btn.cloneNode(true)));
   };
 
   return container;

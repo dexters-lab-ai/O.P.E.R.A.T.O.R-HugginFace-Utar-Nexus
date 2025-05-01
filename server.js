@@ -7,7 +7,7 @@ dotenv.config();
 import path             from 'path';
 import fs               from 'fs';
 import { fileURLToPath } from 'url';
-import { dirname } from 'path';
+import { dirname }      from 'path';
 
 import express          from 'express';
 import { createServer } from 'http';
@@ -19,8 +19,6 @@ import { WebSocketServer, WebSocket } from 'ws';
 import pRetry           from 'p-retry';
 import { v4 as uuidv4 } from 'uuid';
 import { Semaphore }    from 'async-mutex';
-import cors             from 'cors';
-import { createProxyMiddleware } from 'http-proxy-middleware';
 
 // Puppeteer extras
 import puppeteerExtra   from 'puppeteer-extra';
@@ -98,25 +96,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Proxy middleware for Vite development server
-const viteProxy = createProxyMiddleware({
-  target: 'http://localhost:3000',
-  changeOrigin: true,
-  ws: true,
-  logLevel: 'debug'
-});
-
-// CORS configuration
-app.use(cors({
-  origin: function (origin, callback) {
-    const originIsWhitelisted = origin && origin.startsWith('http://localhost');
-    callback(null, originIsWhitelisted);
-  },
-  credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
-}));
-
+// --- CORS for front-end dev server (allow requests from localhost) ---
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin && origin.startsWith('http://localhost')) {
@@ -129,11 +109,14 @@ app.use((req, res, next) => {
   next();
 });
 
-// Serve static assets
+// 7.4 Serve static assets
+app.use(express.static(path.join(__dirname, 'dist')));
 app.use(express.static(path.join(__dirname, 'public')));
+// app.use('/css', express.static(path.join(__dirname, 'public', 'css'))); // REMOVED - Handled by dist serving
+app.use('/js', express.static(path.join(__dirname, 'public', 'js')));
 app.use('/vendors', express.static(path.join(__dirname, 'public', 'vendors'), {
   setHeaders: (res, path) => {
-    if (path.match(/\.(woff2?|ttf|otf|eot)$/)) {
+    if (path.match(/\\.(woff2?|ttf|otf|eot)$/)) {
       res.setHeader('Access-Control-Allow-Origin', '*');
     }
   }
@@ -143,13 +126,6 @@ app.use('/images', express.static(path.join(__dirname, 'public', 'assets', 'imag
 app.use('/midscene_run', express.static(MIDSCENE_RUN_DIR));
 app.use('/models', express.static('public/models'));
 app.use('/draco', express.static('public/draco'));
-
-// Proxy requests to Vite development server in development mode
-if (process.env.NODE_ENV === 'development') {
-  app.use(viteProxy);
-} else {
-  app.use(express.static(path.join(__dirname, 'dist')));
-}
 
 // Serve default favicon
 app.get('/favicon.ico', (req, res) => {
@@ -356,6 +332,11 @@ async function sleep(ms) {
 }
 
 function sendWebSocketUpdate(userId, data) {
+  // Only send WebSocket updates for streaming events; skip chat HTTP replies
+  if (!data.event) {
+    console.debug('[WebSocket] Skipped non-event data over WS:', data);
+    return;
+  }
   console.debug('[DEBUG] sendWebSocketUpdate: userId', userId, 'connections', userConnections.get(userId) ? userConnections.get(userId).size : 0);
   const connections = userConnections.get(userId);
   if (connections && connections.size > 0) {
@@ -624,6 +605,7 @@ class TaskPlan {
     const entry = { timestamp: new Date().toISOString(), message, ...metadata };
     this.planLog.push(entry);
     console.log(`[Task ${this.taskId}] ${message}`, metadata);
+    sendWebSocketUpdate(this.userId, { event: 'planLog', taskId: this.taskId, message, metadata });
   }
 
   /**
@@ -1044,7 +1026,7 @@ async function getUserOpenAiClient(userId) {
  * @param {Object} args - Action arguments
  * @param {string} userId - User ID
  * @param {string} taskId - Task ID
- * @param {string} runId - Run ID
+ * @param {string} runId - Run ID 
  * @param {string} runDir - Run directory
  * @param {number} currentStep - Current step number
  * @param {Object} existingSession - Existing browser session
@@ -1630,119 +1612,6 @@ async function openaiClassifyPrompt(prompt, userId) {
 }
 
 /**
- * Unified NLI endpoint:
- * - If we detect it's a “task,” do your existing logic.
- * - If we detect it's “chat,” stream partial output from the LLM directly.
- */
-app.post('/nli', requireAuth, async (req, res) => {
-  // Accept both { prompt } and legacy { inputText }
-  let prompt = req.body.prompt;
-  if (!prompt && req.body.inputText) {
-    prompt = req.body.inputText;
-    console.debug('[DEBUG] /nli: Using legacy inputText as prompt:', prompt);
-  }
-  if (typeof prompt !== 'string') {
-    console.error('[ERROR] /nli: Prompt must be a string. Got:', typeof prompt, prompt);
-    return res.status(400).json({ success: false, error: 'Prompt must be a string.' });
-  }
-
-  const userId = req.session.user;
-  const user   = await User.findById(userId).select('email openaiApiKey').lean();
-  if (!user) return res.status(400).json({ success: false, error: 'User not found' });
-
-  let classification;
-  try {
-    classification = await openaiClassifyPrompt(prompt, userId);
-  } catch (err) {
-    console.error('Classification error', err);
-    classification = 'task';
-  }
-
-  if (classification === 'task') {
-    // … exactly your existing "task" branch …
-    let chatHistory = await ChatHistory.findOne({ userId }) || new ChatHistory({ userId, messages: [] });
-    chatHistory.messages.push({ role: 'user', content: prompt, timestamp: new Date() });
-    await chatHistory.save();
-
-    const taskId = new mongoose.Types.ObjectId();
-    const runId  = uuidv4();
-    const runDir = path.join(MIDSCENE_RUN_DIR, runId);
-    fs.mkdirSync(runDir, { recursive: true });
-
-    // … save Task + push to User.activeTasks …
-    await new Task({ _id: taskId, userId, command: prompt, status: 'pending', progress: 0, startTime: new Date(), runId }).save();
-    await User.updateOne({ _id: userId }, { $push: { activeTasks: { _id: taskId.toString(), command: prompt, status: 'pending', startTime: new Date() } } });
-
-    sendWebSocketUpdate(userId, { event: 'taskStart', payload: { taskId: taskId.toString(), command: prompt, startTime: new Date() } });
-    processTask(userId, user.email, taskId.toString(), runId, runDir, prompt, null);
-    return res.json({ success: true, taskId: taskId.toString(), runId });
-  } else {
-    // --- Chat branch (non-streaming) ---
-    // Save user message to the unified Message collection
-    await new Message({
-      userId,
-      role: 'user',
-      type: 'chat',
-      content: prompt,
-      timestamp: new Date()
-    }).save();
-
-    // Get last 20 messages for context
-    const lastMessages = await Message.find({ userId, role: { $in: ['user', 'assistant'] } }).sort({ timestamp: -1 }).limit(20).lean();
-    const openaiClient = await getUserOpenAiClient(userId);
-
-    try {
-      const completion = await openaiClient.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages: lastMessages.map(m=>({ role:m.role, content:m.content })),
-        temperature: 0.7
-      });
-      const assistantReply = completion.choices[0].message.content;
-      await Message.create({ userId, role: 'assistant', type: 'chat', content: assistantReply, timestamp: new Date() });
-
-      sendWebSocketUpdate(userId, { event: 'chat_response_stream', payload: { assistantReply } });
-      return res.json({ success: true, assistantReply }); // Message already saved above.
-    } catch (err) {
-      console.error('Chat error', err);
-      // Save error as assistant message for continuity
-      await Message.create({ userId, role: 'assistant', type: 'chat', content: `Error: ${err.message}`, timestamp: new Date(), meta: { error: err.message } });
-      return res.status(500).json({ success:false, error: err.message });
-    }
-  }
-});
-
-// --- Unified Message Retrieval Endpoint (backward compatible) ---
-app.get('/messages', requireAuth, async (req, res) => {
-  try {
-    const userId = req.session.user;
-    const limit = parseInt(req.query.limit, 10) || 20;
-    // New schema: unified Message collection
-    let messages = await Message.find({ userId })
-      .sort({ timestamp: -1 })
-      .limit(limit)
-      .lean();
-    // Backward compatibility: if empty, try ChatHistory
-    if (!messages.length) {
-      const chatHistory = await ChatHistory.findOne({ userId });
-      if (chatHistory && chatHistory.messages) {
-        messages = chatHistory.messages.slice(-limit).reverse().map(m => ({
-          userId,
-          role: m.role,
-          type: 'chat',
-          content: m.content,
-          timestamp: m.timestamp || null,
-          legacy: true
-        }));
-      }
-    }
-    return res.json({ success: true, messages: messages.reverse() }); // oldest first
-  } catch (err) {
-    console.error('[GET /messages] Error:', err);
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-/**
  * Refactored processTask function using the grand plan approach
  * @param {string} userId - User ID
  * @param {string} userEmail - User email
@@ -1754,18 +1623,22 @@ app.get('/messages', requireAuth, async (req, res) => {
  */
 async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url) {
   // --- Unified message persistence: save user command as message ---
-  await Message.create({ userId, role: 'user', type: 'command', content: prompt, taskId, timestamp: new Date() });
+  await new Message({
+    userId,
+    role: 'user',
+    type: 'command',
+    content: prompt,
+    taskId,
+    timestamp: new Date()
+  }).save();
   console.log(`[ProcessTask] Starting ${taskId}: "${prompt}"`);
   const openaiClient = await getUserOpenAiClient(userId);
 
   const plan = new TaskPlan(userId, taskId, prompt, url, runDir, runId);
   plan.log("Plan created.");
 
-  // Clean up any existing browser session for this task
-  if (activeBrowsers.has(taskId)) {
-    console.log(`[ProcessTask] Cleaning up stale session for task ${taskId}`);
-    await cleanupBrowserSession(taskId);
-  }
+  // Clear any queued old messages for this user to avoid stale deliveries
+  unsentMessages.delete(userId);
 
   try {
     await Task.updateOne({ _id: taskId }, { status:'processing', progress:5 });
@@ -1812,6 +1685,7 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
               content: JSON.stringify({
                 success: step.result.success,
                 currentUrl: step.result.currentUrl,
+                error: step.result.error,
                 extractedInfo: typeof step.result.extractedInfo === 'string'
                   ? step.result.extractedInfo.substring(0, 1500) + '...'
                   : "No extraction",
@@ -2544,5 +2418,272 @@ app.get('/whoami', (req, res) => {
   } catch (err) {
     console.error('[whoami] ERROR:', err);
     res.status(500).json({ error: 'Failed to get userId', detail: err.message });
+  }
+});
+
+/**
+ * Unified NLI endpoint:
+ * - If we detect it's a “task,” do your existing logic.
+ * - If we detect it's “chat,” stream partial output from the LLM directly.
+ */
+app.post('/nli', requireAuth, async (req, res) => {
+  // Accept both { prompt } and legacy { inputText }
+  let prompt = req.body.prompt;
+  if (!prompt && req.body.inputText) {
+    prompt = req.body.inputText;
+    console.debug('[DEBUG] /nli: Using legacy inputText as prompt:', prompt);
+  }
+  if (typeof prompt !== 'string') {
+    console.error('[ERROR] /nli: Prompt must be a string. Got:', typeof prompt, prompt);
+    return res.status(400).json({ success: false, error: 'Prompt must be a string.' });
+  }
+
+  // Sanitize and validate prompt
+  prompt = prompt.trim();
+  if (prompt.length === 0) {
+    console.error('[ERROR] /nli: Prompt is empty after trim.');
+    return res.status(400).json({ success: false, error: 'Prompt cannot be empty.' });
+  }
+  const MAX_PROMPT_LENGTH = 5000;
+  if (prompt.length > MAX_PROMPT_LENGTH) {
+    console.error(`[ERROR] /nli: Prompt too long (${prompt.length} chars). Max is ${MAX_PROMPT_LENGTH}.`);
+    return res.status(400).json({ success:false, error: `Prompt too long (max ${MAX_PROMPT_LENGTH} chars).` });
+  }
+
+  const userId = req.session.user;
+  const user   = await User.findById(userId).select('email openaiApiKey').lean();
+  if (!user) return res.status(400).json({ success: false, error: 'User not found' });
+
+  let classification;
+  try {
+    classification = await openaiClassifyPrompt(prompt, userId);
+  } catch (err) {
+    console.error('Classification error', err);
+    classification = 'task';
+  }
+
+  if (classification === 'task') {
+    // … exactly your existing "task" branch …
+    let chatHistory = await ChatHistory.findOne({ userId }) || new ChatHistory({ userId, messages: [] });
+    chatHistory.messages.push({ role: 'user', content: prompt, timestamp: new Date() });
+    await chatHistory.save();
+
+    const taskId = new mongoose.Types.ObjectId();
+    const runId  = uuidv4();
+    const runDir = path.join(MIDSCENE_RUN_DIR, runId);
+    fs.mkdirSync(runDir, { recursive: true });
+
+    // … save Task + push to User.activeTasks …
+    await new Task({ _id: taskId, userId, command: prompt, status: 'pending', progress: 0, startTime: new Date(), runId }).save();
+    await User.updateOne({ _id: userId }, { $push: { activeTasks: { _id: taskId.toString(), command: prompt, status: 'pending', startTime: new Date() } } });
+
+    sendWebSocketUpdate(userId, { event: 'taskStart', payload: { taskId: taskId.toString(), command: prompt, startTime: new Date() } });
+    processTask(userId, user.email, taskId.toString(), runId, runDir, prompt, null);
+    return res.json({ success: true, taskId: taskId.toString(), runId });
+  } else {
+    // --- Chat branch (non-streaming) ---
+    // Save user message to the unified Message collection
+    await new Message({
+      userId,
+      role: 'user',
+      type: 'chat',
+      content: prompt,
+      timestamp: new Date()
+    }).save();
+
+    // Get last 20 messages for context
+    const lastMessages = await Message.find({ userId, role: { $in: ['user','assistant'] } }).sort({ timestamp: -1 }).limit(20).lean();
+    let lastMessagesReversed = lastMessages.reverse();
+    const openaiClient = await getUserOpenAiClient(userId);
+
+    try {
+      const completion = await openaiClient.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: lastMessagesReversed.map(m=>({ role:m.role, content:m.content })),
+        temperature: 0.7
+      });
+      const assistantReply = completion.choices[0].message.content;
+      await Message.create({ userId, role: 'assistant', type: 'chat', content: assistantReply, timestamp: new Date() });
+
+      return res.json({ success: true, assistantReply, message: lastMessages[0] }); // Message already saved above.
+    } catch (err) {
+      console.error('Chat error', err);
+      // Save error as assistant message for continuity
+      await Message.create({ userId, role: 'assistant', type: 'chat', content: `Error: ${err.message}`, timestamp: new Date(), meta: { error: err.message } });
+      return res.status(500).json({ success:false, error: err.message });
+    }
+  }
+});
+
+// --- Unified Message Retrieval Endpoint (backward compatible) ---
+app.get('/messages', requireAuth, async (req, res) => {
+  try {
+    const userId = req.session.user;
+    const limit = parseInt(req.query.limit, 10) || 20;
+    // New schema: unified Message collection
+    let messages = await Message.find({ userId })
+      .sort({ timestamp: -1 })
+      .limit(limit)
+      .lean();
+    // Backward compatibility: if empty, try ChatHistory
+    if (!messages.length) {
+      const chatHistory = await ChatHistory.findOne({ userId });
+      if (chatHistory && chatHistory.messages) {
+        messages = chatHistory.messages.slice(-limit).reverse().map(m => ({
+          userId,
+          role: m.role,
+          type: 'chat',
+          content: m.content,
+          timestamp: m.timestamp || null,
+          legacy: true
+        }));
+      }
+    }
+    return res.json({ success: true, messages: messages.reverse() }); // oldest first
+  } catch (err) {
+    console.error('[GET /messages] Error:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * SSE endpoint for streaming thought bubbles.
+ */
+app.get('/nli', requireAuth, async (req, res) => {
+  const prompt = req.query.prompt;
+  if (typeof prompt !== 'string' || !prompt.trim()) {
+    res.status(400).json({ success: false, error: 'Prompt query parameter is required.' });
+    return;
+  }
+  const userId = req.session.user;
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive'
+  });
+  res.flushHeaders();
+
+  for await (const evt of streamNliThoughts(userId, prompt)) {
+    res.write(`data: ${JSON.stringify(evt)}\n\n`);
+  }
+  res.end();
+});
+
+// Helper: async generator for streaming thought (and tool) events
+async function* streamNliThoughts(userId, prompt) {
+  // Persist user prompt
+  await new Message({ userId, role: 'user', type: 'chat', content: prompt, timestamp: new Date() }).save();
+
+  // Build context (last 20 messages)
+  let history = await Message.find({ userId, role: { $in: ['user','assistant'] } })
+    .sort({ timestamp: -1 }).limit(20).lean();
+  history = history.reverse();
+
+  const openaiClient = await getUserOpenAiClient(userId);
+  let buffer = '';
+  let fullReply = '';
+
+  const stream = await openaiClient.chat.completions.create({
+    model: 'gpt-3.5-turbo',
+    messages: history.map(m => ({ role: m.role, content: m.content })),
+    stream: true,
+    temperature: 0.7
+  });
+
+  for await (const chunk of stream) {
+    const delta = chunk.choices[0]?.delta;
+    if (delta?.content) {
+      buffer += delta.content;
+      fullReply += delta.content;
+      yield { event: 'thoughtUpdate', text: delta.content };
+      if (/[.?!]\s$/.test(buffer) || buffer.length > 80) buffer = '';
+    }
+    if (delta?.tool_calls) {
+      for (const call of delta.tool_calls) {
+        yield {
+          event: 'functionCallPartial',
+          functionName: call.function.name,
+          partialArgs: call.function.arguments || ''
+        };
+      }
+    }
+  }
+
+  if (buffer) yield { event: 'thoughtUpdate', text: buffer };
+
+  // Persist assistant response
+  await new Message({ userId, role: 'assistant', type: 'chat', content: fullReply, timestamp: new Date() }).save();
+
+  // Signal completion
+  yield { event: 'thoughtComplete', text: fullReply };
+};
+
+app.get('/nli', requireAuth, async (req, res) => {
+  const prompt = req.query.prompt;
+  if (typeof prompt !== 'string' || !prompt.trim()) {
+    res.status(400).json({ success: false, error: 'Prompt query parameter is required.' });
+    return;
+  }
+  const userId = req.session.user;
+  // classify prompt
+  let classification;
+  try {
+    classification = await openaiClassifyPrompt(prompt, userId);
+  } catch (err) {
+    console.error('Classification error', err);
+    classification = 'task';
+  }
+  // SSE headers
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive'
+  });
+  res.flushHeaders();
+
+  if (classification === 'task') {
+    // persist user in chat history
+    let chatHistory = await ChatHistory.findOne({ userId }) || new ChatHistory({ userId, messages: [] });
+    chatHistory.messages.push({ role: 'user', content: prompt, timestamp: new Date() });
+    await chatHistory.save();
+    // create task
+    const taskId = new mongoose.Types.ObjectId();
+    const runId  = uuidv4();
+    const runDir = path.join(MIDSCENE_RUN_DIR, runId);
+    fs.mkdirSync(runDir, { recursive: true });
+    await new Task({ _id: taskId, userId, command: prompt, status: 'pending', progress: 0, startTime: new Date(), runId }).save();
+    await User.updateOne({ _id: userId }, { $push: { activeTasks: { _id: taskId.toString(), command: prompt, status: 'pending', startTime: new Date() } } });
+    // launch task processing
+    processTask(userId, user.email, taskId.toString(), runId, runDir, prompt, null).catch(console.error);
+    // send taskStart
+    res.write('data: ' + JSON.stringify({ event: 'taskStart', payload: { taskId: taskId.toString(), command: prompt, startTime: new Date() } }) + '\n\n');
+    // poll for updates
+    const interval = setInterval(async () => {
+      try {
+        const task = await Task.findById(taskId).lean();
+        if (!task) {
+          clearInterval(interval);
+          res.write('data: ' + JSON.stringify({ event: 'taskError', taskId: taskId.toString(), error: 'Task not found' }) + '\n\n');
+          return res.end();
+        }
+        const done = ['completed','error'].includes(task.status);
+        const evtName = done ? 'taskComplete' : 'stepProgress';
+        const payload = { taskId: taskId.toString(), progress: task.progress, result: task.result, error: task.error };
+        res.write('data: ' + JSON.stringify({ event: evtName, ...payload }) + '\n\n');
+        if (done) {
+          clearInterval(interval);
+          return res.end();
+        }
+      } catch (err) {
+        console.error('Task polling error:', err);
+      }
+    }, 2000);
+    req.on('close', () => clearInterval(interval));
+  } else {
+    // chat streaming
+    for await (const evt of streamNliThoughts(userId, prompt)) {
+      res.write('data: ' + JSON.stringify(evt) + '\n\n');
+    }
+    res.end();
   }
 });

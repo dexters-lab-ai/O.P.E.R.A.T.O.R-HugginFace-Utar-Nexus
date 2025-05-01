@@ -138,7 +138,11 @@ export async function deleteAccount() {
  */
 export const api = {
   messages: {
-    getHistory: (page = 1, limit = 50) => get('/messages/history', { page, limit })
+    getHistory: (page = 1, limit = 50) => get('/messages/history', { page, limit }),
+    send: (data = {}) => {
+      const prompt = typeof data === 'string' ? data : data.content;
+      return post('/nli', { prompt });
+    }
   },
   tasks: {
     getActive: () => get('/tasks/active'),

@@ -3,14 +3,9 @@
  * Main application header with navigation controls and user information
  */
 
-console.log('[NAVIGATION-BAR] Component file loaded');
-
 import { eventBus } from '../utils/events.js';
 import { stores } from '../store/index.js';
 import Button from './base/Button.js';
-
-// DEBUG: Log initialization
-console.log('[NAVIGATION-BAR] Component initialized');
 
 /**
  * Create a navigation bar component
@@ -29,20 +24,6 @@ export function NavigationBar(props = {}) {
   const container = document.createElement('div');
   container.className = 'navigation-bar';
   if (containerId) container.id = containerId;
-  
-  // Use MutationObserver to detect removal from DOM
-  const observer = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
-      mutation.removedNodes.forEach((removed) => {
-        if (removed === container) {
-          console.warn('[NAVIGATION-BAR] Element was removed from DOM!');
-        }
-      });
-    });
-  });
-  if (container.parentNode) {
-    observer.observe(container.parentNode, { childList: true });
-  }
   
   // Create branding section
   const branding = document.createElement('div');
@@ -131,7 +112,7 @@ export function NavigationBar(props = {}) {
       <div class="user-name">User</div>
       <div class="user-status">
         <span class="status-indicator online"></span>
-        <div class="status-text">Active</div>
+        <span class="status-text">Active</span>
       </div>
     </div>
   `;
@@ -150,215 +131,185 @@ export function NavigationBar(props = {}) {
   container.appendChild(branding);
   container.appendChild(navigation);
   container.appendChild(tools);
-
-  // Initialize menus at component creation
-  const layoutMenu = document.createElement('div');
-  layoutMenu.className = 'dropdown-menu';
-  layoutMenu.style.display = 'none';
   
-  const userMenu = document.createElement('div');
-  userMenu.className = 'dropdown-menu';
-  userMenu.style.display = 'none';
-
-  // Create layout menu items
-  const layoutPresets = [
-    { 
-      id: 'default', 
-      name: 'Default', 
-      icon: 'fa-columns',
-      description: 'Balanced view with sidebar and main content'
-    },
-    { 
-      id: 'centered', 
-      name: 'Centered', 
-      icon: 'fa-align-center',
-      description: 'Focus on content with minimal distractions'
-    },
-    { 
-      id: 'focus', 
-      name: 'Focus Mode', 
-      icon: 'fa-bullseye',
-      description: 'Maximize content area for focused work'
-    },
-    { 
-      id: 'expanded', 
-      name: 'Expanded', 
-      icon: 'fa-expand',
-      description: 'Wide layout showing all panels'
-    }
-  ];
+  // Layout menu (created on demand)
+  let layoutMenu = null;
   
-  layoutPresets.forEach((option) => {
-    const menuItem = document.createElement('div');
-    menuItem.className = 'dropdown-item layout-option';
-    menuItem.dataset.layout = option.id;
-    menuItem.innerHTML = `
-      <div class="layout-icon">
-        <i class="fas ${option.icon}"></i>
-      </div>
-      <div class="layout-info">
-        <div class="layout-name">${option.name}</div>
-        <div class="layout-description">${option.description}</div>
-      </div>
-      <div class="layout-check">
-        <i class="fas fa-check"></i>
-      </div>
-    `;
-    
-    menuItem.addEventListener('click', (e) => {
-      e.preventDefault();
-      
-      // Add loading state
-      menuItem.classList.add('loading');
-      
-      // Emit event with error handling
-      try {
-        eventBus.emit('layout-change-requested', { 
-          preset: option.id,
-          callback: (success) => {
-            menuItem.classList.remove('loading');
-            if (success) {
-              // Update active state
-              layoutMenu.querySelectorAll('.dropdown-item').forEach(item => {
-                item.classList.toggle('active', item.dataset.layout === option.id);
-              });
-              localStorage.setItem('layout_preset', option.id);
-            }
-          }
-        });
-      } catch (err) {
-        console.error('Layout change failed:', err);
-        menuItem.classList.remove('loading');
-      }
-      
-      hideMenus();
-    });
-    
-    // Set initial active state
-    const currentLayout = localStorage.getItem('layout_preset') || 'default';
-    if (option.id === currentLayout) {
-      menuItem.classList.add('active');
-    }
-    
-    layoutMenu.appendChild(menuItem);
-  });
-
-  // Create user menu with full original functionality
-  const menuItems = [
-    { text: 'Profile', icon: 'fa-user', action: 'profile' },
-    { text: 'Preferences', icon: 'fa-sliders-h', action: 'toggle-settings' },
-    { text: 'Logout', icon: 'fa-sign-out-alt', action: 'logout' }
-  ];
-  
-  // Add user info to menu
-  const userInfo = document.createElement('div');
-  userInfo.className = 'dropdown-user-info';
-  userInfo.innerHTML = `
-    <div class="user-avatar">
-      <i class="fas fa-user"></i>
-    </div>
-    <div class="user-data">
-      <div class="user-name">User</div>
-      <div class="user-email">user@example.com</div>
-    </div>
-  `;
-  
-  userMenu.appendChild(userInfo);
-  
-  // Add divider
-  const divider = document.createElement('div');
-  divider.className = 'dropdown-divider';
-  userMenu.appendChild(divider);
-  
-  // Create menu items with full original functionality
-  menuItems.forEach(item => {
-    const menuItem = document.createElement('a');
-    menuItem.href = '#';
-    menuItem.className = 'dropdown-item';
-    menuItem.innerHTML = `<i class="fas ${item.icon}"></i> ${item.text}`;
-    
-    menuItem.addEventListener('click', (e) => {
-      e.preventDefault();
-      
-      // Handle special actions
-      if (item.action === 'logout') {
-        window.location.href = '/logout';
-      } else {
-        // Emit event for other actions
-        eventBus.emit(item.action);
-      }
-      
-      hideMenus();
-    });
-    
-    userMenu.appendChild(menuItem);
-  });
-
-  // Add menus to DOM
-  document.body.appendChild(layoutMenu);
-  document.body.appendChild(userMenu);
-
-  /**
-   * Hide all menus
-   */
-  function hideMenus() {
-    layoutMenu.style.display = 'none';
-    userMenu.style.display = 'none';
-  }
-
   /**
    * Show layout menu
    * @param {HTMLElement} button - Button that triggered the menu
    */
   function showLayoutMenu(button) {
+    // Remove any existing menu
     hideMenus();
     
-    // Position menu below button
+    // Create menu if it doesn't exist
+    if (!layoutMenu) {
+      layoutMenu = document.createElement('div');
+      layoutMenu.className = 'dropdown-menu';
+      
+      const layoutOptions = [
+        { id: 'default', name: 'Default', icon: 'fa-columns' },
+        { id: 'centered', name: 'Centered', icon: 'fa-align-center' },
+        { id: 'focus', name: 'Focus Mode', icon: 'fa-bullseye' },
+        { id: 'expanded', name: 'Expanded', icon: 'fa-expand' }
+      ];
+      
+      // Create menu items
+      layoutOptions.forEach(option => {
+        const menuItem = document.createElement('a');
+        menuItem.href = '#';
+        menuItem.className = 'dropdown-item';
+        menuItem.innerHTML = `<i class="fas ${option.icon}"></i> ${option.name}`;
+        menuItem.dataset.layout = option.id;
+        
+        menuItem.addEventListener('click', (e) => {
+          e.preventDefault();
+          
+          // Apply layout preset
+          eventBus.emit('layout-preset-requested', { preset: option.id });
+          
+          // Update active state
+          layoutMenu.querySelectorAll('.dropdown-item').forEach(item => {
+            item.classList.toggle('active', item.dataset.layout === option.id);
+          });
+          
+          // Hide menu
+          hideMenus();
+        });
+        
+        // Set active state based on current layout
+        const currentLayout = stores.ui.getState().layoutPreset || 'default';
+        if (option.id === currentLayout) {
+          menuItem.classList.add('active');
+        }
+        
+        layoutMenu.appendChild(menuItem);
+      });
+    }
+    
+    // Position and show the menu
     const rect = button.getBoundingClientRect();
-    layoutMenu.style.left = `${rect.left}px`;
-    layoutMenu.style.top = `${rect.bottom}px`;
-    layoutMenu.style.display = 'block';
+    layoutMenu.style.top = `${rect.bottom + 5}px`;
+    layoutMenu.style.right = `${window.innerWidth - rect.right}px`;
     
-    // Close menu when clicking outside
-    const clickOutside = (e) => {
-      if (!layoutMenu.contains(e.target) && e.target !== button) {
-        hideMenus();
-        document.removeEventListener('click', clickOutside);
-      }
-    };
+    // Add to document
+    document.body.appendChild(layoutMenu);
     
-    document.addEventListener('click', clickOutside);
+    // Add click outside listener
+    setTimeout(() => {
+      document.addEventListener('click', handleClickOutside);
+    }, 10);
   }
-
+  
+  // User menu (created on demand)
+  let userMenu = null;
+  
   /**
    * Show user menu
    * @param {HTMLElement} button - Button that triggered the menu
    */
   function showUserMenu(button) {
+    // Remove any existing menu
     hideMenus();
     
-    // Position menu below button
+    // Create menu if it doesn't exist
+    if (!userMenu) {
+      userMenu = document.createElement('div');
+      userMenu.className = 'dropdown-menu';
+      
+      const menuItems = [
+        { text: 'Profile', icon: 'fa-user', action: 'profile' },
+        { text: 'Preferences', icon: 'fa-sliders-h', action: 'toggle-settings' },
+        { text: 'Logout', icon: 'fa-sign-out-alt', action: 'logout' }
+      ];
+      
+      // Add user info to menu
+      const userInfo = document.createElement('div');
+      userInfo.className = 'dropdown-user-info';
+      userInfo.innerHTML = `
+        <div class="user-avatar">
+          <i class="fas fa-user"></i>
+        </div>
+        <div class="user-data">
+          <div class="user-name">User</div>
+          <div class="user-email">user@example.com</div>
+        </div>
+      `;
+      
+      userMenu.appendChild(userInfo);
+      
+      // Add divider
+      const divider = document.createElement('div');
+      divider.className = 'dropdown-divider';
+      userMenu.appendChild(divider);
+      
+      // Create menu items
+      menuItems.forEach(item => {
+        const menuItem = document.createElement('a');
+        menuItem.href = '#';
+        menuItem.className = 'dropdown-item';
+        menuItem.innerHTML = `<i class="fas ${item.icon}"></i> ${item.text}`;
+        
+        menuItem.addEventListener('click', (e) => {
+          e.preventDefault();
+          
+          // Handle special actions
+          if (item.action === 'logout') {
+            window.location.href = '/logout';
+          } else {
+            // Emit event for other actions
+            eventBus.emit(item.action);
+          }
+          
+          // Hide menu
+          hideMenus();
+        });
+        
+        userMenu.appendChild(menuItem);
+      });
+    }
+    
+    // Position and show the menu
     const rect = button.getBoundingClientRect();
-    userMenu.style.left = `${rect.right - userMenu.offsetWidth}px`;
-    userMenu.style.top = `${rect.bottom}px`;
-    userMenu.style.display = 'block';
+    userMenu.style.top = `${rect.bottom + 5}px`;
+    userMenu.style.right = `${window.innerWidth - rect.right}px`;
     
-    // Close menu when clicking outside
-    const clickOutside = (e) => {
-      if (!userMenu.contains(e.target) && e.target !== button) {
-        hideMenus();
-        document.removeEventListener('click', clickOutside);
-      }
-    };
+    // Add to document
+    document.body.appendChild(userMenu);
     
-    document.addEventListener('click', clickOutside);
+    // Add click outside listener
+    setTimeout(() => {
+      document.addEventListener('click', handleClickOutside);
+    }, 10);
   }
-
-  // DEBUG: Log the container before returning
-  console.log('[DEBUG] NavigationBar container:', container);
-
-  // Always return the container for mounting
-  return container;
+  
+  /**
+   * Handle clicks outside the menu to close it
+   */
+  function handleClickOutside(e) {
+    if (
+      (layoutMenu && !layoutMenu.contains(e.target) && !layoutToggle.contains(e.target)) ||
+      (userMenu && !userMenu.contains(e.target) && !userButton.contains(e.target))
+    ) {
+      hideMenus();
+    }
+  }
+  
+  /**
+   * Hide all menus
+   */
+  function hideMenus() {
+    if (layoutMenu && layoutMenu.parentNode) {
+      layoutMenu.parentNode.removeChild(layoutMenu);
+    }
+    
+    if (userMenu && userMenu.parentNode) {
+      userMenu.parentNode.removeChild(userMenu);
+    }
+    
+    document.removeEventListener('click', handleClickOutside);
+  }
   
   /**
    * Update theme toggle icon based on current theme

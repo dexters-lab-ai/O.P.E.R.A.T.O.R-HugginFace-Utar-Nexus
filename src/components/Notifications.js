@@ -85,8 +85,7 @@ export function Notifications(props = {}) {
     
     // Show with animation
     setTimeout(() => {
-      notification.classList.add('show');
-      console.log('[NOTIFICATION]', message, type);
+      notification.classList.add('visible');
     }, 10);
     
     // Set up auto-dismiss
@@ -186,15 +185,12 @@ export function Notifications(props = {}) {
   container.show = showNotification;
   container.dismiss = dismissNotification;
   container.dismissAll = dismissAll;
-  container.addNotification = (options, type = 'info') => {
-    // Accepts either a message string or an options object
-    if (typeof options === 'string') {
-      showNotification({ message: options, type });
-    } else {
-      showNotification(options);
-    }
+  container.addNotification = (msg, type = 'info') => {
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.textContent = msg;
+    container.appendChild(notification);
   };
-
   
   // Cleanup method
   container.destroy = () => {

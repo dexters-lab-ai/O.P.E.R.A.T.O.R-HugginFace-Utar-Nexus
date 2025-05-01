@@ -5,14 +5,14 @@
 
 import { eventBus } from '../utils/events.js';
 import { uiStore, messagesStore } from '../store/index.js';
-import { submitNLI } from '../api/nli.js';
-import { getActiveTasks, cancelTask } from '../api/tasks.js';
+import api from '../utils/api.js';
 import Button from './base/Button.js';
 
 // Tab types
 export const TAB_TYPES = {
   NLI: 'nli',
   ACTIVE_TASKS: 'active-tasks',
+  MANUAL: 'manual',
   REPETITIVE: 'repetitive',
   SCHEDULED: 'scheduled'
 };
@@ -61,8 +61,9 @@ export function CommandCenter(props = {}) {
 
   // Define tabs
   const tabs = [
-    { id: TAB_TYPES.NLI, label: 'NLI Chat', icon: 'fa-comment-dots' },
+    { id: TAB_TYPES.NLI, label: 'Chat', icon: 'fa-comments' },
     { id: TAB_TYPES.ACTIVE_TASKS, label: 'Active Tasks', icon: 'fa-spinner fa-spin' },
+    { id: TAB_TYPES.MANUAL, label: 'General Task', icon: 'fa-tasks' },
     { id: TAB_TYPES.REPETITIVE, label: 'Repetitive', icon: 'fa-sync' },
     { id: TAB_TYPES.SCHEDULED, label: 'Scheduled', icon: 'fa-calendar' }
   ];
@@ -73,17 +74,13 @@ export function CommandCenter(props = {}) {
   // Create tab buttons
   tabs.forEach(tab => {
     const button = document.createElement('button');
-    button.className = `cyber-tab ${tab.id === activeTab ? 'active' : ''}`;
+    button.className = `tab-btn ${tab.id === activeTab ? 'active' : ''}`;
     button.dataset.taskType = tab.id;
     button.id = `${tab.id}-tab`;
     
     // Add icon if available
     if (tab.icon) {
-      button.innerHTML = `
-        <span class="cyber-glow"></span>
-        <i class="fas ${tab.icon}"></i>
-        <span class="cyber-label">${tab.label}</span>
-      `;
+      button.innerHTML = `<i class="fas ${tab.icon}"></i> ${tab.label}`;
     } else {
       button.textContent = tab.label;
     }
@@ -135,19 +132,6 @@ export function CommandCenter(props = {}) {
   textarea.placeholder = 'Type your message, command, or task...';
   textarea.required = true;
   
-  // Add Three.js initialization
-  const initThreeJS = () => {
-    // Three.js particle system for input field
-    const threeCanvas = document.createElement('canvas');
-    threeCanvas.className = 'threejs-input-effect';
-    inputBar.appendChild(threeCanvas);
-    
-    // Implementation would continue with Three.js setup
-    // (Actual Three.js code would be added here)
-  };
-  
-  initThreeJS();
-  
   // Handle form submission
   nliForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -171,8 +155,8 @@ export function CommandCenter(props = {}) {
     messagesStore.setState({ timeline: [...timeline, userMessage] });
     
     try {
-      // Send message to API (modularized)
-      const response = await submitNLI(inputText);
+      // Send message to API
+      const response = await api.post('/chat', { prompt: inputText });
       
       if (response.success && response.assistantReply) {
         // Add assistant response to timeline
@@ -302,8 +286,10 @@ export function CommandCenter(props = {}) {
   activeTasksSection.appendChild(repetitiveTasksContent);
   taskSections.appendChild(activeTasksSection);
   
-  // Add other sections (repetitive, scheduled)
+  // Add other sections (manual, repetitive, scheduled)
+  // For brevity, we're not implementing these fully now
   const otherSections = [
+    { id: 'manual-section', type: TAB_TYPES.MANUAL },
     { id: 'repetitive-section', type: TAB_TYPES.REPETITIVE },
     { id: 'scheduled-section', type: TAB_TYPES.SCHEDULED }
   ];
@@ -333,6 +319,7 @@ export function CommandCenter(props = {}) {
       const isActive = (
         (tabType === TAB_TYPES.NLI && section.id === 'unified-input-section') ||
         (tabType === TAB_TYPES.ACTIVE_TASKS && section.id === 'active-tasks-section') ||
+        (tabType === TAB_TYPES.MANUAL && section.id === 'manual-section') ||
         (tabType === TAB_TYPES.REPETITIVE && section.id === 'repetitive-section') ||
         (tabType === TAB_TYPES.SCHEDULED && section.id === 'scheduled-section')
       );
@@ -358,7 +345,7 @@ export function CommandCenter(props = {}) {
   // Method to check for active tasks
   async function checkActiveTasks() {
     try {
-      const response = await getActiveTasks();
+      const response = await api.tasks.getActive();
       
       if (response && Array.isArray(response.tasks)) {
         const activeTasks = response.tasks;
@@ -404,7 +391,7 @@ export function CommandCenter(props = {}) {
             const cancelBtn = taskEl.querySelector('.cancel-task-btn');
             cancelBtn.addEventListener('click', async () => {
               try {
-                await cancelTask(task._id);
+                await api.tasks.cancel(task._id);
                 taskEl.remove();
                 
                 // Check if empty
