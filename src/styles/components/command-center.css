@@ -14,7 +14,7 @@
   margin: 2rem auto;
 }
 
-/* Message Timeline */
+/* Message Timeline Container */
 .message-timeline-container {
   flex: 1;
   overflow-y: auto;
@@ -26,56 +26,49 @@
   gap: 1rem;
 }
 
-/* Message Bubbles */
-.message-bubble {
-  max-width: 80%;
-  padding: 1rem;
-  border-radius: 12px;
-  background: var(--dark-medium);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  transition: var(--transition-normal);
-}
-
-.message-bubble.user {
-  background: var(--primary-light);
-  color: white;
-  margin-left: auto;
-}
-
-.message-bubble.ai {
-  background: var(--dark-medium);
-}
-
-/* Thought Bubbles */
+/* Thought Bubbles - Enhanced */
 .thought-bubble {
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  padding: 0.75rem;
-  margin: 0.5rem 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  max-width: 80%;
+  background: rgba(0, 0, 0, 0.15);
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 1rem;
+  margin: 0.75rem 0;
+  max-width: 85%;
+  transition: all 0.25s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.thought-bubble::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3px;
+  height: 100%;
+  background: var(--accent);
 }
 
 .thought-bubble.loading {
-  opacity: 0.8;
-  animation: pulse 1.5s infinite;
+  border-color: rgba(100, 200, 255, 0.3);
+  animation: pulseThought 2s infinite;
 }
 
 .thought-bubble.loading::after {
-  content: "...";
+  content: 'Thinking';
+  display: inline-block;
   color: var(--primary);
+  margin-left: 8px;
+  animation: typing 1.5s infinite steps(4);
 }
 
 .thought-bubble.creative {
-  background: rgba(0, 0, 0, 0.3);
-  border-color: var(--primary);
+  background: rgba(60, 20, 100, 0.15);
+  border-color: var(--accent);
 }
 
-.thought-bubble.creative.loading::after {
-  content: "Thinking...";
+.thought-bubble.complete {
+  border-color: rgba(100, 255, 150, 0.3);
 }
 
 /* Streaming UI */
@@ -160,6 +153,24 @@
   }
 }
 
+@keyframes pulseThought {
+  0%, 100% { opacity: 0.85; }
+  50% { opacity: 1; }
+}
+
+@keyframes typing {
+  0% { content: 'Thinking'; }
+  25% { content: 'Thinking.'; }
+  50% { content: 'Thinking..'; }
+  75% { content: 'Thinking...'; }
+}
+
+@keyframes creativePulse {
+  0% { box-shadow: 0 0 0 0 rgba(150, 50, 255, 0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(150, 50, 255, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(150, 50, 255, 0); }
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
   .command-center-container {
@@ -173,6 +184,11 @@
 
   .message-bubble {
     max-width: 90%;
+  }
+
+  .thought-bubble {
+    max-width: 92%;
+    padding: 0.85rem;
   }
 }
 
@@ -582,4 +598,50 @@
     display: flex;
     flex-direction: column;
   }
+}
+
+.thought-bubble:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Intermediate Results Styling */
+.intermediate-result-item {
+  padding: 1rem;
+  margin: 0.5rem 0;
+  background: rgba(30, 30, 45, 0.7);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  transition: all 0.2s ease;
+}
+
+.intermediate-result-item:hover {
+  background: rgba(40, 40, 60, 0.8);
+}
+
+.intermediate-result-item.final-result {
+  border-left-color: var(--success);
+  background: rgba(40, 60, 40, 0.7);
+}
+
+.step-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.final-badge {
+  background: var(--success);
+  color: white;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+#intermediate-results-container {
+  max-height: 300px;
+  overflow-y: auto;
+  padding-right: 0.5rem;
 }

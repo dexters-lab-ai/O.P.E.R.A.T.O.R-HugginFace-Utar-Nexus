@@ -6,8 +6,9 @@
 import { eventBus } from '../utils/events.js';
 import { stores } from '../store/index.js';
 import Button from './base/Button.jsx';
-import { cancelTask as cancelTaskApi } from '../api/tasks.js';
+import { getActiveTasks, cancelTask as cancelTaskApi } from '../api/tasks.js';
 const tasksStore = stores.tasks;
+const stepLogs = tasksStore.getState().stepLogs;
 
 /**
  * Create a task bar component
@@ -146,12 +147,20 @@ export function TaskBar(props = {}) {
     activeTasks.forEach(task => {
       const taskItem = document.createElement('div');
       taskItem.className = 'task-bar-task-item';
+      
+      // Compute progress bars
+      const overallProgress = Math.min(Math.max(task.progress || 0, 0), 100);
+      const logsForTask = stepLogs[task._id] || [];
+      const latestStep = logsForTask.filter(l => l.progress !== undefined).slice(-1)[0] || {};
+      const stepProgress = latestStep.progress || 0;
+      
       taskItem.innerHTML = `
         <div class="task-icon"><i class="fas ${getTaskIcon(task.type)}"></i></div>
         <div class="task-content">
           <div class="task-title">${getTaskTitle(task)}</div>
-          <div class="task-progress-container">
-            <div class="task-progress" style="width: ${Math.min(Math.max(task.progress || 0, 0), 100)}%"></div>
+          <div class="task-progress-container dual">
+            <div class="task-progress-overall" style="width: ${overallProgress}%"></div>
+            <div class="task-progress-step" style="width: ${stepProgress}%"></div>
           </div>
         </div>
         <div class="task-actions">
@@ -160,6 +169,26 @@ export function TaskBar(props = {}) {
           </button>
         </div>
       `;
+      
+      // Render step logs
+      if (logsForTask.length) {
+        const logContainer = document.createElement('div');
+        logContainer.className = 'task-step-logs';
+        logsForTask.forEach(entry => {
+          const entryEl = document.createElement('div');
+          entryEl.className = 'task-step-log-entry';
+          let text = '';
+          if (entry.stepIndex !== undefined) text = `Step ${entry.stepIndex}: ${entry.message}`;
+          else if (entry.type === 'functionCallPartial') text = `Function ${entry.functionName} called with ${JSON.stringify(entry.args)}`;
+          else if (entry.type === 'planLog') text = entry.message;
+          else if (entry.type === 'taskComplete') text = `Complete: ${entry.result.summary || JSON.stringify(entry.result)}`;
+          else if (entry.type === 'taskError') text = `Error: ${entry.error}`;
+          entryEl.textContent = text;
+          logContainer.appendChild(entryEl);
+        });
+        taskItem.appendChild(logContainer);
+      }
+      
       // Render intermediate screenshots
       const items = intermediateResults[task._id] || [];
       if (items.length) {
@@ -174,6 +203,7 @@ export function TaskBar(props = {}) {
         });
         taskItem.appendChild(interContainer);
       }
+      
       // Add cancel handler
       const cancelButton = taskItem.querySelector('.cancel-task');
       cancelButton.addEventListener('click', () => {

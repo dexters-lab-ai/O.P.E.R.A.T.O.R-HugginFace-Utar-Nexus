@@ -5,8 +5,7 @@
 
 import { eventBus } from '../utils/events.js';
 import { uiStore, messagesStore, tasksStore } from '../store/index.js';
-import { submitNLI } from '../api/nli.js';
-import { getActiveTasks, cancelTask, createTask } from '../api/tasks.js';
+import { cancelTask, createTask } from '../api/tasks.js';
 import Button from './base/Button.jsx';
 import Dropdown from './base/Dropdown.jsx';
 import api from '../utils/api.js';
@@ -406,6 +405,10 @@ export function CommandCenter(props = {}) {
                 : msg
             ) });
             break;
+          case 'intermediateResult':
+            console.debug('[DEBUG] SSE intermediateResult received');
+            handleIntermediateResult(data);
+            break;
           default:
             console.debug('[DEBUG] SSE event:', data.event, data.text || '');
             // Handle other message types
@@ -642,120 +645,7 @@ export function CommandCenter(props = {}) {
   card.appendChild(taskSections);
   container.appendChild(card);
 
-  // Function to check for active tasks
-  async function checkActiveTasks() {
-    try {
-      const response = await getActiveTasks();
-      
-      if (response && Array.isArray(response.tasks)) {
-        const activeTasks = response.tasks;
-        
-        // Update no-tasks message visibility
-        const noTasksEl = document.getElementById('no-active-tasks');
-        if (noTasksEl) {
-          noTasksEl.style.display = activeTasks.length > 0 ? 'none' : 'block';
-        }
-        
-        // Clear container
-        if (activeTasks.length > 0) {
-          activeTasksContainer.innerHTML = '';
-          
-          // Add each task
-          activeTasks.forEach(task => {
-            const taskEl = document.createElement('div');
-            taskEl.className = 'active-task';
-            taskEl.dataset.taskId = task._id;
-            
-            // Calculate progress percentage
-            const progress = Math.min(Math.max(task.progress || 0, 0), 100);
-            
-            taskEl.innerHTML = `
-              <div class="task-header">
-                <h4><i class="fas fa-spinner fa-spin"></i> ${task.command}</h4>
-                <span class="task-status ${task.status}">${task.status}</span>
-              </div>
-              <div class="task-url">
-                <i class="fas fa-globe"></i> ${task.url || 'No URL'}
-              </div>
-              <div class="task-progress-container">
-                <div class="task-progress" style="width: ${progress}%"></div>
-              </div>
-              <div class="task-actions">
-                <button class="cancel-task-btn" data-task-id="${task._id}">
-                  <i class="fas fa-times"></i> Cancel
-                </button>
-              </div>
-            `;
-            
-            // Add cancel handler
-            const cancelBtn = taskEl.querySelector('.cancel-task-btn');
-            cancelBtn.addEventListener('click', async () => {
-              await handleTaskCancel(task._id);
-            });
-            
-            activeTasksContainer.appendChild(taskEl);
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Failed to fetch active tasks:', error);
-    }
-  }
-
-  // Poll for active tasks every 5 seconds
-  const taskPollInterval = setInterval(checkActiveTasks, 5000);
-  
-  // Initial check
-  checkActiveTasks();
-
-  // Subscribe to store changes
-  const unsubscribe = uiStore.subscribe((state) => {
-    if (state.activeTab !== activeTab) {
-      activeTab = state.activeTab;
-      
-      // Update UI
-      tabButtons.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.taskType === activeTab);
-      });
-      
-      showActiveSection(activeTab);
-    }
-  });
-
-  // Expose public methods
-  container.setActiveTab = (tabType) => {
-    if (tabs.some(tab => tab.id === tabType)) {
-      activeTab = tabType;
-      
-      // Update UI
-      tabButtons.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.taskType === activeTab);
-      });
-      
-      showActiveSection(activeTab);
-      
-      // Update store
-      uiStore.setState({ activeTab });
-    }
-  };
-  
-  // Cleanup method
-  container.destroy = () => {
-    console.log('Destroying CommandCenter...');
-    // Close WebSocket connection if open
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        console.log('CommandCenter: Closing WebSocket connection cleanly.');
-        ws.close(1000, 'Component destroying'); // Use code 1000 for clean closure
-    }
-    // Close all SSE streams
-    const streams = tasksStore.getState().streams;
-    Object.keys(streams).forEach(taskId => tasksStore.closeStream(taskId));
-    // Remove event listeners
-    tabButtons.querySelectorAll('.tab-btn').forEach(btn => btn.replaceWith(btn.cloneNode(true)));
-    nliForm.replaceWith(nliForm.cloneNode(true));
-    clearInterval(taskPollInterval);
-    unsubscribe();
-  };
+  // Active tasks polling removed; TaskBar handles active tasks UI.
 
   // Function to handle task cancellation
   const handleTaskCancel = async (taskId) => {
@@ -810,20 +700,29 @@ export function CommandCenter(props = {}) {
   };
 
   const handleIntermediateResult = (payload) => {
-    // Store intermediate result in tasksStore
-    tasksStore.addIntermediate(payload.taskId, payload.result);
-    // Update the specific task in the store with URL and screenshot
-    tasksStore.updateTask(payload.taskId, { 
-      currentUrl: payload.result?.currentUrl,
-      screenshotUrl: payload.result?.screenshotUrl
+    console.group('[CLIENT] Handling intermediateResult');
+    console.log('Raw event data:', payload);
+    
+    if (!payload?.taskId) {
+      console.error('Invalid payload - missing taskId');
+      return;
+    }
+    
+    console.log('Current intermediateResults:', 
+      tasksStore.getIntermediateResults(payload.taskId));
+      
+    tasksStore.addIntermediate(payload.taskId, {
+      ...payload.result,
+      _debugReceivedAt: new Date().toISOString()
     });
-    if (!payload.taskId) return;
-    if (!intermediateResults[payload.taskId]) intermediateResults[payload.taskId] = [];
-    let finalRes = payload.result;
-    if (typeof finalRes === 'object') finalRes = { ...finalRes, __final: true };
-    else finalRes = { value: finalRes, __final: true };
-    intermediateResults[payload.taskId].push(finalRes);
+
+    console.log('[DEBUG] Store after update:', {
+      intermediates: tasksStore.getIntermediateResults(payload.taskId),
+      allTasks: tasksStore.getState().intermediateResults
+    });
+      
     renderIntermediateResults(payload.taskId);
+    console.groupEnd();
   };
 
   const handleFunctionCallPartial = (payload) => {
@@ -861,45 +760,56 @@ export function CommandCenter(props = {}) {
   };
 
   const handleStepProgress = (payload) => {
-    // Update the specific task in the store with new progress and message
-    tasksStore.updateTask(payload.taskId, { 
-      progress: payload.progress, 
-      lastStepMessage: payload.message || 'Processing...', // Store the latest step message
-      status: 'processing' // Ensure status reflects activity
-     });
+    // Update task progress and result
+    tasksStore.updateTask(payload.taskId, {
+      status: 'processing',
+      progress: payload.progress,
+      result: payload.result,
+      error: payload.error || null
+    });
   };
 
   const handleTaskStart = (payload) => {
     console.log('eventBus received taskStart:', payload);
-    // Logic to handle task start
+    // Add new task to tasksStore
+    tasksStore.setState(state => ({
+      active: [...state.active, {
+        _id: payload.taskId,
+        command: payload.command,
+        status: 'pending',
+        progress: 0,
+        startTime: payload.startTime,
+        result: null,
+        error: null
+      }]
+    }));
   };
 
   const handleTaskComplete = (payload) => {
     console.log('eventBus received taskComplete:', payload);
-    // Update task status to completed in the store
-    tasksStore.updateTask(payload.taskId, { 
-      status: 'completed', 
-      progress: 100, 
+    // Mark task as completed
+    tasksStore.updateTask(payload.taskId, {
+      status: 'completed',
+      progress: 100,
       result: payload.result,
-      lastStepMessage: 'Completed'
+      error: payload.error || null
     });
     if (!payload.taskId) return;
-    if (!intermediateResults[payload.taskId]) intermediateResults[payload.taskId] = [];
+    // Add final result to intermediateResults
     let finalRes = payload.result;
     if (typeof finalRes === 'object') finalRes = { ...finalRes, __final: true };
     else finalRes = { value: finalRes, __final: true };
-    intermediateResults[payload.taskId].push(finalRes);
+    tasksStore.addIntermediate(payload.taskId, finalRes);
     renderIntermediateResults(payload.taskId);
   };
 
   const handleTaskError = (payload) => {
     console.error('eventBus received taskError:', payload);
-    // Update task status to error in the store
-    tasksStore.updateTask(payload.taskId, { 
-      status: 'error', 
-      progress: 0, // Or keep last known progress?
-      error: payload.error,
-      lastStepMessage: `Error: ${payload.error}`.substring(0, 100) + '...'
+    // Update task status to error
+    tasksStore.updateTask(payload.taskId, {
+      status: 'error',
+      progress: 0,
+      error: payload.error
     });
   };
 
@@ -969,7 +879,7 @@ export function CommandCenter(props = {}) {
     const container = document.getElementById('intermediate-results-container');
     if (!container) return;
     container.innerHTML = '';
-    const results = intermediateResults[taskId] || [];
+    const results = tasksStore.getIntermediateResults(taskId) || [];
     results.forEach((res, idx) => {
       const el = document.createElement('div');
       el.className = 'intermediate-result-item';
@@ -1013,6 +923,103 @@ export function CommandCenter(props = {}) {
   eventBus.on('taskStart', handleTaskStart);
   eventBus.on('taskComplete', handleTaskComplete);
   eventBus.on('taskError', handleTaskError);
+
+  // WebSocket intermediate result handling with cleanup
+  function setupIntermediateResultHandler() {
+    const handleIntermediateResult = (data) => {
+      console.group('[CLIENT] Handling intermediateResult');
+      console.log('Raw event data:', data);
+      
+      if (!data?.taskId) {
+        console.error('Invalid payload - missing taskId');
+        return;
+      }
+      
+      console.log('Current intermediateResults:', 
+        tasksStore.getIntermediateResults(data.taskId));
+        
+      tasksStore.addIntermediate(data.taskId, {
+        ...data.result,
+        _debugReceivedAt: new Date().toISOString()
+      });
+
+      console.log('[DEBUG] Store after update:', {
+        intermediates: tasksStore.getIntermediateResults(data.taskId),
+        allTasks: tasksStore.getState().intermediateResults
+      });
+      
+      renderIntermediateResults(data.taskId);
+      console.groupEnd();
+    };
+
+    // Subscribe to events
+    eventBus.on('intermediateResult', handleIntermediateResult);
+    
+    // Return cleanup function
+    return () => {
+      eventBus.off('intermediateResult', handleIntermediateResult);
+    };
+  }
+
+  // Initialize during component setup
+  const cleanupIntermediateHandler = setupIntermediateResultHandler();
+
+  // Add to existing cleanup logic
+  function destroy() {
+    eventBus.off('taskStart', handleTaskStart);
+    eventBus.off('taskComplete', handleTaskComplete);
+    eventBus.off('taskError', handleTaskError);
+    
+    if (typeof cleanupIntermediateHandler === 'function') {
+      cleanupIntermediateHandler();
+    }
+    
+    // Existing cleanup code...
+  }
+
+  // Update render function
+  function renderIntermediateResults(taskId) {
+    const container = document.getElementById('intermediate-results-container');
+    if (!container) return;
+
+    const results = tasksStore.getIntermediateResults(taskId) || [];
+    container.innerHTML = '';
+
+    results.forEach((res, idx) => {
+      const el = document.createElement('div');
+      el.className = `intermediate-result-item ${res.__final ? 'final-result' : ''}`;
+      el.innerHTML = `
+        <div class="step-header">
+          <span class="step-number">Step ${idx + 1}</span>
+          ${res.__final ? '<span class="final-badge">✓ Final</span>' : ''}
+        </div>
+        <pre>${JSON.stringify(res, null, 2)}</pre>
+      `;
+      container.appendChild(el);
+    });
+    // Always scroll to bottom
+    container.scrollTop = container.scrollHeight;
+  }
+
+  // Expose public methods
+  container.setActiveTab = (tabType) => {
+    if (tabs.some(tab => tab.id === tabType)) {
+      activeTab = tabType;
+      
+      // Update UI
+      tabButtons.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.taskType === activeTab);
+      });
+      
+      showActiveSection(activeTab);
+      
+      // Update store
+      uiStore.setState({ activeTab });
+    }
+  };
+  
+  // Cleanup method
+  container.destroy = destroy;
 
   return container;
 }

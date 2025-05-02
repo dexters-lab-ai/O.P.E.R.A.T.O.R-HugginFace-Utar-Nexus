@@ -114,3 +114,43 @@
   color: var(--text-muted);
   font-style: italic;
 }
+
+/* Dual progress and step log styles */
+.task-progress-container.dual {
+  position: relative;
+  height: 8px;
+  background: var(--dark-border);
+  border-radius: var(--border-radius-sm);
+  overflow: hidden;
+}
+.task-progress-overall {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: var(--primary);
+  z-index: 1;
+}
+.task-progress-step {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: var(--accent);
+  opacity: 0.7;
+  z-index: 2;
+}
+.task-step-logs {
+  margin-top: 8px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+.task-step-log-entry {
+  padding: 4px 6px;
+  font-size: 0.85em;
+  line-height: 1.2;
+  border-bottom: 1px solid var(--dark-border);
+}
+.task-step-log-entry:last-child {
+  border-bottom: none;
+}

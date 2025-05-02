@@ -90,7 +90,8 @@ export const tasksStore = createStore({
   loading: false,
   error: null,
   streams: {},
-  intermediateResults: {}
+  intermediateResults: {},
+  stepLogs: {}
 });
 
 // Task store helper methods
@@ -108,8 +109,7 @@ tasksStore.closeStream = taskId => {
   const es = tasksStore.getState().streams[taskId];
   if (es) es.close();
   tasksStore.setState(state => {
-    const streams = { ...state.streams };
-    delete streams[taskId];
+    const streams = { ...state.streams }; delete streams[taskId];
     return { streams };
   });
 };
@@ -120,6 +120,16 @@ tasksStore.addIntermediate = (taskId, item) => tasksStore.setState(state => ({
     [taskId]: [...(state.intermediateResults[taskId] || []), item]
   }
 }));
+// Add helpers for step logs
+tasksStore.addStepLog = (taskId, entry) => tasksStore.setState(state => ({
+  stepLogs: {
+    ...state.stepLogs,
+    [taskId]: [...(state.stepLogs[taskId] || []), entry]
+  }
+}));
+tasksStore.getStepLogs = taskId => tasksStore.getState().stepLogs[taskId] || [];
+// Getter for intermediate results
+tasksStore.getIntermediateResults = taskId => tasksStore.getState().intermediateResults[taskId] || [];
 
 /**
  * History Store

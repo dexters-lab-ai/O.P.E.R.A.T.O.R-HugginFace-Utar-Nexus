@@ -1,3 +1,4 @@
+/* DEPRECATED FILE - we open a SEE stream for a chat when form submits instead, to allow streams */
 import { post } from '../utils/api.js';
 
 /**

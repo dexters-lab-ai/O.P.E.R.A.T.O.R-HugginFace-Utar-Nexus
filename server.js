@@ -132,6 +132,8 @@ app.get('/favicon.ico', (req, res) => {
   res.sendFile(path.join(__dirname, 'public/assets/images/dail-fav.png'));
 });
 
+// Removed old chat-only SSE endpoint; unified SSE below handles both chat and tasks
+
 // ======================================
 // 8) ROUTES & MIDDLEWARE IMPORTS
 // ======================================
@@ -160,14 +162,14 @@ app.get('/', (req, res) => {
 // ======================================
 // 9) ROUTERS (after session middleware)
 // ======================================
-app.use('/auth', authRouter);
-app.use('/settings', settingsRouter);
+app.use('/api/auth', authRouter);
+app.use('/api/settings', settingsRouter);
 
-app.use('/history',    requireAuth, historyRouter);
+app.use('/api/history',    requireAuth, historyRouter);
 import messagesRouter from './src/routes/messages.js';
-app.use('/messages', requireAuth, messagesRouter);
-app.use('/tasks',      requireAuth, tasksRouter);
-app.use('/custom-urls', requireAuth, customUrlsRouter);
+app.use('/api/messages', requireAuth, messagesRouter);
+app.use('/api/tasks',      requireAuth, tasksRouter);
+app.use('/api/custom-urls', requireAuth, customUrlsRouter);
 
 // Support legacy /logout path
 app.get('/logout', (req, res) => {
@@ -344,6 +346,8 @@ function sendWebSocketUpdate(userId, data) {
       if (ws.readyState === WebSocket.OPEN) {
         try {
           ws.send(JSON.stringify(data));
+          console.log('[SERVER] Sending intermediateResult for task:', userId);
+          console.log('[SERVER] Sent payload:', data);
         } catch (error) {
           console.error(`[WebSocket] Failed to send to userId=${userId}:`, error);
         }
@@ -1367,7 +1371,7 @@ async function handleBrowserQuery(args, userId, taskId, runId, runDir, currentSt
         logQuery("Browser session not valid, creating a new one.");
         process.env.OPENAI_API_KEY = OPENAI_API_KAIL;
         browser = await puppeteerExtra.launch({ 
-          headless: false,
+          headless: false, 
           args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-web-security"],
           defaultViewport: { width: 1280, height: 720 }
         });
@@ -2426,7 +2430,7 @@ app.get('/whoami', (req, res) => {
  * - If we detect it's a “task,” do your existing logic.
  * - If we detect it's “chat,” stream partial output from the LLM directly.
  */
-app.post('/nli', requireAuth, async (req, res) => {
+app.post('/api/nli', requireAuth, async (req, res) => {
   // Accept both { prompt } and legacy { inputText }
   let prompt = req.body.prompt;
   if (!prompt && req.body.inputText) {
@@ -2463,7 +2467,10 @@ app.post('/nli', requireAuth, async (req, res) => {
   }
 
   if (classification === 'task') {
-    // … exactly your existing "task" branch …
+    // fetch user for email
+    const userDoc = await User.findById(userId).lean();
+    const userEmail = userDoc?.email;
+    // persist user in chat history
     let chatHistory = await ChatHistory.findOne({ userId }) || new ChatHistory({ userId, messages: [] });
     chatHistory.messages.push({ role: 'user', content: prompt, timestamp: new Date() });
     await chatHistory.save();
@@ -2478,45 +2485,53 @@ app.post('/nli', requireAuth, async (req, res) => {
     await User.updateOne({ _id: userId }, { $push: { activeTasks: { _id: taskId.toString(), command: prompt, status: 'pending', startTime: new Date() } } });
 
     sendWebSocketUpdate(userId, { event: 'taskStart', payload: { taskId: taskId.toString(), command: prompt, startTime: new Date() } });
-    processTask(userId, user.email, taskId.toString(), runId, runDir, prompt, null);
-    return res.json({ success: true, taskId: taskId.toString(), runId });
+    processTask(userId, userEmail, taskId.toString(), runId, runDir, prompt, null);
+    res.set({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive'
+    });
+    res.flushHeaders();
+    res.write('data: ' + JSON.stringify({ event: 'taskStart', payload: { taskId: taskId.toString(), command: prompt, startTime: new Date() } }) + '\n\n');
+    // poll for updates
+    const interval = setInterval(async () => {
+      try {
+        const task = await Task.findById(taskId).lean();
+        if (!task) {
+          clearInterval(interval);
+          res.write('data: ' + JSON.stringify({ event: 'taskError', taskId: taskId.toString(), error: 'Task not found' }) + '\n\n');
+          return res.end();
+        }
+        const done = ['completed','error'].includes(task.status);
+        const evtName = done ? 'taskComplete' : 'stepProgress';
+        const payload = { taskId: taskId.toString(), progress: task.progress, result: task.result, error: task.error };
+        res.write('data: ' + JSON.stringify({ event: evtName, ...payload }) + '\n\n');
+        if (done) {
+          clearInterval(interval);
+          return res.end();
+        }
+      } catch (err) {
+        console.error('Task polling error:', err);
+      }
+    }, 2000);
+    req.on('close', () => clearInterval(interval));
   } else {
-    // --- Chat branch (non-streaming) ---
-    // Save user message to the unified Message collection
-    await new Message({
-      userId,
-      role: 'user',
-      type: 'chat',
-      content: prompt,
-      timestamp: new Date()
-    }).save();
-
-    // Get last 20 messages for context
-    const lastMessages = await Message.find({ userId, role: { $in: ['user','assistant'] } }).sort({ timestamp: -1 }).limit(20).lean();
-    let lastMessagesReversed = lastMessages.reverse();
-    const openaiClient = await getUserOpenAiClient(userId);
-
-    try {
-      const completion = await openaiClient.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages: lastMessagesReversed.map(m=>({ role:m.role, content:m.content })),
-        temperature: 0.7
-      });
-      const assistantReply = completion.choices[0].message.content;
-      await Message.create({ userId, role: 'assistant', type: 'chat', content: assistantReply, timestamp: new Date() });
-
-      return res.json({ success: true, assistantReply, message: lastMessages[0] }); // Message already saved above.
-    } catch (err) {
-      console.error('Chat error', err);
-      // Save error as assistant message for continuity
-      await Message.create({ userId, role: 'assistant', type: 'chat', content: `Error: ${err.message}`, timestamp: new Date(), meta: { error: err.message } });
-      return res.status(500).json({ success:false, error: err.message });
+    // chat streaming
+    res.set({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive'
+    });
+    res.flushHeaders();
+    for await (const evt of streamNliThoughts(userId, prompt)) {
+      res.write('data: ' + JSON.stringify(evt) + '\n\n');
     }
+    res.end();
   }
 });
 
 // --- Unified Message Retrieval Endpoint (backward compatible) ---
-app.get('/messages', requireAuth, async (req, res) => {
+app.get('/api/messages', requireAuth, async (req, res) => {
   try {
     const userId = req.session.user;
     const limit = parseInt(req.query.limit, 10) || 20;
@@ -2546,29 +2561,6 @@ app.get('/messages', requireAuth, async (req, res) => {
   }
 });
 
-/**
- * SSE endpoint for streaming thought bubbles.
- */
-app.get('/nli', requireAuth, async (req, res) => {
-  const prompt = req.query.prompt;
-  if (typeof prompt !== 'string' || !prompt.trim()) {
-    res.status(400).json({ success: false, error: 'Prompt query parameter is required.' });
-    return;
-  }
-  const userId = req.session.user;
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    Connection: 'keep-alive'
-  });
-  res.flushHeaders();
-
-  for await (const evt of streamNliThoughts(userId, prompt)) {
-    res.write(`data: ${JSON.stringify(evt)}\n\n`);
-  }
-  res.end();
-});
-
 // Helper: async generator for streaming thought (and tool) events
 async function* streamNliThoughts(userId, prompt) {
   // Persist user prompt
@@ -2585,13 +2577,15 @@ async function* streamNliThoughts(userId, prompt) {
 
   const stream = await openaiClient.chat.completions.create({
     model: 'gpt-3.5-turbo',
-    messages: history.map(m => ({ role: m.role, content: m.content })),
+    messages: history.map(m=>({ role:m.role, content:m.content })),
     stream: true,
-    temperature: 0.7
+    temperature: 0.7,
+    max_tokens: 700
   });
 
   for await (const chunk of stream) {
     const delta = chunk.choices[0]?.delta;
+    
     if (delta?.content) {
       buffer += delta.content;
       fullReply += delta.content;
@@ -2616,9 +2610,47 @@ async function* streamNliThoughts(userId, prompt) {
 
   // Signal completion
   yield { event: 'thoughtComplete', text: fullReply };
+}
+
+const handleFinalResponse = async (userId, finalResponse) => {
+  try {
+    await Promise.all([
+      // Store in Message collection for individual access
+      Message.create({
+        userId,
+        content: finalResponse,
+        role: 'assistant',
+        type: 'system',  // Using validated enum value
+        timestamp: new Date()
+      }),
+      
+      // Append to ChatHistory for conversation context
+      ChatHistory.updateOne(
+        { userId },
+        { 
+          $push: { 
+            messages: { 
+              role: 'assistant', 
+              content: finalResponse,
+              timestamp: new Date() 
+            } 
+          } 
+        },
+        { upsert: true }
+      )
+    ]);
+    
+    sendWebSocketUpdate(userId, {
+      event: 'nliResponsePersisted',
+      content: finalResponse
+    });
+  } catch (err) {
+    console.error('[NLI] Error persisting final response:', err);
+    // Consider adding retry logic here if needed
+  }
 };
 
-app.get('/nli', requireAuth, async (req, res) => {
+app.get('/api/nli', requireAuth, async (req, res) => {
   const prompt = req.query.prompt;
   if (typeof prompt !== 'string' || !prompt.trim()) {
     res.status(400).json({ success: false, error: 'Prompt query parameter is required.' });
@@ -2633,15 +2665,11 @@ app.get('/nli', requireAuth, async (req, res) => {
     console.error('Classification error', err);
     classification = 'task';
   }
-  // SSE headers
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    Connection: 'keep-alive'
-  });
-  res.flushHeaders();
 
   if (classification === 'task') {
+    // fetch user for email
+    const userDoc = await User.findById(userId).lean();
+    const userEmail = userDoc?.email;
     // persist user in chat history
     let chatHistory = await ChatHistory.findOne({ userId }) || new ChatHistory({ userId, messages: [] });
     chatHistory.messages.push({ role: 'user', content: prompt, timestamp: new Date() });
@@ -2651,11 +2679,18 @@ app.get('/nli', requireAuth, async (req, res) => {
     const runId  = uuidv4();
     const runDir = path.join(MIDSCENE_RUN_DIR, runId);
     fs.mkdirSync(runDir, { recursive: true });
+    // … save Task + push to User.activeTasks …
     await new Task({ _id: taskId, userId, command: prompt, status: 'pending', progress: 0, startTime: new Date(), runId }).save();
     await User.updateOne({ _id: userId }, { $push: { activeTasks: { _id: taskId.toString(), command: prompt, status: 'pending', startTime: new Date() } } });
     // launch task processing
-    processTask(userId, user.email, taskId.toString(), runId, runDir, prompt, null).catch(console.error);
+    processTask(userId, userEmail, taskId.toString(), runId, runDir, prompt, null).catch(console.error);
     // send taskStart
+    res.set({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive'
+    });
+    res.flushHeaders();
     res.write('data: ' + JSON.stringify({ event: 'taskStart', payload: { taskId: taskId.toString(), command: prompt, startTime: new Date() } }) + '\n\n');
     // poll for updates
     const interval = setInterval(async () => {
@@ -2681,8 +2716,17 @@ app.get('/nli', requireAuth, async (req, res) => {
     req.on('close', () => clearInterval(interval));
   } else {
     // chat streaming
+    res.set({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive'
+    });
+    res.flushHeaders();
     for await (const evt of streamNliThoughts(userId, prompt)) {
       res.write('data: ' + JSON.stringify(evt) + '\n\n');
+      if (evt.event === 'thoughtComplete') {
+        await handleFinalResponse(userId, evt.text);
+      }
     }
     res.end();
   }
