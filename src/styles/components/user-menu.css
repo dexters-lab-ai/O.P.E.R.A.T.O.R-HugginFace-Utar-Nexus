@@ -1,0 +1,168 @@
+/**
+ * User Menu Styling
+ * Modern, futuristic, glassy dropdown styling
+ */
+
+.user-button {
+  cursor: pointer;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.85);
+  transition: all 0.2s ease;
+}
+
+.user-menu {
+  background: rgba(40, 45, 95, 0.85) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(103, 111, 231, 0.2) !important;
+  box-shadow: 
+    0 15px 35px rgba(0, 0, 0, 0.4),
+    0 3px 10px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(143, 137, 247, 0.15),
+    inset 0 1px rgba(255, 255, 255, 0.06) !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  color: #fff !important;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  transform-origin: top right !important;
+  transform: scale(0.95) !important;
+  opacity: 0 !important;
+  width: 220px !important;
+  margin-top: 8px !important;
+}
+
+.user-menu[style*="display: block"] {
+  transform: scale(1) !important;
+  opacity: 1 !important;
+}
+
+/* User menu header with user info */
+.user-menu-header {
+  padding: 16px !important;
+  border-bottom: 1px solid rgba(100, 120, 255, 0.1) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  text-align: center !important;
+  background: rgba(40, 45, 80, 0.3) !important;
+}
+
+.user-menu-avatar {
+  width: 60px !important;
+  height: 60px !important;
+  background: rgba(100, 120, 255, 0.15) !important;
+  border-radius: 50% !important;
+  margin-bottom: 12px !important;
+  border: 2px solid rgba(100, 120, 255, 0.3) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  overflow: hidden !important;
+  position: relative !important;
+}
+
+.user-menu-avatar i {
+  font-size: 28px !important;
+  color: #8a95e6 !important;
+}
+
+.user-menu-name {
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  color: #fff !important;
+  margin-bottom: 4px !important;
+}
+
+.user-menu-email {
+  font-size: 13px !important;
+  color: rgba(255, 255, 255, 0.6) !important;
+  margin-bottom: 8px !important;
+  /* Ellipsis for long emails */
+  max-width: 200px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+/* Menu items */
+.user-menu-item {
+  display: flex !important;
+  align-items: center !important;
+  padding: 12px 16px !important;
+  font-size: 14px !important;
+  color: rgba(255, 255, 255, 0.8) !important;
+  transition: all 0.2s ease !important;
+  background: transparent !important;
+  border: none !important;
+  cursor: pointer !important;
+  width: 100% !important;
+  text-align: left !important;
+  border-left: 2px solid transparent !important;
+}
+
+.user-menu-item i {
+  margin-right: 12px !important;
+  min-width: 20px !important;
+  text-align: center !important;
+  font-size: 16px !important;
+  color: rgba(100, 120, 255, 0.85) !important;
+  transition: all 0.2s ease !important;
+}
+
+.user-menu-item:hover, .user-menu-item:focus {
+  background: rgba(100, 120, 255, 0.1) !important;
+  color: #fff !important;
+  border-left-color: rgba(100, 120, 255, 0.6) !important;
+}
+
+.user-menu-item:hover i, .user-menu-item:focus i {
+  color: rgba(100, 120, 255, 1) !important;
+  transform: scale(1.1) !important;
+}
+
+/* Separator */
+.menu-separator {
+  height: 1px !important;
+  background: rgba(100, 120, 255, 0.1) !important;
+  margin: 8px 0 !important;
+}
+
+/* Danger zone */
+.user-menu-item.delete-account {
+  color: rgba(231, 76, 60, 0.8) !important;
+}
+
+.user-menu-item.delete-account i {
+  color: rgba(231, 76, 60, 0.8) !important;
+}
+
+.user-menu-item.delete-account:hover, .user-menu-item.delete-account:focus {
+  background: rgba(231, 76, 60, 0.1) !important;
+  color: #e74c3c !important;
+  border-left-color: #e74c3c !important;
+}
+
+.user-menu-item.delete-account:hover i, .user-menu-item.delete-account:focus i {
+  color: #e74c3c !important;
+}
+
+/* Animation */
+@keyframes menuFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Remove duplicate user profile elements */
+.user-profile, .user-buttonOld {
+  display: none !important;
+}

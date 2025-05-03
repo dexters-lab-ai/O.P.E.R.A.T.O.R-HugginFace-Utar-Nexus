@@ -71,6 +71,17 @@ fs.mkdirSync(REPORT_DIR, { recursive: true });
 // 6) EXPRESS + HTTP SERVER
 // ======================================
 const app    = express();
+
+// Configure CORS
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
+
+// Configure session middleware
 const server = createServer(app);
 
 // ======================================
@@ -260,6 +271,17 @@ wss.on('connection', (ws, req) => {
   ws.on('error', (error) => {
     console.error(`[WebSocket] Error for userId=${userId}:`, error);
   });
+
+  ws.on('message', (message) => {
+    try {
+      const data = JSON.parse(message);
+      if (data.event === 'debugLog') {
+        console.log('[CLIENT DEBUG]', data.message, data.data);
+      }
+    } catch (e) {
+      console.error('WS message parse error:', e);
+    }
+  });
 });
 
 // ======================================
@@ -437,7 +459,7 @@ async function updateTaskInDatabase(taskId, updates) {
     }
     let eventName;
     if (updates.status === 'pending') eventName = 'taskStart';
-    else if (updates.status === 'completed') eventName = 'taskComplete';
+    // else if (updates.status === 'completed') eventName = 'taskComplete';
     else if (updates.status === 'error') eventName = 'taskError';
     else if ('progress' in updates) eventName = 'stepProgress';
     else if ('intermediateResults' in updates) eventName = 'intermediateResult';
@@ -1893,14 +1915,11 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
                       content: finalExtracted,
                       taskId,
                       timestamp: new Date(),
-                      meta: { summary }
-                    });
-
-                    sendWebSocketUpdate(userId, {
-                      event: 'taskComplete',
-                      taskId,
-                      status: 'completed',
-                      result: finalResult
+                      meta: {
+                        summary: finalResult.aiPrepared.summary,
+                        midsceneReportUrl: finalResult.midsceneReportUrl,
+                        landingReportUrl: finalResult.landingReportUrl
+                      }
                     });
                     taskCompleted = true;
                     break;
@@ -1975,16 +1994,15 @@ async function processTask(userId, userEmail, taskId, runId, runDir, prompt, url
         content: summary,
         taskId,
         timestamp: new Date(),
-        meta: { summary }
+        meta: {
+          summary: finalResult.aiPrepared.summary,
+          midsceneReportUrl: finalResult.midsceneReportUrl,
+          landingReportUrl: finalResult.landingReportUrl,
+          errorReportUrl: finalResult.errorReportUrl || null,
+          screenshot: finalResult.screenshot || finalResult.screenshotPath || null,
+          screenshotPath: finalResult.screenshotPath || finalResult.screenshot || null
+        }
       });
-      // ---------------------------------------------------------------
-      sendWebSocketUpdate(userId, {
-        event: 'taskComplete',
-        taskId,
-        status: 'completed',
-        result: finalResult
-      });
-      plan.log("Sent taskComplete update for max-steps reached.");
     }
   } catch (error) {
     console.error(`[ProcessTask] Error in task ${taskId}:`, error);
@@ -2727,6 +2745,336 @@ app.get('/api/nli', requireAuth, async (req, res) => {
       if (evt.event === 'thoughtComplete') {
         await handleFinalResponse(userId, evt.text);
       }
+    }
+    res.end();
+  }
+});
+
+// --- API: History endpoints ---
+app.get('/api/history', requireAuth, async (req, res) => {
+  try {
+    const userId = req.session.user;
+    
+    // Parse pagination parameters
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+    
+    // Find tasks for this user
+    const tasks = await Task.find({ userId })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+    
+    // Calculate total for pagination
+    const total = await Task.countDocuments({ userId });
+    
+    res.json({
+      success: true,
+      items: tasks.map(task => ({
+        id: task._id,
+        date: task.createdAt,
+        title: task.prompt?.substring(0, 50) || 'Untitled Task',
+        summary: task.summary || task.prompt || 'No description available',
+        status: task.status,
+        tags: task.tags || [],
+        type: task.type || 'task'
+      })),
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+        totalItems: total
+      }
+    });
+  } catch (error) {
+    console.error('Error retrieving history:', error);
+    res.status(500).json({ success: false, error: 'Failed to retrieve history' });
+  }
+});
+
+// Get a specific history item
+app.get('/api/history/:id', requireAuth, async (req, res) => {
+  try {
+    const userId = req.session.user;
+    const taskId = req.params.id;
+    
+    const task = await Task.findOne({ _id: taskId, userId }).lean();
+    
+    if (!task) {
+      return res.status(404).json({ success: false, error: 'Task not found' });
+    }
+    
+    res.json({
+      success: true,
+      item: {
+        id: task._id,
+        date: task.createdAt,
+        title: task.prompt?.substring(0, 50) || 'Untitled Task',
+        summary: task.summary || task.prompt || 'No description available',
+        status: task.status,
+        prompt: task.prompt,
+        result: task.result,
+        steps: task.steps || [],
+        tags: task.tags || [],
+        type: task.type || 'task'
+      }
+    });
+  } catch (error) {
+    console.error('Error retrieving task:', error);
+    res.status(500).json({ success: false, error: 'Failed to retrieve task' });
+  }
+});
+
+// Delete a history item
+app.delete('/api/history/:id', requireAuth, async (req, res) => {
+  try {
+    const userId = req.session.user;
+    const taskId = req.params.id;
+    
+    const result = await Task.deleteOne({ _id: taskId, userId });
+    
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ success: false, error: 'Task not found' });
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting task:', error);
+    res.status(500).json({ success: false, error: 'Failed to delete task' });
+  }
+});
+
+// --- API: User Settings endpoints ---
+app.get('/api/settings', requireAuth, async (req, res) => {
+  try {
+    const userId = req.session.user;
+    
+    // Find the user document
+    const user = await User.findById(userId).exec();
+    
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    // Include API keys info (whether they exist, not the actual keys)
+    const apiKeyInfo = {};
+    if (user.apiKeys) {
+      Object.keys(user.apiKeys).forEach(provider => {
+        apiKeyInfo[provider] = user.apiKeys[provider] ? true : false;
+      });
+    }
+
+    // Prepare response with user settings
+    return res.json({
+      success: true,
+      data: {
+        apiKeys: apiKeyInfo,
+        preferences: user.preferences || {},
+        llmPreferences: user.llmPreferences || {
+          default: 'gpt-4',
+          code: 'default',
+          content: 'default',
+          research: 'default'
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error getting user settings:', error);
+    return res.status(500).json({ success: false, error: 'Failed to get user settings' });
+  }
+});
+
+app.post('/api/settings', requireAuth, async (req, res) => {
+  try {
+    const userId = req.session.user;
+    const { action } = req.body;
+    const user = await User.findById(userId).exec();
+    
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    // Handle different types of settings updates
+    switch (action) {
+      case 'saveApiKey':
+        const { provider, key } = req.body;
+        
+        if (!provider || !key) {
+          return res.status(400).json({ success: false, error: 'Provider and key are required' });
+        }
+        
+        // Initialize apiKeys if it doesn't exist
+        if (!user.apiKeys) {
+          user.apiKeys = {};
+        }
+        
+        // Save API key
+        user.apiKeys[provider] = key;
+        await user.save();
+        
+        return res.json({ success: true, message: `${provider} API key saved successfully` });
+
+      case 'saveLlmPreferences':
+        const { models } = req.body;
+        
+        if (!models) {
+          return res.status(400).json({ success: false, error: 'Model preferences are required' });
+        }
+        
+        // Initialize llmPreferences if it doesn't exist
+        if (!user.llmPreferences) {
+          user.llmPreferences = {};
+        }
+        
+        // Update LLM preferences
+        user.llmPreferences = {
+          ...user.llmPreferences,
+          ...models
+        };
+        
+        await user.save();
+        
+        return res.json({ success: true, message: 'LLM preferences saved successfully' });
+        
+      default:
+        return res.status(400).json({ success: false, error: 'Invalid action' });
+    }
+  } catch (error) {
+    console.error('Error updating user settings:', error);
+    return res.status(500).json({ success: false, error: 'Failed to update user settings' });
+  }
+});
+
+app.delete('/api/settings', requireAuth, async (req, res) => {
+  try {
+    const userId = req.session.user;
+    const { action, provider } = req.body;
+    const user = await User.findById(userId).exec();
+    
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    if (action === 'deleteApiKey') {
+      if (!provider) {
+        return res.status(400).json({ success: false, error: 'Provider is required' });
+      }
+      
+      // Check if apiKeys and the specific provider key exist
+      if (user.apiKeys && user.apiKeys[provider]) {
+        // Delete the key
+        delete user.apiKeys[provider];
+        await user.save();
+        
+        return res.json({ success: true, message: `${provider} API key deleted successfully` });
+      } else {
+        return res.status(404).json({ success: false, error: 'API key not found' });
+      }
+    } else {
+      return res.status(400).json({ success: false, error: 'Invalid action' });
+    }
+  } catch (error) {
+    console.error('Error deleting API key:', error);
+    return res.status(500).json({ success: false, error: 'Failed to delete API key' });
+  }
+});
+
+app.post('/api/nli', requireAuth, async (req, res) => {
+  // Accept both { prompt } and legacy { inputText }
+  let prompt = req.body.prompt;
+  if (!prompt && req.body.inputText) {
+    prompt = req.body.inputText;
+    console.debug('[DEBUG] /nli: Using legacy inputText as prompt:', prompt);
+  }
+  if (typeof prompt !== 'string') {
+    console.error('[ERROR] /nli: Prompt must be a string. Got:', typeof prompt, prompt);
+    return res.status(400).json({ success: false, error: 'Prompt must be a string.' });
+  }
+
+  // Sanitize and validate prompt
+  prompt = prompt.trim();
+  if (prompt.length === 0) {
+    console.error('[ERROR] /nli: Prompt is empty after trim.');
+    return res.status(400).json({ success: false, error: 'Prompt cannot be empty.' });
+  }
+  const MAX_PROMPT_LENGTH = 5000;
+  if (prompt.length > MAX_PROMPT_LENGTH) {
+    console.error(`[ERROR] /nli: Prompt too long (${prompt.length} chars). Max is ${MAX_PROMPT_LENGTH}.`);
+    return res.status(400).json({ success:false, error: `Prompt too long (max ${MAX_PROMPT_LENGTH} chars).` });
+  }
+
+  const userId = req.session.user;
+  const user   = await User.findById(userId).select('email openaiApiKey').lean();
+  if (!user) return res.status(400).json({ success: false, error: 'User not found' });
+
+  let classification;
+  try {
+    classification = await openaiClassifyPrompt(prompt, userId);
+  } catch (err) {
+    console.error('Classification error', err);
+    classification = 'task';
+  }
+
+  if (classification === 'task') {
+    // fetch user for email
+    const userDoc = await User.findById(userId).lean();
+    const userEmail = userDoc?.email;
+    // persist user in chat history
+    let chatHistory = await ChatHistory.findOne({ userId }) || new ChatHistory({ userId, messages: [] });
+    chatHistory.messages.push({ role: 'user', content: prompt, timestamp: new Date() });
+    await chatHistory.save();
+
+    const taskId = new mongoose.Types.ObjectId();
+    const runId  = uuidv4();
+    const runDir = path.join(MIDSCENE_RUN_DIR, runId);
+    fs.mkdirSync(runDir, { recursive: true });
+
+    // … save Task + push to User.activeTasks …
+    await new Task({ _id: taskId, userId, command: prompt, status: 'pending', progress: 0, startTime: new Date(), runId }).save();
+    await User.updateOne({ _id: userId }, { $push: { activeTasks: { _id: taskId.toString(), command: prompt, status: 'pending', startTime: new Date() } } });
+
+    sendWebSocketUpdate(userId, { event: 'taskStart', payload: { taskId: taskId.toString(), command: prompt, startTime: new Date() } });
+    processTask(userId, userEmail, taskId.toString(), runId, runDir, prompt, null);
+    res.set({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive'
+    });
+    res.flushHeaders();
+    res.write('data: ' + JSON.stringify({ event: 'taskStart', payload: { taskId: taskId.toString(), command: prompt, startTime: new Date() } }) + '\n\n');
+    // poll for updates
+    const interval = setInterval(async () => {
+      try {
+        const task = await Task.findById(taskId).lean();
+        if (!task) {
+          clearInterval(interval);
+          res.write('data: ' + JSON.stringify({ event: 'taskError', taskId: taskId.toString(), error: 'Task not found' }) + '\n\n');
+          return res.end();
+        }
+        const done = ['completed','error'].includes(task.status);
+        const evtName = done ? 'taskComplete' : 'stepProgress';
+        const payload = { taskId: taskId.toString(), progress: task.progress, result: task.result, error: task.error };
+        res.write('data: ' + JSON.stringify({ event: evtName, ...payload }) + '\n\n');
+        if (done) {
+          clearInterval(interval);
+          return res.end();
+        }
+      } catch (err) {
+        console.error('Task polling error:', err);
+      }
+    }, 2000);
+    req.on('close', () => clearInterval(interval));
+  } else {
+    // chat streaming
+    res.set({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive'
+    });
+    res.flushHeaders();
+    for await (const evt of streamNliThoughts(userId, prompt)) {
+      res.write('data: ' + JSON.stringify(evt) + '\n\n');
     }
     res.end();
   }

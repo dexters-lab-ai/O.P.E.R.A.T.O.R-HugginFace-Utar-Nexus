@@ -1,17 +1,25 @@
-/* Task Bar Styles */
+/* Task Bar Styles - Modernized to match command center */
 
 .task-bar {
   position: fixed;
   bottom: 0;
   left: 0;
   width: 100%;
-  background: var(--dark-light);
-  border-top: 1px solid var(--dark-border);
-  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.5);
+  background: linear-gradient(165deg, rgba(20, 25, 45, 0.85), rgba(15, 15, 30, 0.95));
+  border-top: 1px solid rgba(100, 120, 250, 0.15);
+  box-shadow: 0 -5px 20px rgba(0, 0, 0, 0.25), 0 -1px 3px rgba(0, 0, 0, 0.1);
   display: flex;
   align-items: center;
   padding: 10px 20px;
   z-index: 1000;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.task-bar:hover {
+  border-top-color: rgba(100, 120, 250, 0.25);
+  box-shadow: 0 -8px 25px rgba(0, 0, 0, 0.3), 0 -1px 5px rgba(100, 120, 250, 0.1);
 }
 
 .task-bar-status {
@@ -23,18 +31,24 @@
 .task-bar-status .status-item {
   display: flex;
   align-items: center;
-  gap: 5px;
-  color: var(--text-muted);
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.7);
   font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.task-bar-status .status-item:hover {
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .task-bar-status .status-item .status-label {
-  color: var(--text);
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .task-bar-status .status-item .status-value {
-  font-weight: bold;
-  color: var(--primary);
+  font-weight: 600;
+  color: rgba(100, 150, 255, 0.95);
+  text-shadow: 0 0 8px rgba(100, 150, 255, 0.3);
 }
 
 .task-bar-status .status-indicator {
@@ -43,46 +57,59 @@
   border-radius: 50%;
   display: inline-block;
   margin-left: 5px;
+  transition: all 0.3s ease;
+  box-shadow: 0 0 10px 2px currentColor;
 }
 
 .status-indicator.online {
-  background: var(--success);
+  background: rgba(60, 220, 130, 0.9);
+  box-shadow: 0 0 10px rgba(60, 220, 130, 0.6);
 }
 
 .status-indicator.offline {
-  background: var(--danger);
+  background: rgba(255, 80, 80, 0.9);
+  box-shadow: 0 0 10px rgba(255, 80, 80, 0.6);
 }
 
 .task-bar-controls {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .task-bar-control {
   background: transparent;
-  color: var(--text);
+  color: rgba(255, 255, 255, 0.75);
   border: none;
   cursor: pointer;
-  transition: color var(--transition-fast);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  padding: 6px 10px;
+  border-radius: 8px;
 }
 
 .task-bar-control:hover {
-  color: var(--primary);
+  color: rgba(255, 255, 255, 0.95);
+  background: rgba(100, 120, 250, 0.15);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .task-count {
   display: flex;
   align-items: center;
-  gap: 5px;
-  color: var(--text);
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.85);
   font-size: 16px;
-  font-weight: bold;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: rgba(100, 120, 250, 0.1);
+  transition: all 0.3s ease;
 }
 
-.task-count .count {
-  margin-left: 5px;
+.task-count:hover {
+  background: rgba(100, 120, 250, 0.2);
 }
 
 .task-bar-tasks {
@@ -113,6 +140,15 @@
   text-align: center;
   color: var(--text-muted);
   font-style: italic;
+}
+
+/* Landing Report Link */
+.task-report-link {
+  display: inline-block;
+  margin-top: 0.5rem;
+  color: var(--secondary);
+  text-decoration: underline;
+  font-size: 0.9rem;
 }
 
 /* Dual progress and step log styles */

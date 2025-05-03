@@ -35,12 +35,12 @@
 }
 
 .btn-secondary {
-  background-color: var(--secondary-color);
-  color: var(--secondary-text);
+  background-color: var(--primary-color);
+  color: var(--primary-text);
 }
 
 .btn-secondary:hover {
-  background-color: var(--secondary-color-hover);
+  background-color: var(--primary-color-hover);
 }
 
 .btn-danger {
@@ -80,71 +80,6 @@
   padding: 0.75rem 1.5rem;
   font-size: 1.1rem;
 }
-
-/* Base Card Component */
-/*
-.card {
-  background-color: var(--card-background);
-  border-radius: var(--border-radius);
-  box-shadow: var(--card-shadow);
-  margin-bottom: 1rem;
-  overflow: hidden;
-  transition: all 0.3s ease;
-}
-
-.card:hover {
-  box-shadow: var(--card-shadow-hover);
-}
-
-.card-title {
-  padding: 1rem;
-  font-size: 1rem;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.card-title i {
-  margin-right: 0.5rem;
-  color: var(--primary-color);
-}
-
-.card-content {
-  padding: 1rem;
-}
-
-.card-footer {
-  padding: 0.75rem 1rem;
-  border-top: 1px solid var(--border-color);
-  background-color: var(--card-footer-background);
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-}
-
-.collapse-toggle {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 0.25rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-}
-
-.collapse-toggle:hover {
-  color: var(--text-color);
-}
-
-.card.collapsed .card-content,
-.card.collapsed .card-footer {
-  display: none;
-}
-*/
 
 /* Modal Component */
 .modal-container {
@@ -488,22 +423,7 @@
   letter-spacing: 1px;
 }
 
-.nav-links {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.nav-link {
-  padding: 0.5rem 1rem;
-  color: var(--text-color);
-  text-decoration: none;
-  border-radius: var(--border-radius);
-  transition: all 0.2s ease;
-}
-
-.nav-link:hover {
-  background-color: var(--background-hover);
-}
+/* Deprecated nav-links removed */
 
 .nav-tools {
   display: flex;

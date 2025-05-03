@@ -9,6 +9,17 @@ import '@/styles/components/command-center.css';
 import '@/styles/components/layouts.css';
 import '@/styles/components/timeline.css';
 import '@/styles/components/message-timeline.css';
+import './styles/futuristic.css';
+import './styles/components/components.css';
+import './styles/components/futuristic.css';
+import './styles/components/message-timeline.css';
+import './styles/components/command-center.css';
+import './styles/components/settings-modal.css';
+import './styles/components/guide-overlay.css';
+import './styles/components/profile-modal.css';
+import './styles/components/history-overlay.css';
+import './styles/components/user-menu.css';
+import './styles/components/timeline-filters.css';
 
 // Vendor CSS (must remain in HTML)
 // <link rel="stylesheet" href="/vendors/fontawesome/all.min.css">

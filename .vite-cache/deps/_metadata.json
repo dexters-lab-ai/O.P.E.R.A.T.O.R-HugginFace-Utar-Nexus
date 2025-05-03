@@ -2,118 +2,112 @@
   "hash": "54f19ee3",
   "configHash": "a274ac4f",
   "lockfileHash": "5da4216e",
-  "browserHash": "7d0ee07b",
+  "browserHash": "3afe8a6d",
   "optimized": {
     "three/examples/jsm/loaders/DRACOLoader": {
       "src": "../../node_modules/three/examples/jsm/loaders/DRACOLoader.js",
       "file": "three_examples_jsm_loaders_DRACOLoader.js",
-      "fileHash": "c5fff893",
+      "fileHash": "3f25594b",
       "needsInterop": false
     },
     "react": {
       "src": "../../node_modules/react/index.js",
       "file": "react.js",
-      "fileHash": "74bb19eb",
+      "fileHash": "8fafbcf7",
       "needsInterop": true
     },
     "react-dom": {
       "src": "../../node_modules/react-dom/index.js",
       "file": "react-dom.js",
-      "fileHash": "bbc3fcd2",
+      "fileHash": "e3934e30",
       "needsInterop": true
     },
     "react/jsx-dev-runtime": {
       "src": "../../node_modules/react/jsx-dev-runtime.js",
       "file": "react_jsx-dev-runtime.js",
-      "fileHash": "c7ca8f9b",
+      "fileHash": "7d19c92f",
       "needsInterop": true
     },
     "react/jsx-runtime": {
       "src": "../../node_modules/react/jsx-runtime.js",
       "file": "react_jsx-runtime.js",
-      "fileHash": "6f215ae2",
+      "fileHash": "719dec45",
       "needsInterop": true
     },
     "three": {
       "src": "../../node_modules/three/build/three.module.js",
       "file": "three.js",
-      "fileHash": "c603a8e9",
-      "needsInterop": false
-    },
-    "three/examples/jsm/loaders/GLTFLoader.js": {
-      "src": "../../node_modules/three/examples/jsm/loaders/GLTFLoader.js",
-      "file": "three_examples_jsm_loaders_GLTFLoader__js.js",
-      "fileHash": "da173a59",
-      "needsInterop": false
-    },
-    "three/examples/jsm/loaders/DRACOLoader.js": {
-      "src": "../../node_modules/three/examples/jsm/loaders/DRACOLoader.js",
-      "file": "three_examples_jsm_loaders_DRACOLoader__js.js",
-      "fileHash": "273c2337",
+      "fileHash": "ea989cf2",
       "needsInterop": false
     },
     "three/examples/jsm/controls/OrbitControls.js": {
       "src": "../../node_modules/three/examples/jsm/controls/OrbitControls.js",
       "file": "three_examples_jsm_controls_OrbitControls__js.js",
-      "fileHash": "d15cb069",
-      "needsInterop": false
-    },
-    "three/examples/jsm/loaders/RGBELoader.js": {
-      "src": "../../node_modules/three/examples/jsm/loaders/RGBELoader.js",
-      "file": "three_examples_jsm_loaders_RGBELoader__js.js",
-      "fileHash": "5d421225",
-      "needsInterop": false
-    },
-    "three/examples/jsm/postprocessing/EffectComposer.js": {
-      "src": "../../node_modules/three/examples/jsm/postprocessing/EffectComposer.js",
-      "file": "three_examples_jsm_postprocessing_EffectComposer__js.js",
-      "fileHash": "94afbbf1",
-      "needsInterop": false
-    },
-    "three/examples/jsm/postprocessing/RenderPass.js": {
-      "src": "../../node_modules/three/examples/jsm/postprocessing/RenderPass.js",
-      "file": "three_examples_jsm_postprocessing_RenderPass__js.js",
-      "fileHash": "32742761",
-      "needsInterop": false
-    },
-    "three/examples/jsm/postprocessing/UnrealBloomPass.js": {
-      "src": "../../node_modules/three/examples/jsm/postprocessing/UnrealBloomPass.js",
-      "file": "three_examples_jsm_postprocessing_UnrealBloomPass__js.js",
-      "fileHash": "fa31b9ff",
-      "needsInterop": false
-    },
-    "three/examples/jsm/shaders/GammaCorrectionShader.js": {
-      "src": "../../node_modules/three/examples/jsm/shaders/GammaCorrectionShader.js",
-      "file": "three_examples_jsm_shaders_GammaCorrectionShader__js.js",
-      "fileHash": "bd3736de",
-      "needsInterop": false
-    },
-    "three/examples/jsm/postprocessing/ShaderPass.js": {
-      "src": "../../node_modules/three/examples/jsm/postprocessing/ShaderPass.js",
-      "file": "three_examples_jsm_postprocessing_ShaderPass__js.js",
-      "fileHash": "2248439d",
-      "needsInterop": false
-    },
-    "three/examples/jsm/loaders/FontLoader.js": {
-      "src": "../../node_modules/three/examples/jsm/loaders/FontLoader.js",
-      "file": "three_examples_jsm_loaders_FontLoader__js.js",
-      "fileHash": "13a46a19",
+      "fileHash": "906fabf4",
       "needsInterop": false
     },
     "three/examples/jsm/geometries/TextGeometry.js": {
       "src": "../../node_modules/three/examples/jsm/geometries/TextGeometry.js",
       "file": "three_examples_jsm_geometries_TextGeometry__js.js",
-      "fileHash": "1c80af6d",
+      "fileHash": "69d4613f",
+      "needsInterop": false
+    },
+    "three/examples/jsm/loaders/DRACOLoader.js": {
+      "src": "../../node_modules/three/examples/jsm/loaders/DRACOLoader.js",
+      "file": "three_examples_jsm_loaders_DRACOLoader__js.js",
+      "fileHash": "96f9198e",
+      "needsInterop": false
+    },
+    "three/examples/jsm/loaders/FontLoader.js": {
+      "src": "../../node_modules/three/examples/jsm/loaders/FontLoader.js",
+      "file": "three_examples_jsm_loaders_FontLoader__js.js",
+      "fileHash": "079c6ca1",
+      "needsInterop": false
+    },
+    "three/examples/jsm/loaders/GLTFLoader.js": {
+      "src": "../../node_modules/three/examples/jsm/loaders/GLTFLoader.js",
+      "file": "three_examples_jsm_loaders_GLTFLoader__js.js",
+      "fileHash": "8971d79f",
+      "needsInterop": false
+    },
+    "three/examples/jsm/loaders/RGBELoader.js": {
+      "src": "../../node_modules/three/examples/jsm/loaders/RGBELoader.js",
+      "file": "three_examples_jsm_loaders_RGBELoader__js.js",
+      "fileHash": "bea442a6",
+      "needsInterop": false
+    },
+    "three/examples/jsm/postprocessing/EffectComposer.js": {
+      "src": "../../node_modules/three/examples/jsm/postprocessing/EffectComposer.js",
+      "file": "three_examples_jsm_postprocessing_EffectComposer__js.js",
+      "fileHash": "b0cadb2b",
+      "needsInterop": false
+    },
+    "three/examples/jsm/postprocessing/RenderPass.js": {
+      "src": "../../node_modules/three/examples/jsm/postprocessing/RenderPass.js",
+      "file": "three_examples_jsm_postprocessing_RenderPass__js.js",
+      "fileHash": "9fa22ffc",
+      "needsInterop": false
+    },
+    "three/examples/jsm/postprocessing/ShaderPass.js": {
+      "src": "../../node_modules/three/examples/jsm/postprocessing/ShaderPass.js",
+      "file": "three_examples_jsm_postprocessing_ShaderPass__js.js",
+      "fileHash": "1a35576b",
+      "needsInterop": false
+    },
+    "three/examples/jsm/postprocessing/UnrealBloomPass.js": {
+      "src": "../../node_modules/three/examples/jsm/postprocessing/UnrealBloomPass.js",
+      "file": "three_examples_jsm_postprocessing_UnrealBloomPass__js.js",
+      "fileHash": "ead04394",
+      "needsInterop": false
+    },
+    "three/examples/jsm/shaders/GammaCorrectionShader.js": {
+      "src": "../../node_modules/three/examples/jsm/shaders/GammaCorrectionShader.js",
+      "file": "three_examples_jsm_shaders_GammaCorrectionShader__js.js",
+      "fileHash": "673a0667",
       "needsInterop": false
     }
   },
   "chunks": {
-    "chunk-I2MDJFMI": {
-      "file": "chunk-I2MDJFMI.js"
-    },
-    "chunk-HS6WR6MI": {
-      "file": "chunk-HS6WR6MI.js"
-    },
     "chunk-HXRZRDPH": {
       "file": "chunk-HXRZRDPH.js"
     },
@@ -122,6 +116,12 @@
     },
     "chunk-E5FRHPIL": {
       "file": "chunk-E5FRHPIL.js"
+    },
+    "chunk-I2MDJFMI": {
+      "file": "chunk-I2MDJFMI.js"
+    },
+    "chunk-HS6WR6MI": {
+      "file": "chunk-HS6WR6MI.js"
     },
     "chunk-MYETRLG2": {
       "file": "chunk-MYETRLG2.js"

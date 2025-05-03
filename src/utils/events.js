@@ -24,6 +24,33 @@ export const eventBus = {
   },
   emit(event, payload) {
     (listeners[event] || []).forEach(cb => cb(payload));
+  },
+  // Listen to all events
+  onAny(listener) {
+    this._anyListeners = this._anyListeners || [];
+    this._anyListeners.push(listener);
+    return this;
+  },
+  // Remove all events listener
+  offAny(listener) {
+    if (!this._anyListeners) return this;
+    if (listener) {
+      this._anyListeners = this._anyListeners.filter(l => l !== listener);
+    } else {
+      this._anyListeners = [];
+    }
+    return this;
+  }
+};
+
+// Override the emit method to also call any listeners
+const originalEmit = eventBus.emit;
+eventBus.emit = function(event, payload) {
+  originalEmit.call(this, event, payload);
+  
+  // Notify any listeners
+  if (this._anyListeners && this._anyListeners.length) {
+    this._anyListeners.forEach(listener => listener(event, payload));
   }
 };
 

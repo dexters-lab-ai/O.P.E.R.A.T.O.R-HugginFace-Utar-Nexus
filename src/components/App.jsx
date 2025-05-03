@@ -9,6 +9,7 @@ import MessageTimeline from './MessageTimeline.jsx';
 import BackButton from './BackButton.jsx';
 import { CommandCenter } from './CommandCenter.jsx';
 import TaskBar from './TaskBar.jsx';
+import { getSettingsModal } from './Settings.jsx';
 
 /**
  * Create the main application component
@@ -92,7 +93,7 @@ export function App(props = {}) {
   preferencesItem.className = 'user-menu-item';
   preferencesItem.innerHTML = '<i class="fas fa-user-cog"></i> Preferences';
   preferencesItem.onclick = () => {
-    eventBus.emit('toggle-settings');
+    getSettingsModal().show();
     dropdown.style.display = 'none';
   };
   dropdown.appendChild(preferencesItem);

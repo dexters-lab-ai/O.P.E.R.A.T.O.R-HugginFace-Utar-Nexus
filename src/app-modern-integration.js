@@ -26,7 +26,10 @@ import TaskBar from './components/TaskBar.jsx';
 import MessageTimeline from './components/MessageTimeline.jsx';
 import CommandCenter from './components/CommandCenter.jsx';
 import BackButton from './components/BackButton.jsx';
-import HistoryOverlay from './components/HistoryOverlay.jsx';
+import { getHistoryOverlay } from './components/HistoryOverlay.jsx';
+import { getSettingsModal } from './components/Settings.jsx';
+import { getGuideOverlay } from './components/GuideOverlay.jsx';
+import { getProfileModal } from './components/ProfileModal.jsx';
 import Notifications from './components/Notifications.jsx';
 import ThemeController from './components/ThemeController.jsx';
 import LayoutManager from './components/LayoutManager.jsx';
@@ -335,13 +338,19 @@ export function initializeModernUI(options = {}) {
    * Initialize overlay components
    */
   function initOverlayComponents() {
-    // Create history overlay
-    components.historyOverlay = HistoryOverlay({
-      containerId: 'history-overlay'
-    });
+    // Create history overlay using the singleton pattern
+    components.historyOverlay = getHistoryOverlay();
     
-    // Add to DOM
-    appRoot.appendChild(components.historyOverlay);
+    // Create settings modal using the singleton pattern
+    components.settingsModal = getSettingsModal();
+    
+    // Create guide overlay using the singleton pattern
+    components.guideOverlay = getGuideOverlay();
+    
+    // Create profile modal using the singleton pattern
+    components.profileModal = getProfileModal();
+    
+    // No need to add to DOM - the singleton initializers do this
   }
   
   /**
@@ -467,109 +476,34 @@ export function initializeModernUI(options = {}) {
       components.historyOverlay.toggle();
     });
     
+    // Handle guide overlay toggle
+    eventBus.on('toggle-guide-overlay', () => {
+      components.guideOverlay.toggle();
+    });
+    
+    // Handle profile modal toggle
+    eventBus.on('toggle-profile-modal', () => {
+      components.profileModal.toggle();
+    });
+    
     // Handle settings toggle
     eventBus.on('toggle-settings', () => {
-      // Show settings modal
-      const settingsContent = document.createElement('div');
-      settingsContent.innerHTML = `
-        <div class="settings-tabs">
-          <button class="settings-tab active">General</button>
-          <button class="settings-tab">Appearance</button>
-          <button class="settings-tab">Notifications</button>
-          <button class="settings-tab">Advanced</button>
-        </div>
-        <div class="settings-content">
-          <div class="setting-group">
-            <div class="setting-label">
-              <h3>Theme</h3>
-              <p class="setting-description">Choose your preferred interface theme</p>
-            </div>
-            <div class="setting-control">
-              <select class="setting-select" id="theme-select">
-                <option value="dark">Dark</option>
-                <option value="light">Light</option>
-              </select>
-            </div>
-          </div>
-          <div class="setting-group">
-            <div class="setting-label">
-              <h3>Font Size</h3>
-              <p class="setting-description">Adjust the text size throughout the application</p>
-            </div>
-            <div class="setting-control">
-              <select class="setting-select" id="font-size-select">
-                <option value="small">Small</option>
-                <option value="medium">Medium</option>
-                <option value="large">Large</option>
-              </select>
-            </div>
-          </div>
-          <div class="setting-group">
-            <div class="setting-label">
-              <h3>Animation Effects</h3>
-              <p class="setting-description">Enable or disable interface animations</p>
-            </div>
-            <div class="setting-control">
-              <label class="toggle-switch">
-                <input type="checkbox" id="animations-toggle" checked>
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-          </div>
-        </div>
-      `;
-      
-      // Create modal
-      const settingsModal = Modal({
-        title: 'Settings',
-        content: settingsContent,
-        size: 'large',
-        className: 'settings-modal',
-        footer: Button({
-          text: 'Save Changes',
-          variant: Button.VARIANTS.PRIMARY,
-          onClick: () => {
-            // Save settings
-            const themeSelect = document.getElementById('theme-select');
-            const fontSizeSelect = document.getElementById('font-size-select');
-            const animationsToggle = document.getElementById('animations-toggle');
-            
-            if (themeSelect) {
-              components.themeController.setTheme(themeSelect.value);
-            }
-            
-            if (fontSizeSelect) {
-              components.themeController.setFontSize(fontSizeSelect.value);
-            }
-            
-            // Close modal
-            settingsModal.hide();
-            
-            // Show confirmation
-            components.notifications.addNotification({
-              title: 'Settings Saved',
-              message: 'Your preferences have been updated',
-              type: 'success'
-            });
-          }
-        })
-      });
-      
-      // Show the modal
-      settingsModal.show();
-      
-      // Set current values
-      const themeSelect = document.getElementById('theme-select');
-      const fontSizeSelect = document.getElementById('font-size-select');
-      
-      if (themeSelect) {
-        themeSelect.value = components.themeController.getCurrentTheme();
-      }
-      
-      if (fontSizeSelect) {
-        fontSizeSelect.value = components.themeController.getCurrentFontSize();
+      console.log('Settings toggle event received');
+      const settingsModal = getSettingsModal();
+      if (settingsModal && typeof settingsModal.toggle === 'function') {
+        settingsModal.toggle();
+      } else {
+        console.error('Settings modal not properly initialized');
       }
     });
+    
+    // Add debug event logging in development mode
+    const devMode = process.env.NODE_ENV !== 'production';
+    if (devMode) {
+      eventBus.onAny((event, data) => {
+        console.debug(`[Event] ${event}`, data || '');
+      });
+    }
   }
   
   /**

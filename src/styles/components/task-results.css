@@ -397,65 +397,7 @@
   top: 2px;
   box-shadow: -2px -2px 6px rgba(0,0,0,0.04);
 }
-.user-dropdown-menu .user-menu-header {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  padding: 8px 18px 4px 18px;
-}
-.user-dropdown-menu .user-avatar {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  background: var(--primary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 1.45em;
-}
-.user-dropdown-menu .user-info {
-  display: flex;
-  flex-direction: column;
-}
-.user-dropdown-menu .user-name {
-  font-weight: 600;
-  font-size: 1.07em;
-  margin-bottom: 2px;
-}
-.user-dropdown-menu .user-email {
-  font-size: 0.97em;
-  color: #888;
-}
-.user-dropdown-menu .dropdown-divider {
-  border-top: 1px solid #ececec;
-  margin: 8px 0 8px 0;
-}
-.user-dropdown-menu .user-menu-item {
-  width: 100%;
-  background: none;
-  border: none;
-  outline: none;
-  color: #23272e;
-  font-size: 1em;
-  padding: 10px 22px;
-  text-align: left;
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-  border-radius: 7px;
-}
-.user-dropdown-menu .user-menu-item:hover,
-.user-dropdown-menu .user-menu-item:focus {
-  background: var(--primary);
-  color: #fff;
-}
-.user-dropdown-menu .user-menu-item i {
-  font-size: 1.1em;
-  opacity: 0.8;
-}
+/* User menu styling moved to src/styles/components/user-menu.css */
 .user-dropdown-menu .delete-account {
   color: #c82333;
   font-weight: 600;

@@ -223,7 +223,7 @@
         return (errEl.style.display = 'block');
       }
 
-      const url = isLogin ? '/auth/login' : '/auth/register';
+      const url = isLogin ? '/api/auth/login' : '/api/auth/register';
       try {
         const res = await fetch(url, {
           method: 'POST',

@@ -27,26 +27,36 @@ router.post('/register', async (req, res) => {
 
 // POST /login
 router.post('/login', async (req, res) => {
+  console.log('👉 Login request received:', {
+    headers: req.headers,
+    body: req.body,
+    sessionID: req.sessionID
+  });
+  
+  const { email, password } = req.body;
+  if (!email || !password) {
+    console.log('🚨 Missing credentials:', { email, password });
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+  
   try {
-    const { email, password } = req.body;
-    if (req.useMockAuth) {
-      // Dev fallback: allow login with dev/dev
-      if (email === 'dev' && password === 'dev') {
-        req.session.user = 'dev-user-id';
-        return res.json({ success: true, userId: 'dev-user-id', mock: true });
-      }
-      return res.status(400).json({ success: false, error: 'Invalid dev credentials', mock: true });
-    }
     const user = await User.findOne({ email });
-    if (!user || !await bcrypt.compare(password, user.password)) {
+    if (!user) {
+      console.log('🔍 User not found for email:', email);
       throw new Error('Invalid email or password');
     }
-    // Authentication logic
-    console.log('User logged in:', user.email); // Log user email on successful login
-    req.session.user = user._id;    
-    console.log('Session user ID set:', req.session.user); // Log session user ID
+    
+    const validPassword = await bcrypt.compare(password, user.password);
+    if (!validPassword) {
+      console.log('🔒 Invalid password for user:', email);
+      throw new Error('Invalid email or password');
+    }
+    
+    req.session.user = user._id;
+    console.log('✅ Successful login for user:', user._id);
     res.json({ success: true, userId: user._id.toString() });
   } catch (err) {
+    console.error('❌ Login error:', err);
     res.status(400).json({ success: false, error: 'Invalid credentials' });
   }
 });

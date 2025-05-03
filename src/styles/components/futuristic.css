@@ -130,6 +130,11 @@ input, textarea, select, .unified-input-bar, .unified-input-bar:focus-within {
 }
 
 /* Message timeline futuristic styling */
+/* 
+ * These styles are now consolidated in command-center.css
+ * Commenting out to avoid conflicts
+ */
+/*
 .message-timeline-container {
   scrollbar-width: thin;
   scrollbar-color: rgba(var(--primary-color-rgb), 0.5) rgba(0, 0, 0, 0.2);
@@ -148,6 +153,7 @@ input, textarea, select, .unified-input-bar, .unified-input-bar:focus-within {
   background: rgba(var(--primary-color-rgb), 0.5);
   border-radius: 3px;
 }
+*/
 
 .msg-item {
   position: relative;
@@ -549,7 +555,6 @@ input, textarea, select, .unified-input-bar, .unified-input-bar:focus-within {
   -webkit-backdrop-filter: blur(20px) saturate(120%);
   border-radius: 24px;
   padding: 2.2rem 2.5rem 2rem 2.5rem;
-  max-width: 520px;
   margin: 0 auto;
   color: var(--primary-color);
   transition: box-shadow 0.2s, background 0.2s;

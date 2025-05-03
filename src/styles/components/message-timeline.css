@@ -1,41 +1,112 @@
 /* Cyberpunk Message Timeline */
+.message-timeline-container {
+  flex: 1;
+  padding: 1.25rem;
+  overflow-y: auto;
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem; /* Reduced gap between messages */
+  scroll-behavior: smooth;
+  scroll-padding-bottom: 1rem;
+  overflow-anchor: auto;
+  background: linear-gradient(165deg, rgba(22, 25, 45, 0.5), rgba(15, 15, 30, 0.7));
+  border-radius: 16px;
+  border: 1px solid rgba(100, 120, 250, 0.08);
+  box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: all 0.3s ease;
+}
+
+.message-timeline-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.message-timeline-container::-webkit-scrollbar-track {
+  background: rgba(30, 30, 50, 0.1);
+  border-radius: 10px;
+}
+
+.message-timeline-container::-webkit-scrollbar-thumb {
+  background: rgba(100, 120, 250, 0.3);
+  border-radius: 10px;
+  transition: all 0.3s ease;
+}
+
+.message-timeline-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 120, 250, 0.5);
+}
+
+.message-timeline-container {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 120, 250, 0.3) rgba(30, 30, 50, 0.1);
+}
+
 .message-timeline {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 0.4rem;
-  padding: 0.8rem;
-  background: rgba(30,30,45,0.65);
-  backdrop-filter: blur(12px);
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.08);
-  max-height: 55vh;
-  overflow-y: auto;
+  gap: 0.5rem;
   width: 100%;
   box-sizing: border-box;
+  color: rgba(255, 255, 255, 0.9);
+  border-radius: 13px;
+  max-height: 470px;
   margin-bottom: 0.5rem;
-  color: #E5E5E5; /* cooler white */
-}
-
-.message-timeline::-webkit-scrollbar {
-  display: none;
 }
 
 /* Unified Message Styles */
 .msg-item {
-  /* Existing base styles */
   position: relative;
   box-sizing: border-box;
-  padding: 0.7rem 1rem;
-  border-radius: 18px 18px 8px 18px;
-  background: rgba(34, 34, 54, 0.75);
-  font-size: 0.9rem;
-  transition: all 0.2s ease;
-  overflow-wrap: break-word;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  max-width: 72%;
-  min-width: 120px;
+  padding: 0.85rem 1.1rem;
+  border-radius: 12px;
+  background: rgba(30, 35, 60, 0.7);
+  border: 1px solid rgba(100, 120, 250, 0.15);
+  margin-bottom: 0.5rem;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  max-width: 92%;
+}
+
+.msg-item:hover {
+  transform: translateY(-1px);
+  border-color: rgba(100, 120, 250, 0.25);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.15), 0 0 10px rgba(100, 120, 250, 0.1);
+}
+
+.msg-item.user-msg {
+  align-self: flex-end;
+  border-radius: 12px 12px 4px 12px;
+  background: rgba(35, 40, 70, 0.7);
+  border-color: rgba(100, 120, 250, 0.2);
+}
+
+.msg-item.system-msg {
+  align-self: flex-start;
+  border-radius: 12px 12px 12px 4px;
+}
+
+.msg-timestamp {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 0.4rem;
+  text-align: right;
+}
+
+/* Responsive styles */
+@media (max-width: 768px) {
+  .message-timeline-container {
+    padding: 1rem;
+    border-radius: 12px;
+  }
+  
+  .msg-item {
+    padding: 0.75rem 1rem;
+    max-width: 95%;
+  }
 }
 
 /* Add previously missing variants */
@@ -180,11 +251,12 @@
 .msg-content {
   text-align: left;
   color: rgba(255,255,255,0.98);
-  font-size: 1.09rem;
-  line-height: 1.62;
+  font-size: 1.01rem;
+  line-height: 1.5;
   margin-bottom: 0.09rem;
   word-break: break-word;
   font-family: inherit;
+  letter-spacing: 0.01em;
 }
 
 /* Remove legacy chat-message and message-content blocks */

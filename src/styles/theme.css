@@ -1,11 +1,11 @@
 :root {
   /* Color System */
-  --primary: #4285F4;
+  --primary: #347bee;
   --primary-dark: #3367D6;
   --secondary: #34A853;
   --accent: #EA4335;
   --text-primary: #202124;
-  --text-secondary: #5F6368;
+  --text-secondary: #686e74;
   
   /* Core Colors */
   --primary-alt: #7B4DFF;
@@ -66,10 +66,8 @@ body {
     --space-lg: 20px;
   }
   
-  .message-timeline {
-    border-radius: 0;
-    margin: 0 -16px;
-  }
+  /* Message timeline styling has been moved to message-timeline.css */
+  /* This ensures separation of concerns and avoids conflicting styles */
 }
 
 /* Dark Mode */

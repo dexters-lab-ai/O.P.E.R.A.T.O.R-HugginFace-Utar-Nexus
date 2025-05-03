@@ -22,9 +22,10 @@
     padding: 0 15px;
   }
   
-  .command-center-container {
+  /* Commented out to prevent conflicts with updated styling in command-center.css */
+  /* .command-center-container {
     margin-top: 60px;
-  }
+  } */
   
   .fixed-command-center {
     margin-bottom: 70px; /* Add space for mobile nav */

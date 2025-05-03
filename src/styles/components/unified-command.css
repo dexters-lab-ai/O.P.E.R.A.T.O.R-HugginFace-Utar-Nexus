@@ -1,0 +1,189 @@
+/* Unified Command Section - Modern Futuristic Styling */
+
+.unified-input-bar {
+  display: flex;
+  align-items: center;
+  background: rgba(20, 25, 45, 0.7);
+  border: 1px solid rgba(100, 120, 250, 0.15);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 1rem;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.unified-input-bar:focus-within {
+  border-color: rgba(100, 120, 250, 0.3);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15), 0 0 15px rgba(100, 120, 250, 0.1);
+  transform: translateY(-1px);
+}
+
+.unified-input-textarea {
+  flex: 1;
+  background: rgba(15, 20, 35, 0.6);
+  border: 1px solid rgba(100, 120, 250, 0.12);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.9);
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  min-height: 60px;
+  max-height: 150px;
+  padding: 12px 16px;
+  resize: none;
+  transition: all 0.25s ease;
+}
+
+.unified-input-textarea:focus {
+  outline: none;
+  border-color: rgba(100, 120, 250, 0.25);
+  box-shadow: 0 0 0 2px rgba(100, 120, 250, 0.08);
+}
+
+.unified-input-textarea::placeholder {
+  color: rgba(180, 190, 220, 0.5);
+}
+
+.unified-send-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 18px;
+  margin-left: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15), 0 0 15px rgba(100, 120, 250, 0.1);
+}
+
+.unified-send-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2), 0 0 20px rgba(100, 120, 250, 0.2);
+  background: linear-gradient(135deg, var(--primary) 10%, var(--accent) 90%);
+}
+
+.unified-send-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.unified-send-btn i {
+  margin-right: 8px;
+}
+
+/* Task Results Area */
+.task-results-container {
+  background: rgba(20, 25, 45, 0.6);
+  border: 1px solid rgba(100, 120, 250, 0.12);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.task-results-container:hover {
+  border-color: rgba(100, 120, 250, 0.2);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15), 0 0 15px rgba(100, 120, 250, 0.1);
+}
+
+.task-results-title {
+  display: flex;
+  align-items: center;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(100, 120, 250, 0.1);
+}
+
+.task-results-title i {
+  margin-right: 8px;
+  color: var(--primary);
+}
+
+.task-result-item {
+  background: rgba(15, 20, 35, 0.7);
+  border: 1px solid rgba(100, 120, 250, 0.1);
+  border-radius: 10px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  transition: all 0.25s ease;
+}
+
+.task-result-item:hover {
+  border-color: rgba(100, 120, 250, 0.2);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), 0 0 10px rgba(100, 120, 250, 0.1);
+}
+
+.task-result-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.task-result-command {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.task-result-time {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.task-result-content {
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.5;
+  font-size: 0.95rem;
+  white-space: pre-wrap;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* Task Result Content Scrollbar */
+.task-result-content::-webkit-scrollbar {
+  width: 5px;
+}
+
+.task-result-content::-webkit-scrollbar-track {
+  background: rgba(30, 30, 50, 0.1);
+  border-radius: 10px;
+}
+
+.task-result-content::-webkit-scrollbar-thumb {
+  background: rgba(100, 120, 250, 0.3);
+  border-radius: 10px;
+}
+
+.task-result-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 120, 250, 0.5);
+}
+
+/* No Results State */
+.no-results {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.95rem;
+  text-align: center;
+}
+
+.no-results i {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+  color: rgba(100, 120, 250, 0.3);
+}

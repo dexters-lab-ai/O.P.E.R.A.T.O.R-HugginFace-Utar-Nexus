@@ -28,7 +28,7 @@
 }
 
 /* Glassmorphism Cards */
-.card, .command-center, .message-timeline, .task-results {
+.card, .command-center, .task-results {
   background: var(--glass-background);
   backdrop-filter: var(--glass-backdrop-filter);
   -webkit-backdrop-filter: var(--glass-backdrop-filter);
@@ -127,59 +127,14 @@ input:focus, textarea:focus, select:focus {
   box-shadow: 0 0 15px rgba(var(--primary-color-rgb), 0.3);
 }
 
-/* Message timeline futuristic styling */
-.message-timeline-container {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(var(--primary-color-rgb), 0.5) rgba(0, 0, 0, 0.2);
-}
+/* Message timeline styling has been moved to message-timeline.css */
+/* Removed redundant styles that were conflicting */
 
-.message-timeline-container::-webkit-scrollbar {
-  width: 6px;
-}
-
-.message-timeline-container::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 3px;
-}
-
-.message-timeline-container::-webkit-scrollbar-thumb {
-  background: rgba(var(--primary-color-rgb), 0.5);
-  border-radius: 3px;
-}
-
+/* Keep other msg-item styling that's specific to futuristic look and not in message-timeline.css */
 .msg-item {
   position: relative;
   transition: all 0.3s ease;
   transform-origin: center left;
-}
-
-.msg-item::before {
-  content: '';
-  position: absolute;
-  left: -10px;
-  top: 50%;
-  width: 3px;
-  height: 0;
-  background: var(--primary-color);
-  transform: translateY(-50%);
-  transition: height 0.3s ease;
-}
-
-.msg-item:hover::before {
-  height: 70%;
-}
-
-/* Message roles styling */
-.msg-user .msg-role {
-  background: var(--gradient-primary);
-}
-
-.msg-assistant .msg-role {
-  background: linear-gradient(135deg, var(--accent-color), #9370DB);
-}
-
-.msg-system .msg-role {
-  background: linear-gradient(135deg, #607D8B, #455A64);
 }
 
 /* Task results futuristic styling */

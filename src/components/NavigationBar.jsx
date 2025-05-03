@@ -11,7 +11,10 @@ import api from '../utils/api.js';
 // UI and Task stores
 const { ui: uiStore, tasks: tasksStore } = stores;
 import Button from './base/Button.jsx';
-import HistoryOverlay from './HistoryOverlay.jsx';
+import { getHistoryOverlay } from './HistoryOverlay.jsx';
+import { getSettingsModal } from './Settings.jsx';
+import { getGuideOverlay } from './GuideOverlay.jsx';
+import { getProfileModal } from './ProfileModal.jsx';
 
 // DEBUG: Log initialization
 console.log('[NAVIGATION-BAR] Component initialized');
@@ -58,29 +61,7 @@ export function NavigationBar(props = {}) {
   
   branding.appendChild(logo);
   
-  // Create navigation section
-  const navigation = document.createElement('div');
-  navigation.className = 'nav-links';
-  
-  const navItems = [
-    { text: 'Guide', icon: 'fa-book', action: 'toggle-guide' },
-    { text: 'History', icon: 'fa-history', action: 'toggle-history-overlay' }
-  ];
-  
-  // Add navigation buttons
-  navItems.forEach(item => {
-    const button = Button({
-      text: isMinimized ? '' : item.text,
-      icon: item.icon,
-      variant: Button.VARIANTS.TEXT,
-      className: 'nav-link',
-      onClick: () => {
-        eventBus.emit(item.action);
-      }
-    });
-    
-    navigation.appendChild(button);
-  });
+  // Navigation links completely removed as they're redundant with the top-right buttons
   
   // Create tools section
   const tools = document.createElement('div');
@@ -121,7 +102,29 @@ export function NavigationBar(props = {}) {
     className: 'nav-tool settings-button',
     title: 'Settings',
     onClick: () => {
-      eventBus.emit('toggle-settings');
+      getSettingsModal().show();
+    }
+  });
+  
+  // Create guide button
+  const guideButton = Button({
+    icon: 'fa-book',
+    variant: Button.VARIANTS.TEXT,
+    className: 'nav-tool guide-button',
+    title: 'Guide',
+    onClick: () => {
+      getGuideOverlay().show();
+    }
+  });
+  
+  // Create history button
+  const historyButton = Button({
+    icon: 'fa-history',
+    variant: Button.VARIANTS.TEXT,
+    className: 'nav-tool history-button',
+    title: 'History',
+    onClick: () => {
+      getHistoryOverlay().show();
     }
   });
   
@@ -154,25 +157,26 @@ export function NavigationBar(props = {}) {
 
   // Create dropdown menu container
   const userMenu = document.createElement('div');
-  userMenu.className = 'user-dropdown-menu';
-  userMenu.style.display = 'none';
+  userMenu.className = 'user-menu';
   userMenu.tabIndex = -1;
-  userMenu.setAttribute('role', 'menu');
+  
+  // Get user email from localStorage or use placeholder
+  const userEmail = localStorage.getItem('userEmail') || 'user@example.com';
+  const displayName = localStorage.getItem('displayName') || 'User';
+  
   userMenu.innerHTML = `
-    <div class="dropdown-arrow"></div>
     <div class="user-menu-header">
-      <div class="user-avatar"><i class="fas fa-user"></i></div>
-      <div class="user-info">
-        <div class="user-name">User</div>
-        <div class="user-email">user@example.com</div>
+      <div class="user-menu-avatar">
+        <i class="fas fa-user"></i>
       </div>
+      <div class="user-menu-name">${displayName}</div>
+      <div class="user-menu-email">${userEmail}</div>
     </div>
-    <div class="dropdown-divider"></div>
-    <button class="user-menu-item" data-action="profile" tabindex="0"><i class="fas fa-id-badge"></i> Profile</button>
-    <button class="user-menu-item" data-action="preferences" tabindex="0"><i class="fas fa-sliders-h"></i> Preferences</button>
-    <button class="user-menu-item" data-action="theme" tabindex="0"><i class="fas fa-adjust"></i> Switch Theme</button>
+    <button class="user-menu-item" data-action="profile" tabindex="0"><i class="fas fa-user"></i> Profile</button>
+    <button class="user-menu-item" data-action="preferences" tabindex="0"><i class="fas fa-cog"></i> Preferences</button>
+    <button class="user-menu-item" data-action="theme" tabindex="0"><i class="fas fa-moon"></i> Switch Theme</button>
     <button class="user-menu-item" data-action="copy-id" tabindex="0"><i class="fas fa-copy"></i> Copy User ID</button>
-    <div class="dropdown-divider"></div>
+    <div class="menu-separator"></div>
     <button class="user-menu-item" data-action="logout" tabindex="0"><i class="fas fa-sign-out-alt"></i> Logout</button>
     <button class="user-menu-item delete-account" data-action="delete-account" tabindex="0"><i class="fas fa-user-slash"></i> Delete Account</button>
   `;
@@ -213,10 +217,13 @@ export function NavigationBar(props = {}) {
     const action = e.target.getAttribute('data-action');
     switch (action) {
       case 'profile':
-        eventBus.emit('open-profile');
+        hideUserMenu();
+        getProfileModal().show();
         break;
       case 'preferences':
-        eventBus.emit('toggle-settings');
+        // Use the singleton settings modal
+        hideUserMenu();
+        getSettingsModal().show();
         break;
       case 'theme':
         eventBus.emit('theme-change', { theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark' });
@@ -303,6 +310,13 @@ export function NavigationBar(props = {}) {
   `;
   userMenuOld.appendChild(userInfo);
 
+  window.addEventListener('click', (e) => {
+    if (!userMenuOld.contains(e.target) && !userButtonOld.contains(e.target)) {
+      userMenuOld.classList.remove('open');
+      userMenuOld.style.display = 'none';
+    }
+  });
+
   // Add divider
   const divider = document.createElement('div');
   divider.className = 'dropdown-divider';
@@ -311,9 +325,11 @@ export function NavigationBar(props = {}) {
   // Create menu items
   const menuItems = [
     { text: 'Profile', icon: 'fa-user', action: 'profile' },
-    { text: 'Preferences', icon: 'fa-sliders-h', action: 'toggle-settings' },
+    { text: 'Preferences', icon: 'fa-sliders-h', action: 'settings' },
     { text: 'Logout', icon: 'fa-sign-out-alt', action: 'logout' }
   ];
+
+  // Add menu items to dropdown
   menuItems.forEach(item => {
     const menuItem = document.createElement('a');
     menuItem.href = '#';
@@ -321,8 +337,11 @@ export function NavigationBar(props = {}) {
     menuItem.innerHTML = `<i class="fas ${item.icon}"></i> ${item.text}`;
     menuItem.addEventListener('click', (e) => {
       e.preventDefault();
+      e.stopPropagation();
       if (item.action === 'logout') {
         window.location.href = '/logout';
+      } else if (item.action === 'settings') {
+        getSettingsModal().show();
       } else {
         eventBus.emit(item.action);
       }
@@ -332,38 +351,18 @@ export function NavigationBar(props = {}) {
     userMenuOld.appendChild(menuItem);
   });
 
-  document.body.appendChild(userMenuOld);
-
-  userButtonOld.addEventListener('click', (e) => {
-    e.stopPropagation();
-    // Toggle open state
-    const isOpen = userMenuOld.classList.contains('open');
-    document.querySelectorAll('.dropdown-menu.open').forEach(menu => menu.classList.remove('open'));
-    if (!isOpen) {
-      userMenuOld.classList.add('open');
-      userMenuOld.style.display = 'block';
-    } else {
-      userMenuOld.classList.remove('open');
-      userMenuOld.style.display = 'none';
-    }
-  });
-  window.addEventListener('click', (e) => {
-    if (!userMenuOld.contains(e.target) && !userButtonOld.contains(e.target)) {
-      userMenuOld.classList.remove('open');
-      userMenuOld.style.display = 'none';
-    }
-  });
-
   // Add tools to container
   tools.appendChild(themeToggle);
   tools.appendChild(layoutToggle);
   tools.appendChild(settingsButton);
+  tools.appendChild(guideButton);
+  tools.appendChild(historyButton);
   tools.appendChild(tasksButton);
   // tools.appendChild(userButtonOld);
 
   // Assemble navbar
   container.appendChild(branding);
-  container.appendChild(navigation);
+  // Navigation links completely removed so we don't append them anymore
   container.appendChild(tools);
 
   // Initialize menus at component creation
@@ -596,8 +595,8 @@ export function NavigationBar(props = {}) {
     userButton.removeEventListener('click', null);
   };
 
-  // Mount history overlay for toggle via eventBus
-  HistoryOverlay.mount();
+  // Get singleton instance of history overlay, no need to mount it
+  getHistoryOverlay();
 
   return container;
 }

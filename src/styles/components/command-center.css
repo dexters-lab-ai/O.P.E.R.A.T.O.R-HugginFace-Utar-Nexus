@@ -1,52 +1,47 @@
-/* Modern Command Center Styles */
+/* Modern Command Center Styles with refined futuristic aesthetics */
 .command-center-container {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: var(--dark-light);
-  border-radius: 16px;
+  background: linear-gradient(165deg, rgba(20, 25, 45, 0.7), rgba(15, 15, 30, 0.9));
+  border-radius: 18px;
   overflow: hidden;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.25), 0 1px 3px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(100, 120, 250, 0.15);
   position: relative;
   width: 100%;
   max-width: 900px;
   margin: 2rem auto;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); /* Use a more modern easing curve */
 }
 
-/* Message Timeline Container */
-.message-timeline-container {
-  flex: 1;
-  overflow-y: auto;
-  padding: 1.5rem;
-  background: var(--dark-light);
-  border-radius: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+.command-center-container:hover {
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.3), 0 0 15px rgba(100, 120, 250, 0.1);
+  border-color: rgba(100, 120, 250, 0.25);
 }
+
+/* Message Timeline container is now styled in message-timeline.css */
+/* Removed duplicate styling from here */
 
 /* Thought Bubbles - Enhanced */
 .thought-bubble {
-  background: rgba(0, 0, 0, 0.15);
-  border: 2px solid rgba(255, 255, 255, 0.12);
-  border-radius: 14px;
-  padding: 1rem;
-  margin: 0.75rem 0;
-  max-width: 85%;
-  transition: all 0.25s ease;
+  padding: 1.25rem;
+  background: rgba(30, 35, 60, 0.7);
+  border-radius: 12px;
   position: relative;
-  overflow: hidden;
-}
-
-.thought-bubble::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 3px;
-  height: 100%;
-  background: var(--accent);
+  margin-bottom: 1rem;
+  max-width: 95%;
+  align-self: flex-start;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(100, 150, 255, 0.15);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  overflow: auto;
 }
 
 .thought-bubble.loading {
@@ -62,13 +57,88 @@
   animation: typing 1.5s infinite steps(4);
 }
 
-.thought-bubble.creative {
-  background: rgba(60, 20, 100, 0.15);
-  border-color: var(--accent);
+.thought-bubble.creative-bubble {
+  background: rgba(22, 20, 45, 0.6);
+  border-radius: 12px;
+  border: 1px solid rgba(100, 120, 250, 0.15);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1), 0 0 15px rgba(95, 47, 255, 0.1);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  position: relative;
+  overflow: visible; /* Essential for neural branches to extend outside container */
+  z-index: 3000;
+  padding: 1rem 1.25rem;
+  margin: 0.6rem auto;
+  max-width: 92vw;
+  min-width: 320px;
+  min-height: 140px;
+  transition: all 0.3s ease;
+  /* Subtle pulse animation */
+  animation: subtlePulse 4s ease-in-out infinite;
+  /* Ensure scrolling behavior is smooth */
+  scroll-behavior: smooth;
+  
+  /* Tooltip positioning - grow downward */
+  transform-origin: top center;
+  animation: expandDown 0.2s ease-out forwards;
+}
+
+/* Animation for expanding downward */
+@keyframes expandDown {
+  from {
+    opacity: 0;
+    transform: scaleY(0.7) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1) translateY(0);
+  }
+}
+
+/* Subtle animation keyframes for glass-like effect */
+@keyframes subtlePulse {
+  0% { box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1), 0 0 15px rgba(95, 47, 255, 0.1); }
+  50% { box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15), 0 0 20px rgba(95, 47, 255, 0.2); }
+  100% { box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1), 0 0 15px rgba(95, 47, 255, 0.1); }
+}
+
+.thought-bubble.creative-bubble::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  box-shadow: 0 0 20px 2px rgba(95, 47, 255, 0.1);
+  pointer-events: none;
+  opacity: 0.2;
+  z-index: 0;
+}
+
+.thought-bubble.creative-bubble:hover, .thought-bubble.creative-bubble:focus {
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15), 0 0 20px rgba(95, 47, 255, 0.15);
+  border-color: rgba(120, 120, 240, 0.25);
+  background: rgba(30, 20, 60, 0.7);
+  transform: translateY(-2px);
+  transition: all 0.3s ease;
+}
+
+/* Subtle shimmer for borders on hover */
+@keyframes borderGlow {
+  0% { border-color: rgba(120, 120, 240, 0.15); }
+  50% { border-color: rgba(140, 140, 255, 0.25); }
+  100% { border-color: rgba(120, 120, 240, 0.15); }
 }
 
 .thought-bubble.complete {
   border-color: rgba(100, 255, 150, 0.3);
+}
+
+.typing-bubble {
+  position: relative;
+  animation: fadeIn 0.3s ease-out;
+  border-color: var(--accent);
+  overflow: auto;
+  background: rgba(40, 30, 70, 0.25);
+  box-shadow: 0 0 20px rgba(0, 240, 255, 0.2);
 }
 
 /* Streaming UI */
@@ -97,24 +167,6 @@
 
 .streaming-step.is-active::before {
   animation: blink 1s infinite;
-}
-
-/* Scrollbar Styling */
-.message-timeline-container::-webkit-scrollbar {
-  width: 8px;
-}
-
-.message-timeline-container::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.message-timeline-container::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-}
-
-.message-timeline-container::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
 }
 
 /* Animations */
@@ -198,43 +250,74 @@
   gap: 0.5rem;
   height: 100vh;
   padding: 0.5rem;
-  background: transparent !important;
+  background: transparent;
 }
 
 .message-timeline-container {
-  background: none !important;
-  border: none !important;
-  box-shadow: none !important;
+  background: none;
+  border: none;
+  box-shadow: none;
 
   flex: 1;
   overflow-y: auto;
   padding: 1rem;
-  background: var(--dark-light);
   border-radius: 12px;
   margin: 0;
-  backdrop-filter: blur(6px);
   border-radius: 14px;
   overflow: hidden;
 }
 
 .command-input-container {
-  padding: 1rem;
-  background: var(--dark-medium);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: var(--border-radius-sm);
-  position: sticky;
-  bottom: 0;
+  padding: 1.25rem;
+  background: rgba(20, 22, 35, 0.7);
+  border-radius: 12px;
+  margin: 0.75rem;
+  border: 1px solid rgba(100, 120, 250, 0.12);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: all 0.3s ease;
 }
 
-.task-results {
-  flex: 1;
-  min-height: 320px;
-  display: flex;
-  flex-direction: column;
-  padding: 1rem;
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: var(--border-radius-sm);
-  background: var(--dark-medium);
+.command-input-container:focus-within {
+  border-color: rgba(100, 120, 250, 0.25);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2), 0 0 10px rgba(100, 120, 250, 0.1);
+}
+
+.command-input {
+  width: 100%;
+  background: rgba(20, 22, 40, 0.5);
+  border: 1px solid rgba(100, 120, 250, 0.15);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.95rem;
+  font-family: var(--font-sans);
+  transition: all 0.3s ease;
+}
+
+.command-input:focus {
+  outline: none;
+  border-color: rgba(100, 120, 250, 0.3);
+  box-shadow: 0 0 0 2px rgba(100, 120, 250, 0.1);
+}
+
+.send-button {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  padding: 0.75rem 1.25rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.send-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  background: linear-gradient(135deg, var(--primary) 10%, var(--accent) 90%);
 }
 
 /* Card Styling */
@@ -242,6 +325,7 @@
   background: var(--dark-light);
   border-radius: var(--border-radius-lg);
   padding: 20px;
+  box-sizing: border-box;
   box-shadow: var(--shadow-subtle);
   transition: var(--transition-normal);
   overflow: hidden;
@@ -271,7 +355,6 @@
 /* Command Center Card Improvements */
 .command-center {
   padding: 0 1rem 1rem;
-  background: var(--dark-light);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: var(--border-radius-md);
   box-shadow: var(--shadow-subtle);
@@ -281,10 +364,10 @@
 }
 
 .command-center-card {
-  padding: 0 !important;
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
+  padding: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
 }
 
 .command-center-card .card-title {
@@ -319,15 +402,21 @@
 /* Tab Navigation */
 .tab-buttons {
   display: flex;
+  align-items: center;
   gap: 3px;
-  margin-bottom: 20px;
-  border-radius: var(--border-radius-md);
-  background: var(--dark-medium);
+  margin-bottom: 16px;
+  border-radius: 8px;
+  background: rgba(20, 25, 45, 0.5);
   padding: 4px;
+  padding: 0;
+  height: 42px;
   position: relative;
   overflow-x: auto;
   -ms-overflow-style: none;
   scrollbar-width: none;
+  border: 1px solid rgba(100, 120, 255, 0.1);
+  border: unset;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
 }
 
 .tab-buttons::-webkit-scrollbar {
@@ -335,29 +424,53 @@
 }
 
 .tab-btn {
-  padding: 10px 16px;
-  border-radius: var(--border-radius-sm);
-  font-size: 14px;
+  background: rgba(30, 35, 60, 0.5);
+  padding: 0.5rem 0.85rem;
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(100, 120, 255, 0.05);
+  font-size: 0.9rem;
   font-weight: 500;
-  background: transparent;
-  color: var(--text-muted);
-  transition: var(--transition-fast);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.2s ease;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .tab-btn:hover {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.05);
-  transform: none;
+  background: rgba(40, 50, 90, 0.6);
+  color: #ffffff;
+  border-color: rgba(100, 120, 255, 0.15);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
 }
 
 .tab-btn.active {
-  background: var(--primary);
-  color: white;
+  background: rgba(80, 100, 200, 0.2);
+  color: #ffffff;
+  font-weight: 600;
+  border-color: rgba(100, 120, 255, 0.3);
+  box-shadow: 0 0 10px rgba(100, 120, 255, 0.15), 0 3px 6px rgba(0, 0, 0, 0.1);
 }
 
 .tab-btn i {
   margin-right: 6px;
+  color: rgba(100, 120, 255, 0.8);
+  font-size: 0.95rem;
+  transition: all 0.2s ease;
+}
+
+.tab-btn:hover i {
+  color: rgba(100, 120, 255, 1);
+}
+
+.tab-btn.active i {
+  color: rgba(100, 120, 255, 1);
 }
 
 /* Task Sections */
@@ -400,7 +513,7 @@
   background: transparent;
   border: none;
   resize: none;
-  color: var(--primary);
+  color: var(--text);
   font-size: 16px;
   line-height: 1.5;
   min-height: 60px;
@@ -605,6 +718,18 @@
   box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
 }
 
+/* Override timeline container for creative bubbles */
+.message-timeline-container {
+  display: block;
+  overflow: visible;
+}
+
+/* Ensure creative bubbles overlay properly */
+.thought-bubble.creative-bubble {
+  overflow: visible;
+  z-index: 3000;
+}
+
 /* Intermediate Results Styling */
 .intermediate-result-item {
   padding: 1rem;
@@ -644,4 +769,181 @@
   max-height: 300px;
   overflow-y: auto;
   padding-right: 0.5rem;
+}
+
+/* Neural flow fallback styling for when visualization fails */
+.neural-flow-fallback {
+  padding: 12px 16px;
+  background-color: rgba(30, 30, 40, 0.8);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: var(--mono-font);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 8px 0;
+  border-left: 3px solid var(--accent);
+}
+
+/* Step Cards - Unified, modern design */
+.bubble-card {
+  background: linear-gradient(145deg, var(--dark-medium), rgba(40, 35, 65, 0.9));
+  border: 1px solid var(--accent-light);
+  border-radius: 14px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2), 0 1px 5px rgba(0, 0, 0, 0.1), 0 0 40px rgba(95, 47, 255, 0.1);
+  padding: 1.25rem 1.5rem;
+  margin: 1rem 0;
+  white-space: pre-wrap;
+  overflow: auto;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.bubble-card:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25), 0 2px 8px rgba(0, 0, 0, 0.15), 0 0 50px rgba(95, 47, 255, 0.15);
+  transform: translateY(-2px);
+}
+
+/* Single unified card - no compartments */
+.step-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.step-header {
+  font-weight: bold;
+  font-size: 1.1rem;
+  color: var(--accent-text);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.step-args {
+  margin-left: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.step-args a {
+  color: var(--secondary);
+  text-decoration: underline;
+}
+
+/* Task Completion Card - Unified with Creative Bubble */
+.task-complete-card {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 1.5rem;
+  font-size: 0.95rem;
+  background: rgba(30, 20, 60, 0.25);
+  border-radius: 2rem;
+  border: 3px solid rgba(0,255,180,0.4);
+  box-shadow: 0 8px 32px 0 rgba(0,255,180,0.14), 0 1.5px 16px 0 rgba(0,255,180,0.12), 0 0 40px 0 #00ff9944;
+  backdrop-filter: blur(18px) saturate(1.7);
+  -webkit-backdrop-filter: blur(18px) saturate(1.7);
+  margin-top: 0.2rem;
+  margin-bottom: 1.8rem;
+  max-width: 92vw;
+  transform: translateY(-1.5rem); /* Connect it with bubble above */
+  flex-wrap: wrap;
+}
+.status-badge {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.3rem;
+  border-radius: var(--border-radius-sm);
+  margin: 0;
+}
+.status-badge.tab-btn:hover {
+  background: rgba(40, 50, 90, 0.6);
+  color: #ffffff;
+  border-color: rgba(100, 120, 255, 0.15);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
+}
+
+.tab-btn.active {
+  background: rgba(80, 100, 200, 0.2);
+  color: #ffffff;
+  font-weight: 600;
+  border-color: rgba(100, 120, 255, 0.3);
+  box-shadow: 0 0 10px rgba(100, 120, 255, 0.15), 0 3px 6px rgba(0, 0, 0, 0.1);
+}
+
+.tab-btn i {
+  color: rgba(100, 120, 255, 0.8);
+  font-size: 1rem;
+  transition: all 0.2s ease;
+}
+
+.tab-btn:hover i {
+  color: rgba(100, 120, 255, 1);
+}
+
+.tab-btn.active i {
+  color: rgba(100, 120, 255, 1);
+}
+
+.completion-summary {
+  font-weight: 500;
+  color: var(--text);
+  white-space: normal;
+}
+
+.plan-log {
+  font-style: italic;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.report-link {
+  font-size: 0.8rem;
+  margin-left: 0.3rem;
+  color: var(--primary);
+  text-decoration: none;
+}
+.report-link:hover {
+  text-decoration: underline;
+}
+
+.command-center-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid rgba(100, 120, 250, 0.12);
+}
+
+/* Tab Navigation - Moved from layouts.css to keep all command center styles together */
+.tab-buttons {
+  display: flex;
+  overflow-x: auto;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid rgba(100, 120, 250, 0.1);
+}
+
+.tab-btn {
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  background: rgba(30, 35, 60, 0.6);
+  border: 1px solid rgba(100, 120, 250, 0.15);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+}
+
+.tab-btn:hover {
+  background: rgba(40, 45, 80, 0.7);
+  color: rgba(255, 255, 255, 0.9);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+}
+
+.tab-btn.active {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+  color: white;
+  border-color: rgba(100, 120, 250, 0.4);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2), 0 0 8px rgba(100, 120, 250, 0.2);
 }

@@ -1,55 +1,71 @@
-/* OPERATOR Modern UI - Variables */
+/* OPERATOR Modern UI - Variables - Updated for Futuristic Theme */
 
 :root {
-  /* Core Colors - Enhanced with slightly more vibrant tones */
-  --primary: #7B4DFF;
-  --primary-dark: #5C2EE5;
-  --primary-light: rgba(123, 77, 255, 0.1);
-  --primary-glow: rgba(123, 77, 255, 0.4);
+  /* Core Colors - Enhanced with more vibrant and futuristic tones */
+  --primary: #6E7AFF;
+  --primary-dark: #5264E9;
+  --primary-light: rgba(110, 122, 255, 0.15);
+  --primary-glow: rgba(110, 122, 255, 0.5);
+  --primary-color-rgb: 110, 122, 255;
   
-  --secondary: #00E5FF;
-  --secondary-light: rgba(0, 229, 255, 0.1);
-  --secondary-glow: rgba(0, 229, 255, 0.4);
+  --secondary: #42C6FF;
+  --secondary-light: rgba(66, 198, 255, 0.15);
+  --secondary-glow: rgba(66, 198, 255, 0.5);
+  --secondary-color-rgb: 66, 198, 255;
   
-  /* Background Colors - More depth with subtle gradients */
-  --dark: #0a0e17;
-  --dark-light: #161A26;
-  --dark-medium: #1E2432;
-  --dark-border: rgba(255, 255, 255, 0.06);
+  --accent: #A37CFF;
+  --accent-light: rgba(163, 124, 255, 0.15);
+  --accent-glow: rgba(163, 124, 255, 0.5);
   
-  /* Text Colors - Better contrast and readability */
-  --text: #F0F0FF;
-  --text-muted: #A0A0C8;
-  --text-dim: #727290;
+  /* Background Colors - Deeper space-like gradients */
+  --dark: #0A0E1A;
+  --dark-light: #131830;
+  --dark-medium: #192040;
+  --dark-border: rgba(110, 122, 255, 0.12);
   
-  /* Functional Colors - Clear visual signals */
-  --success: #00E676;
-  --success-dark: #00C853;
-  --success-light: rgba(0, 230, 118, 0.12);
+  /* Text Colors - Improved contrast and readability */
+  --text: #F5F7FF;
+  --text-muted: #B8C0E0;
+  --text-dim: #8088B0;
   
-  --warning: #FFCC00;
-  --warning-dark: #FFB300;
-  --warning-light: rgba(255, 204, 0, 0.12);
+  /* Functional Colors - More consistent with the futuristic theme */
+  --success: #3CDD80;
+  --success-dark: #30C870;
+  --success-light: rgba(60, 221, 128, 0.15);
+  --success-glow: rgba(60, 221, 128, 0.4);
   
-  --danger: #FF4081;
-  --danger-dark: #F50057;
-  --danger-light: rgba(255, 64, 129, 0.12);
+  --warning: #FFB340;
+  --warning-dark: #FF9D20;
+  --warning-light: rgba(255, 179, 64, 0.15);
+  --warning-glow: rgba(255, 179, 64, 0.4);
   
-  /* Accent Colors */
-  --sonic: #5CBAFD;
-  --neon-blue: #00DDEB;
-  --neon-pink: #FF00CC;
+  --danger: #FF5050;
+  --danger-dark: #E64646;
+  --danger-light: rgba(255, 80, 80, 0.15);
+  --danger-glow: rgba(255, 80, 80, 0.4);
   
-  /* UI Dimensions */
-  --border-radius-sm: 6px;
-  --border-radius-md: 10px;
+  --info: #42C6FF;
+  --info-dark: #30A9E0;
+  --info-light: rgba(66, 198, 255, 0.15);
+  --info-glow: rgba(66, 198, 255, 0.4);
+  
+  /* Shadows and Effects - More dramatic for added depth */
+  --shadow-subtle: 0 2px 6px rgba(0, 0, 0, 0.1);
+  --shadow-elevated: 0 8px 25px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.1);
+  --shadow-floating: 0 12px 30px rgba(0, 0, 0, 0.2), 0 0 15px rgba(110, 122, 255, 0.1);
+  
+  /* Font settings - More futuristic font stack */
+  --font-sans: 'Google Sans', Roboto, system-ui, -apple-system, sans-serif;
+  --font-mono: 'Roboto Mono', 'Courier New', 'Lucida Console', monospace;
+  
+  /* Border radii - More consistent throughout the interface */
+  --border-radius: 10px;
+  --border-radius-sm: 8px;
+  --border-radius-md: 12px;
   --border-radius-lg: 16px;
-  --header-height: 70px;
-  --shadow-subtle: 0 4px 20px rgba(0, 0, 0, 0.2);
-  --shadow-elevated: 0 8px 30px rgba(0, 0, 0, 0.4);
   
-  /* Transitions */
-  --transition-fast: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-normal: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-bounce: all 0.5s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+  /* Transitions - Smoother easing curve */
+  --transition-fast: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-medium: 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-slow: 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
